@@ -304,12 +304,6 @@ impl App {
         let title = game.title.clone();
         let appid = game.steam_appid;
 
-        if self.image_protocols.contains_key(&game_id)
-            || self.pending_cover_requests.contains(&game_id)
-        {
-            return;
-        }
-
         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
         let covers_dir = media_dir.join("covers");
         let local_cover = vec![
@@ -325,6 +319,12 @@ impl App {
                 self.image_protocols.insert(game_id, protocol);
                 return;
             }
+        }
+
+        if self.image_protocols.contains_key(&game_id)
+            || self.pending_cover_requests.contains(&game_id)
+        {
+            return;
         }
 
         let cover_status = self.db.get_media_status(game_id, "cover").ok().flatten();
