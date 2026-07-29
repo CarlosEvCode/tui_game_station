@@ -1179,8 +1179,8 @@ impl App {
             Action::SaveCustomArgsInput => {
                 if let ModalState::EditCustomArgsInput { ref input, ref parent_modal } = self.modal_state.clone() {
                     let mut parent = parent_modal.clone();
-                    if let ModalState::AddGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. }
-                    | ModalState::EditGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. } = *parent
+                    if let ModalState::AddGameForm { ref mut custom_command, .. }
+                    | ModalState::EditGameForm { ref mut custom_command, .. } = *parent
                     {
                         *custom_command = input.clone();
                     }
@@ -1395,7 +1395,17 @@ impl App {
                 }
             }
             Action::CloseModal => {
-                self.modal_state = ModalState::None;
+                match self.modal_state.clone() {
+                    ModalState::SelectWineRunnerPicker { parent_modal: Some(parent), .. } => {
+                        self.modal_state = *parent;
+                    }
+                    ModalState::EditCustomArgsInput { parent_modal, .. } => {
+                        self.modal_state = *parent_modal;
+                    }
+                    _ => {
+                        self.modal_state = ModalState::None;
+                    }
+                }
             }
             Action::ModalSelectNext => {
                 let total_configured_emulators = self.get_configured_emulator_platforms().len();
