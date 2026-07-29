@@ -75,7 +75,7 @@ impl SteamScanner {
                 if fname.starts_with("appmanifest_") && fname.ends_with(".acf") {
                     let acf_path = entry.path();
                     if let Ok((appid, name, size)) = parse_acf_file(&acf_path) {
-                        if EXCLUDED_APPIDS.contains(&appid) {
+                        if EXCLUDED_APPIDS.contains(&appid) || is_steam_tool(&name) {
                             continue;
                         }
 
@@ -123,6 +123,19 @@ impl SteamScanner {
 
         Ok(count)
     }
+}
+
+fn is_steam_tool(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("steam linux runtime")
+        || lower.contains("proton")
+        || lower.contains("steamworks")
+        || lower.contains("steamvr")
+        || lower.contains("steam controller")
+        || lower.contains("dedicated server")
+        || lower.contains("anti-cheat")
+        || lower.contains("redistributable")
+        || (lower.starts_with("steam ") && (lower.contains("runtime") || lower.contains("sdk")))
 }
 
 /// Simple Key-Value VDF parser for appmanifest_*.acf files

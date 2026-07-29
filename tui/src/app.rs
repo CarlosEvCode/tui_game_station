@@ -198,28 +198,33 @@ impl App {
             self.update(Action::UpdateDownloadProgress(evt)).await;
         }
 
-        // Auto-resolve cover & Kitty graphics protocol for currently selected game
-        if !self.games.is_empty() && self.selected_game_idx < self.games.len() {
-            let game = &self.games[self.selected_game_idx];
-            let game_id = game.id;
+        // Auto-resolve cover & Kitty graphics protocol for currently selected game and next 3 games (pre-fetching)
+        if !self.games.is_empty() {
+            let start = self.selected_game_idx;
+            let end = (start + 4).min(self.games.len());
 
-            if !self.image_protocols.contains_key(&game_id) {
-                if let Some(appid) = game.steam_appid {
-                    let cover_path = match self.cover_cache.get(&game_id) {
-                        Some(p) => Some(p.clone()),
-                        None => {
-                            if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
-                                self.cover_cache.insert(game_id, path.clone());
-                                Some(path)
-                            } else {
-                                None
+            for idx in start..end {
+                let game = &self.games[idx];
+                let game_id = game.id;
+
+                if !self.image_protocols.contains_key(&game_id) {
+                    if let Some(appid) = game.steam_appid {
+                        let cover_path = match self.cover_cache.get(&game_id) {
+                            Some(p) => Some(p.clone()),
+                            None => {
+                                if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
+                                    self.cover_cache.insert(game_id, path.clone());
+                                    Some(path)
+                                } else {
+                                    None
+                                }
                             }
-                        }
-                    };
+                        };
 
-                    if let Some(path) = cover_path {
-                        if let Some(proto) = self.cover_manager.load_protocol_from_file(&path) {
-                            self.image_protocols.insert(game_id, proto);
+                        if let Some(path) = cover_path {
+                            if let Some(proto) = self.cover_manager.load_protocol_from_file(&path) {
+                                self.image_protocols.insert(game_id, proto);
+                            }
                         }
                     }
                 }
