@@ -442,7 +442,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let help_text = format!(
-        " [v] View | [w] Media | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [Enter] Launch | {}",
+        " [v] View | [w] Media | [e] Edit | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [Enter] Launch | {}",
         app.status_msg
     );
 
@@ -1234,6 +1234,140 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(form_p, chunks[0]);
 
             let help = Paragraph::new(" [f] File Picker | [Tab/Shift+Tab] Field | [Enter] Save | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::EditGameForm {
+            ref game_type,
+            selected_field,
+            ref title,
+            ref file_path,
+            ref working_dir,
+            ref wine_prefix,
+            ref steam_appid,
+            ref custom_command,
+            ..
+        } => {
+            let gtype_name = match game_type {
+                PlatformType::Emulator => "EMULATOR",
+                PlatformType::Native => "LINUX NATIVE",
+                PlatformType::Wine => "WINDOWS (WINE)",
+                PlatformType::Steam => "STEAM",
+            };
+
+            let block_title = format!(" Edit Game Details ({}) ", gtype_name);
+            let mut lines = Vec::new();
+
+            let field_style = |idx: usize| {
+                if idx == selected_field {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                }
+            };
+
+            match game_type {
+                PlatformType::Emulator => {
+                    lines.push(Line::from(vec![
+                        Span::styled("1. Title: ", field_style(0)),
+                        Span::raw(title),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("2. ROM Path: ", field_style(1)),
+                        Span::raw(if file_path.is_empty() { "< Press [f] to select ROM >" } else { file_path }),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("3. Custom Command / Args: ", field_style(2)),
+                        Span::raw(if custom_command.is_empty() { "< None >" } else { custom_command }),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE CHANGES ]", field_style(3)),
+                    ]));
+                }
+                PlatformType::Native => {
+                    lines.push(Line::from(vec![
+                        Span::styled("1. Title: ", field_style(0)),
+                        Span::raw(title),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("2. Executable Path: ", field_style(1)),
+                        Span::raw(if file_path.is_empty() { "< Press [f] to browse executable >" } else { file_path }),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("3. Working Directory: ", field_style(2)),
+                        Span::raw(if working_dir.is_empty() { "< Optional: Press [f] to browse folder >" } else { working_dir }),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("4. Custom Args / Command: ", field_style(3)),
+                        Span::raw(if custom_command.is_empty() { "< Optional: e.g. --fullscreen >" } else { custom_command }),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE CHANGES ]", field_style(4)),
+                    ]));
+                }
+                PlatformType::Wine => {
+                    lines.push(Line::from(vec![
+                        Span::styled("1. Title: ", field_style(0)),
+                        Span::raw(title),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("2. Executable .exe Path: ", field_style(1)),
+                        Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("3. WINEPREFIX: ", field_style(2)),
+                        Span::raw(if wine_prefix.is_empty() { "< Optional: e.g. ~/.wine >" } else { wine_prefix }),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("4. Working Directory: ", field_style(3)),
+                        Span::raw(if working_dir.is_empty() { "< Optional >" } else { working_dir }),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("5. Custom Args / Command: ", field_style(4)),
+                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE CHANGES ]", field_style(5)),
+                    ]));
+                }
+                PlatformType::Steam => {
+                    lines.push(Line::from(vec![
+                        Span::styled("1. Title: ", field_style(0)),
+                        Span::raw(title),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("2. Steam AppID: ", field_style(1)),
+                        Span::raw(steam_appid),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("3. Custom Args: ", field_style(2)),
+                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE CHANGES ]", field_style(3)),
+                    ]));
+                }
+            }
+
+            let form_p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(block_title, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(form_p, chunks[0]);
+
+            let help = Paragraph::new(" [f] File/Folder Picker | [Tab/Up/Down] Field | [Enter] Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

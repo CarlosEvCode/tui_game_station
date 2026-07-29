@@ -76,6 +76,17 @@ pub enum ModalState {
         steam_appid: String,
         custom_command: String,
     },
+    EditGameForm {
+        game_id: i64,
+        game_type: PlatformType,
+        selected_field: usize,
+        title: String,
+        file_path: String,
+        working_dir: String,
+        wine_prefix: String,
+        steam_appid: String,
+        custom_command: String,
+    },
     ConfigureApiKeyInput {
         input: String,
     },
@@ -126,6 +137,8 @@ pub enum Action {
 
     // Add Game & Scan Modal Actions
     OpenAddGameModal,
+    OpenEditGameModal,
+    SaveEditGameModal,
     CloseModal,
     ModalSelectNext,
     ModalSelectPrev,
@@ -908,11 +921,67 @@ impl App {
                 }
             }
 
-            // Add Game / Scan Modal Actions
+            // Add / Edit Game & Scan Modal Actions
             Action::OpenAddGameModal => {
                 self.modal_state = ModalState::AddGameStep1Type {
                     selected_type_idx: 0,
                 };
+            }
+            Action::OpenEditGameModal => {
+                if self.modal_state == ModalState::None && !self.games.is_empty() && self.selected_game_idx < self.games.len() {
+                    let game = &self.games[self.selected_game_idx];
+                    let gtype = PlatformType::from(game.game_type.as_str());
+
+                    self.modal_state = ModalState::EditGameForm {
+                        game_id: game.id,
+                        game_type: gtype,
+                        selected_field: 0,
+                        title: game.title.clone(),
+                        file_path: game.file_path.clone().unwrap_or_default(),
+                        working_dir: game.working_dir.clone().unwrap_or_default(),
+                        custom_command: game.custom_command.clone().unwrap_or_default(),
+                        wine_prefix: game.wine_prefix.clone().unwrap_or_default(),
+                        steam_appid: game.steam_appid.map(|id| id.to_string()).unwrap_or_default(),
+                    };
+                }
+            }
+            Action::SaveEditGameModal => {
+                if let ModalState::EditGameForm {
+                    game_id,
+                    ref title,
+                    ref file_path,
+                    ref working_dir,
+                    ref custom_command,
+                    ref wine_prefix,
+                    ref steam_appid,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if title.trim().is_empty() {
+                        self.status_msg = "Error: Game title cannot be empty.".to_string();
+                        return;
+                    }
+
+                    if let Some(pos) = self.games.iter().position(|g| g.id == game_id) {
+                        let mut game = self.games[pos].clone();
+                        game.title = title.trim().to_string();
+                        game.file_path = if file_path.trim().is_empty() { None } else { Some(file_path.trim().to_string()) };
+                        game.working_dir = if working_dir.trim().is_empty() { None } else { Some(working_dir.trim().to_string()) };
+                        game.custom_command = if custom_command.trim().is_empty() { None } else { Some(custom_command.trim().to_string()) };
+                        game.wine_prefix = if wine_prefix.trim().is_empty() { None } else { Some(wine_prefix.trim().to_string()) };
+                        game.steam_appid = steam_appid.trim().parse::<i64>().ok();
+
+                        if self.db.update_game(&game).is_ok() {
+                            self.status_msg = format!("[OK] Updated details for '{}'!", game.title);
+                            self.modal_state = ModalState::None;
+                            let sel = self.selected_game_idx;
+                            self.load_platforms();
+                            if sel < self.games.len() {
+                                self.selected_game_idx = sel;
+                            }
+                        }
+                    }
+                }
             }
             Action::CloseModal => {
                 self.modal_state = ModalState::None;
@@ -967,7 +1036,8 @@ impl App {
                     } => match active_tab {
                         0 => {
                             if !candidates.is_empty() {
-                                *selected_candidate_idx = (*selected_candidate_idx + 1) % candidates.len();
+                                *selected_candidate_idx =
+                                    (*selected_candidate_idx + 1) % candidates.len();
                             }
                         }
                         1 => {
@@ -1098,22 +1168,26 @@ impl App {
             Action::ModalConfirmStep1 => {
                 if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state {
                     if selected_type_idx == 0 {
-                        // Scan ROMs Folder Mode -> Step 2: Select Platform (ONLY configured emulators)
+                        let emulator_platforms = self.get_configured_emulator_platforms();
+                        if emulator_platforms.is_empty() {
+                            self.status_msg = "Error: No emulators configured. Press [m] to configure a runner first.".to_string();
+                            return;
+                        }
                         self.modal_state = ModalState::ScanFolderStep1Platform {
                             selected_platform_idx: 0,
                         };
                     } else {
-                        let game_type = match selected_type_idx {
+                        let gtype = match selected_type_idx {
                             1 => PlatformType::Native,
                             2 => PlatformType::Wine,
-                            _ => PlatformType::Steam,
+                            3 => PlatformType::Steam,
+                            _ => PlatformType::Emulator,
                         };
-
                         self.modal_state = ModalState::AddGameForm {
-                            game_type,
+                            game_type: gtype,
                             selected_field: 0,
                             title: String::new(),
-                            platform_idx: self.selected_platform_idx,
+                            platform_idx: 0,
                             file_path: String::new(),
                             working_dir: String::new(),
                             wine_prefix: String::new(),
@@ -1171,6 +1245,11 @@ impl App {
                     game_type: ref gtype,
                     ref mut selected_field,
                     ..
+                }
+                | ModalState::EditGameForm {
+                    game_type: ref gtype,
+                    ref mut selected_field,
+                    ..
                 } => {
                     let total_fields = match gtype {
                         PlatformType::Emulator => 4,
@@ -1190,6 +1269,11 @@ impl App {
             },
             Action::ModalPrevField => match self.modal_state {
                 ModalState::AddGameForm {
+                    game_type: ref gtype,
+                    ref mut selected_field,
+                    ..
+                }
+                | ModalState::EditGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
                     ..
@@ -1229,12 +1313,24 @@ impl App {
                     selected_field,
                     game_type: ref gtype,
                     ..
+                }
+                | ModalState::EditGameForm {
+                    ref mut title,
+                    ref mut file_path,
+                    ref mut working_dir,
+                    ref mut wine_prefix,
+                    ref mut steam_appid,
+                    ref mut custom_command,
+                    selected_field,
+                    game_type: ref gtype,
+                    ..
                 } = self.modal_state
                 {
                     match gtype {
                         PlatformType::Emulator => match selected_field {
                             0 => title.push(ch),
                             2 => file_path.push(ch),
+                            3 => custom_command.push(ch),
                             _ => {}
                         },
                         PlatformType::Native => match selected_field {
@@ -1249,6 +1345,7 @@ impl App {
                             1 => file_path.push(ch),
                             2 => wine_prefix.push(ch),
                             3 => working_dir.push(ch),
+                            4 => custom_command.push(ch),
                             _ => {}
                         },
                         PlatformType::Steam => match selected_field {
@@ -1258,6 +1355,7 @@ impl App {
                                     steam_appid.push(ch);
                                 }
                             }
+                            2 => custom_command.push(ch),
                             _ => {}
                         },
                     }
@@ -1312,12 +1410,24 @@ impl App {
                     selected_field,
                     game_type: ref gtype,
                     ..
+                }
+                | ModalState::EditGameForm {
+                    ref mut title,
+                    ref mut file_path,
+                    ref mut working_dir,
+                    ref mut wine_prefix,
+                    ref mut steam_appid,
+                    ref mut custom_command,
+                    selected_field,
+                    game_type: ref gtype,
+                    ..
                 } = self.modal_state
                 {
                     let target_str = match gtype {
                         PlatformType::Emulator => match selected_field {
                             0 => Some(title),
                             2 => Some(file_path),
+                            3 => Some(custom_command),
                             _ => None,
                         },
                         PlatformType::Native => match selected_field {
@@ -1332,12 +1442,13 @@ impl App {
                             1 => Some(file_path),
                             2 => Some(wine_prefix),
                             3 => Some(working_dir),
+                            4 => Some(custom_command),
                             _ => None,
                         },
                         PlatformType::Steam => match selected_field {
                             0 => Some(title),
                             1 => Some(steam_appid),
-                            2 => None,
+                            2 => Some(custom_command),
                             _ => None,
                         },
                     };

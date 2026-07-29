@@ -675,6 +675,30 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    pub fn update_game(&self, game: &Game) -> Result<()> {
+        self.conn.execute(
+            "UPDATE games SET
+                title = ?1,
+                file_path = ?2,
+                working_dir = ?3,
+                custom_command = ?4,
+                wine_prefix = ?5,
+                steam_appid = ?6,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?7",
+            params![
+                game.title,
+                game.file_path,
+                game.working_dir,
+                game.custom_command,
+                game.wine_prefix,
+                game.steam_appid,
+                game.id,
+            ],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_game(&self, game_id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM games WHERE id = ?1", params![game_id])?;

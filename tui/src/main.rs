@@ -5,6 +5,7 @@ mod ui;
 
 use anyhow::Result;
 use app::{Action, App, FocusedPane, ModalState};
+use game_core::models::PlatformType;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyModifiers, KeyEventKind},
@@ -163,6 +164,9 @@ async fn main() -> Result<()> {
                                 ModalState::ManageRunnersStep2Config { .. } => {
                                     app.update(Action::SaveRunnerConfig).await;
                                 }
+                                ModalState::EditGameForm { .. } => {
+                                    app.update(Action::SaveEditGameModal).await;
+                                }
                                 _ => {
                                     app.update(Action::SaveModalGame).await;
                                 }
@@ -194,6 +198,12 @@ async fn main() -> Result<()> {
                             KeyCode::Char('f') => {
                                 if let ModalState::ScanFolderForm { .. } = app.modal_state {
                                     app.update(Action::OpenFolderPicker).await;
+                                } else if let ModalState::EditGameForm { selected_field, game_type, .. } = &app.modal_state {
+                                    match game_type {
+                                        PlatformType::Native if *selected_field == 2 => app.update(Action::OpenFolderPicker).await,
+                                        PlatformType::Wine if *selected_field == 2 || *selected_field == 3 => app.update(Action::OpenFolderPicker).await,
+                                        _ => app.update(Action::OpenFilePicker).await,
+                                    }
                                 } else {
                                     app.update(Action::OpenFilePicker).await;
                                 }
@@ -211,6 +221,9 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('a') => {
                                 app.update(Action::OpenAddGameModal).await;
+                            }
+                            KeyCode::Char('e') => {
+                                app.update(Action::OpenEditGameModal).await;
                             }
                             KeyCode::Char('m') => {
                                 app.update(Action::OpenManageRunnersModal).await;
