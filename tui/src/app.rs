@@ -75,6 +75,7 @@ pub enum ModalState {
         wine_prefix: String,
         steam_appid: String,
         custom_command: String,
+        cursor_pos: usize,
     },
     EditGameForm {
         game_id: i64,
@@ -86,6 +87,7 @@ pub enum ModalState {
         wine_prefix: String,
         steam_appid: String,
         custom_command: String,
+        cursor_pos: usize,
     },
     ConfigureApiKeyInput {
         input: String,
@@ -164,6 +166,8 @@ pub enum Action {
     DeleteInstalledWineRunner,
     OpenCustomArgsEditor,
     SaveCustomArgsInput,
+    FormNavLeft,
+    FormNavRight,
     TogglePane,
     ToggleViewMode,
     ToggleShowAllPlatforms,
@@ -1195,6 +1199,116 @@ impl App {
                     self.status_msg = "[OK] Custom launcher arguments updated.".to_string();
                 }
             }
+            Action::FormNavLeft => match self.modal_state {
+                ModalState::AddGameForm {
+                    selected_field: 0,
+                    ref mut cursor_pos,
+                    ..
+                }
+                | ModalState::EditGameForm {
+                    selected_field: 0,
+                    ref mut cursor_pos,
+                    ..
+                } => {
+                    *cursor_pos = cursor_pos.saturating_sub(1);
+                }
+                ModalState::AddGameForm {
+                    game_type: PlatformType::Wine,
+                    selected_field: 4,
+                    ..
+                }
+                | ModalState::EditGameForm {
+                    game_type: PlatformType::Wine,
+                    selected_field: 4,
+                    ..
+                } => {
+                    let installed = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                    if !installed.is_empty() {
+                        let current_cmd = match self.modal_state {
+                            ModalState::AddGameForm { game_type: PlatformType::Wine, ref custom_command, .. }
+                            | ModalState::EditGameForm { game_type: PlatformType::Wine, ref custom_command, .. } => custom_command.clone(),
+                            _ => String::new(),
+                        };
+                        let current_idx = installed.iter().position(|r| {
+                            let runner_str = match r.kind {
+                                game_core::runner_detector::RunnerKind::Proton => format!("\"{}\" run \"{{file_path}}\"", r.binary_path.display()),
+                                game_core::runner_detector::RunnerKind::Wine => format!("\"{}\" \"{{file_path}}\"", r.binary_path.display()),
+                            };
+                            current_cmd == runner_str || current_cmd.contains(&r.name)
+                        }).unwrap_or(0);
+                        let next_idx = if current_idx == 0 { installed.len() - 1 } else { current_idx - 1 };
+                        let selected_runner = &installed[next_idx];
+                        let new_cmd = match selected_runner.kind {
+                            game_core::runner_detector::RunnerKind::Proton => format!("\"{}\" run \"{{file_path}}\"", selected_runner.binary_path.display()),
+                            game_core::runner_detector::RunnerKind::Wine => format!("\"{}\" \"{{file_path}}\"", selected_runner.binary_path.display()),
+                        };
+                        match self.modal_state {
+                            ModalState::AddGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. }
+                            | ModalState::EditGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. } => {
+                                *custom_command = new_cmd;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Action::FormNavRight => match self.modal_state {
+                ModalState::AddGameForm {
+                    selected_field: 0,
+                    ref title,
+                    ref mut cursor_pos,
+                    ..
+                }
+                | ModalState::EditGameForm {
+                    selected_field: 0,
+                    ref title,
+                    ref mut cursor_pos,
+                    ..
+                } => {
+                    *cursor_pos = (*cursor_pos + 1).min(title.len());
+                }
+                ModalState::AddGameForm {
+                    game_type: PlatformType::Wine,
+                    selected_field: 4,
+                    ..
+                }
+                | ModalState::EditGameForm {
+                    game_type: PlatformType::Wine,
+                    selected_field: 4,
+                    ..
+                } => {
+                    let installed = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                    if !installed.is_empty() {
+                        let current_cmd = match self.modal_state {
+                            ModalState::AddGameForm { game_type: PlatformType::Wine, ref custom_command, .. }
+                            | ModalState::EditGameForm { game_type: PlatformType::Wine, ref custom_command, .. } => custom_command.clone(),
+                            _ => String::new(),
+                        };
+                        let current_idx = installed.iter().position(|r| {
+                            let runner_str = match r.kind {
+                                game_core::runner_detector::RunnerKind::Proton => format!("\"{}\" run \"{{file_path}}\"", r.binary_path.display()),
+                                game_core::runner_detector::RunnerKind::Wine => format!("\"{}\" \"{{file_path}}\"", r.binary_path.display()),
+                            };
+                            current_cmd == runner_str || current_cmd.contains(&r.name)
+                        }).unwrap_or(0);
+                        let next_idx = (current_idx + 1) % installed.len();
+                        let selected_runner = &installed[next_idx];
+                        let new_cmd = match selected_runner.kind {
+                            game_core::runner_detector::RunnerKind::Proton => format!("\"{}\" run \"{{file_path}}\"", selected_runner.binary_path.display()),
+                            game_core::runner_detector::RunnerKind::Wine => format!("\"{}\" \"{{file_path}}\"", selected_runner.binary_path.display()),
+                        };
+                        match self.modal_state {
+                            ModalState::AddGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. }
+                            | ModalState::EditGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. } => {
+                                *custom_command = new_cmd;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            },
             Action::CycleWineRunner(step) => {
                 let installed = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
                 if installed.is_empty() {
@@ -1328,16 +1442,20 @@ impl App {
                     let game = &self.games[self.selected_game_idx];
                     let gtype = PlatformType::from(game.game_type.as_str());
 
+                    let title_str = game.title.clone();
+                    let cpos = title_str.len();
+
                     self.modal_state = ModalState::EditGameForm {
                         game_id: game.id,
                         game_type: gtype,
                         selected_field: 0,
-                        title: game.title.clone(),
+                        title: title_str,
                         file_path: game.file_path.clone().unwrap_or_default(),
                         working_dir: game.working_dir.clone().unwrap_or_default(),
                         custom_command: game.custom_command.clone().unwrap_or_default(),
                         wine_prefix: game.wine_prefix.clone().unwrap_or_default(),
                         steam_appid: game.steam_appid.map(|id| id.to_string()).unwrap_or_default(),
+                        cursor_pos: cpos,
                     };
                 }
             }
@@ -1685,6 +1803,7 @@ impl App {
                             wine_prefix: String::new(),
                             steam_appid: String::new(),
                             custom_command: String::new(),
+                            cursor_pos: 0,
                         };
                     }
                 }
@@ -1771,11 +1890,15 @@ impl App {
                 ModalState::AddGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
+                    ref title,
+                    ref mut cursor_pos,
                     ..
                 }
                 | ModalState::EditGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
+                    ref title,
+                    ref mut cursor_pos,
                     ..
                 } => {
                     let total_fields = match gtype {
@@ -1785,6 +1908,9 @@ impl App {
                         PlatformType::Steam => 3,
                     };
                     *selected_field = (*selected_field + 1) % total_fields;
+                    if *selected_field == 0 {
+                        *cursor_pos = title.len();
+                    }
                 }
                 ModalState::ScanFolderForm {
                     ref mut selected_field,
@@ -1798,11 +1924,15 @@ impl App {
                 ModalState::AddGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
+                    ref title,
+                    ref mut cursor_pos,
                     ..
                 }
                 | ModalState::EditGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
+                    ref title,
+                    ref mut cursor_pos,
                     ..
                 } => {
                     let total_fields = match gtype {
@@ -1815,6 +1945,9 @@ impl App {
                         *selected_field = total_fields - 1;
                     } else {
                         *selected_field -= 1;
+                    }
+                    if *selected_field == 0 {
+                        *cursor_pos = title.len();
                     }
                 }
                 ModalState::ScanFolderForm {
@@ -1832,6 +1965,7 @@ impl App {
             Action::ModalInputChar(ch) => {
                 if let ModalState::AddGameForm {
                     ref mut title,
+                    ref mut cursor_pos,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -1843,6 +1977,7 @@ impl App {
                 }
                 | ModalState::EditGameForm {
                     ref mut title,
+                    ref mut cursor_pos,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -1853,56 +1988,58 @@ impl App {
                     ..
                 } = self.modal_state
                 {
-                    match gtype {
-                        PlatformType::Emulator => match selected_field {
-                            0 => title.push(ch),
-                            2 => file_path.push(ch),
-                            3 => custom_command.push(ch),
-                            _ => {}
-                        },
-                        PlatformType::Native => match selected_field {
-                            0 => title.push(ch),
-                            1 => {
-                                file_path.push(ch);
-                                if let Some(parent) = std::path::Path::new(file_path).parent() {
-                                    if !parent.as_os_str().is_empty() {
-                                        *working_dir = parent.to_string_lossy().to_string();
-                                    }
-                                }
-                            }
-                            2 => working_dir.push(ch),
-                            3 => custom_command.push(ch),
-                            _ => {}
-                        },
-                        PlatformType::Wine => match selected_field {
-                            0 => title.push(ch),
-                            1 => {
-                                file_path.push(ch);
-                                if let Some(parent) = std::path::Path::new(file_path).parent() {
-                                    if !parent.as_os_str().is_empty() {
-                                        *working_dir = parent.to_string_lossy().to_string();
-                                        if wine_prefix.trim().is_empty() {
-                                            *wine_prefix = parent.join("prefix").to_string_lossy().to_string();
+                    if selected_field == 0 {
+                        let pos = (*cursor_pos).min(title.len());
+                        title.insert(pos, ch);
+                        *cursor_pos = pos + 1;
+                    } else {
+                        match gtype {
+                            PlatformType::Emulator => match selected_field {
+                                2 => file_path.push(ch),
+                                3 => custom_command.push(ch),
+                                _ => {}
+                            },
+                            PlatformType::Native => match selected_field {
+                                1 => {
+                                    file_path.push(ch);
+                                    if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                        if !parent.as_os_str().is_empty() {
+                                            *working_dir = parent.to_string_lossy().to_string();
                                         }
                                     }
                                 }
-                            }
-                            2 => wine_prefix.push(ch),
-                            3 => working_dir.push(ch),
-                            4 => {}
-                            5 => custom_command.push(ch),
-                            _ => {}
-                        },
-                        PlatformType::Steam => match selected_field {
-                            0 => title.push(ch),
-                            1 => {
-                                if ch.is_ascii_digit() {
-                                    steam_appid.push(ch);
+                                2 => working_dir.push(ch),
+                                3 => custom_command.push(ch),
+                                _ => {}
+                            },
+                            PlatformType::Wine => match selected_field {
+                                1 => {
+                                    file_path.push(ch);
+                                    if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                        if !parent.as_os_str().is_empty() {
+                                            *working_dir = parent.to_string_lossy().to_string();
+                                            if wine_prefix.trim().is_empty() {
+                                                *wine_prefix = parent.join("prefix").to_string_lossy().to_string();
+                                            }
+                                        }
+                                    }
                                 }
-                            }
-                            2 => custom_command.push(ch),
-                            _ => {}
-                        },
+                                2 => wine_prefix.push(ch),
+                                3 => working_dir.push(ch),
+                                4 => {}
+                                5 => custom_command.push(ch),
+                                _ => {}
+                            },
+                            PlatformType::Steam => match selected_field {
+                                1 => {
+                                    if ch.is_ascii_digit() {
+                                        steam_appid.push(ch);
+                                    }
+                                }
+                                2 => custom_command.push(ch),
+                                _ => {}
+                            },
+                        }
                     }
                 } else if let ModalState::ScanFolderForm {
                     ref mut folder_path,
@@ -1953,6 +2090,7 @@ impl App {
             Action::ModalBackspace => {
                 if let ModalState::AddGameForm {
                     ref mut title,
+                    ref mut cursor_pos,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -1964,6 +2102,7 @@ impl App {
                 }
                 | ModalState::EditGameForm {
                     ref mut title,
+                    ref mut cursor_pos,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -1974,53 +2113,57 @@ impl App {
                     ..
                 } = self.modal_state
                 {
-                    match gtype {
-                        PlatformType::Emulator => match selected_field {
-                            0 => { title.pop(); }
-                            2 => { file_path.pop(); }
-                            3 => { custom_command.pop(); }
-                            _ => {}
-                        },
-                        PlatformType::Native => match selected_field {
-                            0 => { title.pop(); }
-                            1 => {
-                                file_path.pop();
-                                if let Some(parent) = std::path::Path::new(file_path).parent() {
-                                    if !parent.as_os_str().is_empty() {
-                                        *working_dir = parent.to_string_lossy().to_string();
-                                    } else {
-                                        working_dir.clear();
+                    if selected_field == 0 {
+                        if *cursor_pos > 0 && !title.is_empty() {
+                            let pos = (*cursor_pos - 1).min(title.len() - 1);
+                            title.remove(pos);
+                            *cursor_pos = pos;
+                        }
+                    } else {
+                        match gtype {
+                            PlatformType::Emulator => match selected_field {
+                                2 => { file_path.pop(); }
+                                3 => { custom_command.pop(); }
+                                _ => {}
+                            },
+                            PlatformType::Native => match selected_field {
+                                1 => {
+                                    file_path.pop();
+                                    if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                        if !parent.as_os_str().is_empty() {
+                                            *working_dir = parent.to_string_lossy().to_string();
+                                        } else {
+                                            working_dir.clear();
+                                        }
                                     }
                                 }
-                            }
-                            2 => { working_dir.pop(); }
-                            3 => { custom_command.pop(); }
-                            _ => {}
-                        },
-                        PlatformType::Wine => match selected_field {
-                            0 => { title.pop(); }
-                            1 => {
-                                file_path.pop();
-                                if let Some(parent) = std::path::Path::new(file_path).parent() {
-                                    if !parent.as_os_str().is_empty() {
-                                        *working_dir = parent.to_string_lossy().to_string();
-                                    } else {
-                                        working_dir.clear();
+                                2 => { working_dir.pop(); }
+                                3 => { custom_command.pop(); }
+                                _ => {}
+                            },
+                            PlatformType::Wine => match selected_field {
+                                1 => {
+                                    file_path.pop();
+                                    if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                        if !parent.as_os_str().is_empty() {
+                                            *working_dir = parent.to_string_lossy().to_string();
+                                        } else {
+                                            working_dir.clear();
+                                        }
                                     }
                                 }
-                            }
-                            2 => { wine_prefix.pop(); }
-                            3 => { working_dir.pop(); }
-                            4 => {}
-                            5 => { custom_command.pop(); }
-                            _ => {}
-                        },
-                        PlatformType::Steam => match selected_field {
-                            0 => { title.pop(); }
-                            1 => { steam_appid.pop(); }
-                            2 => { custom_command.pop(); }
-                            _ => {}
-                        },
+                                2 => { wine_prefix.pop(); }
+                                3 => { working_dir.pop(); }
+                                4 => {}
+                                5 => { custom_command.pop(); }
+                                _ => {}
+                            },
+                            PlatformType::Steam => match selected_field {
+                                1 => { steam_appid.pop(); }
+                                2 => { custom_command.pop(); }
+                                _ => {}
+                            },
+                        }
                     }
                 } else if let ModalState::ScanFolderForm {
                     ref mut folder_path,

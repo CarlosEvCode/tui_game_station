@@ -92,9 +92,8 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavLeft).await;
                                 }
-                                ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
-                                | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
-                                    app.update(Action::CycleWineRunner(-1)).await;
+                                ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. } => {
+                                    app.update(Action::FormNavLeft).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::SwitchProtonTargetLocationPrev).await;
@@ -107,9 +106,8 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavRight).await;
                                 }
-                                ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
-                                | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
-                                    app.update(Action::CycleWineRunner(1)).await;
+                                ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. } => {
+                                    app.update(Action::FormNavRight).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::SwitchProtonTargetLocationNext).await;

@@ -1526,6 +1526,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref wine_prefix,
             ref steam_appid,
             ref custom_command,
+            cursor_pos,
         } => {
             let gtype_name = match game_type {
                 PlatformType::Emulator => "EMULATOR",
@@ -1545,13 +1546,26 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             };
 
+            let title_line = if selected_field == 0 {
+                let cpos = cursor_pos.min(title.len());
+                let (before, after) = title.split_at(cpos);
+                Line::from(vec![
+                    Span::styled("1. Title: ", field_style(0)),
+                    Span::raw(before),
+                    Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(after),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled("1. Title: ", field_style(0)),
+                    Span::raw(title),
+                ])
+            };
+
             match game_type {
                 PlatformType::Emulator => {
                     let p_name = app.platforms.get(platform_idx).map(|p| p.name.as_str()).unwrap_or("Unknown");
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Platform: < ", field_style(1)),
                         Span::styled(p_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -1566,10 +1580,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
                 PlatformType::Native => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable Path: ", field_style(1)),
                         Span::raw(if file_path.is_empty() { "< Press [f] to browse >" } else { file_path }),
@@ -1587,10 +1598,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
                 PlatformType::Wine => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable .exe Path: ", field_style(1)),
                         Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
@@ -1627,10 +1635,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
                 PlatformType::Steam => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Steam AppID: ", field_style(1)),
                         Span::raw(steam_appid),
@@ -1655,7 +1660,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Move Cursor / Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -1668,6 +1673,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref wine_prefix,
             ref steam_appid,
             ref custom_command,
+            cursor_pos,
             ..
         } => {
             let gtype_name = match game_type {
@@ -1688,12 +1694,25 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             };
 
+            let title_line = if selected_field == 0 {
+                let cpos = cursor_pos.min(title.len());
+                let (before, after) = title.split_at(cpos);
+                Line::from(vec![
+                    Span::styled("1. Title: ", field_style(0)),
+                    Span::raw(before),
+                    Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(after),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled("1. Title: ", field_style(0)),
+                    Span::raw(title),
+                ])
+            };
+
             match game_type {
                 PlatformType::Emulator => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. ROM Path: ", field_style(1)),
                         Span::raw(if file_path.is_empty() { "< Press [f] to select ROM >" } else { file_path }),
@@ -1708,10 +1727,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
                 PlatformType::Native => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable Path: ", field_style(1)),
                         Span::raw(if file_path.is_empty() { "< Press [f] to browse executable >" } else { file_path }),
@@ -1730,10 +1746,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
                 PlatformType::Wine => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable .exe Path: ", field_style(1)),
                         Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
@@ -1770,10 +1783,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
                 PlatformType::Steam => {
-                    lines.push(Line::from(vec![
-                        Span::styled("1. Title: ", field_style(0)),
-                        Span::raw(title),
-                    ]));
+                    lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Steam AppID: ", field_style(1)),
                         Span::raw(steam_appid),
@@ -1803,7 +1813,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Move Cursor / Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
