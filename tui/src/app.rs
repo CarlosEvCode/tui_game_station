@@ -156,6 +156,7 @@ pub enum Action {
     OpenWineRunnerManager,
     OpenProtonDownloader,
     SwitchProtonRepo,
+    SwitchProtonRepoPrev,
     SwitchProtonTargetLocationNext,
     SwitchProtonTargetLocationPrev,
     FetchProtonReleases,
@@ -1029,10 +1030,7 @@ impl App {
                     ..
                 } = self.modal_state
                 {
-                    let next_repo = match *selected_repo {
-                        scraper::proton::ProtonRepo::GEProton => scraper::proton::ProtonRepo::ProtonCachyOS,
-                        scraper::proton::ProtonRepo::ProtonCachyOS => scraper::proton::ProtonRepo::GEProton,
-                    };
+                    let next_repo = selected_repo.next();
                     *selected_repo = next_repo;
                     *releases = Vec::new();
                     *selected_release_idx = 0;
@@ -1049,6 +1047,36 @@ impl App {
                             *releases = fetched;
                             *is_loading = false;
                             self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), next_repo.display_name());
+                        }
+                    }
+                }
+            }
+            Action::SwitchProtonRepoPrev => {
+                if let ModalState::ProtonDownloader {
+                    ref mut selected_repo,
+                    ref mut is_loading,
+                    ref mut releases,
+                    ref mut selected_release_idx,
+                    ..
+                } = self.modal_state
+                {
+                    let prev_repo = selected_repo.prev();
+                    *selected_repo = prev_repo;
+                    *releases = Vec::new();
+                    *selected_release_idx = 0;
+                    *is_loading = true;
+
+                    self.status_msg = format!("Fetching releases for {}...", prev_repo.display_name());
+                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(prev_repo, 1, 10).await {
+                        if let ModalState::ProtonDownloader {
+                            ref mut releases,
+                            ref mut is_loading,
+                            ..
+                        } = self.modal_state
+                        {
+                            *releases = fetched;
+                            *is_loading = false;
+                            self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), prev_repo.display_name());
                         }
                     }
                 }

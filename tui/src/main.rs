@@ -45,11 +45,22 @@ async fn main() -> Result<()> {
                             KeyCode::Esc => {
                                 app.update(Action::CloseModal).await;
                             }
+                            KeyCode::BackTab => {
+                                if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                    app.update(Action::SwitchProtonRepoPrev).await;
+                                } else {
+                                    app.update(Action::ModalPrevField).await;
+                                }
+                            }
                             KeyCode::Tab => {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
                                     app.update(Action::SwitchVisualMediaTab).await;
                                 } else if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::SwitchProtonRepo).await;
+                                    if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                        app.update(Action::SwitchProtonRepoPrev).await;
+                                    } else {
+                                        app.update(Action::SwitchProtonRepo).await;
+                                    }
                                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
@@ -142,6 +153,13 @@ async fn main() -> Result<()> {
                                     app.update(Action::SetVisualMediaTab(3)).await;
                                 } else {
                                     app.update(Action::ModalInputChar('4')).await;
+                                }
+                            }
+                            KeyCode::Char('r') => {
+                                if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                    app.update(Action::SwitchProtonRepo).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('r')).await;
                                 }
                             }
                             KeyCode::Char(' ') => {

@@ -1282,18 +1282,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             is_loading,
             download_event: _,
         } => {
-            let repo_spans = vec![
-                if selected_repo == scraper::proton::ProtonRepo::GEProton {
-                    Span::styled(" [ 1. GE-Proton (GloriousEggroll) ] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
-                } else {
-                    Span::styled("   1. GE-Proton (GloriousEggroll)   ", Style::default().fg(Color::Gray))
-                },
-                if selected_repo == scraper::proton::ProtonRepo::ProtonCachyOS {
-                    Span::styled(" [ 2. Proton-CachyOS (CachyOS) ] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
-                } else {
-                    Span::styled("   2. Proton-CachyOS (CachyOS)   ", Style::default().fg(Color::Gray))
-                },
-            ];
+            let repo_line = Line::from(vec![
+                Span::styled(" Repository: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" < {} > ", selected_repo.display_name()), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled("  (Press [Tab] or [r] to switch repository)", Style::default().fg(Color::Gray)),
+            ]);
 
             let targets = [
                 "1. TUI Game Station",
@@ -1319,11 +1312,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .constraints([Constraint::Length(2), Constraint::Length(2), Constraint::Min(6), Constraint::Length(2)])
                 .split(popup_area);
 
-            frame.render_widget(Paragraph::new(Line::from(repo_spans)), modal_chunks[0]);
+            frame.render_widget(Paragraph::new(repo_line), modal_chunks[0]);
             frame.render_widget(Paragraph::new(Line::from(target_spans)), modal_chunks[1]);
 
             if is_loading {
-                let loading_p = Paragraph::new("\n  [ Fetching releases from GitHub API... ]")
+                let loading_p = Paragraph::new("\n  [ Fetching releases from API... ]")
                     .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
                 frame.render_widget(loading_p, modal_chunks[2]);
             } else {
@@ -1341,7 +1334,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             } else {
                                 Style::default().fg(Color::White)
                             };
-                            ListItem::new(format!("  {:25}  ({:.1} MB)  Published: {}", rel.name, size_mb, rel.published_at.chars().take(10).collect::<String>())).style(style)
+                            ListItem::new(format!("  {:28}  ({:.1} MB)  Published: {}", rel.name, size_mb, rel.published_at.chars().take(10).collect::<String>())).style(style)
                         })
                         .collect()
                 };
@@ -1358,7 +1351,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 frame.render_widget(list, modal_chunks[2]);
             }
 
-            let help = Paragraph::new(" [Tab] Switch Repo | [Left/Right] Select Target Location | [Up/Down] Select Release | [Enter] Download & Extract | [Esc] Close")
+            let help = Paragraph::new(" [Tab / r] Switch Repo | [Left/Right] Select Target Location | [Up/Down] Select Release | [Enter] Download & Extract | [Esc] Close")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[3]);
         }
