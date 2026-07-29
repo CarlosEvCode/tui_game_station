@@ -247,7 +247,7 @@ impl Database {
         // Download links are direct GitHub release assets, not the HTML release page.
         // This makes the [w] action download the actual file after GitHub redirects.
         let runners = [
-            ("3ds", "Azahar", "appimage", Some("https://github.com/AzaharPlus/AzaharPlus/releases/download/v2126.0-A/azaharplus-2126.0-A-linux.AppImage"), Some("azahar.AppImage")),
+            ("3ds", "Azahar", "appimage", Some("https://github.com/AzaharPlus/AzaharPlus/releases/download/AZAHAR_PLUS_2126_0_A/azaharplus-2126.0-A-linux.AppImage"), Some("azahar.AppImage")),
             ("3ds", "Citra", "system", None, None),
             ("ps1", "DuckStation", "appimage", Some("https://github.com/stenzek/duckstation/releases/latest/download/DuckStation-x64.AppImage"), Some("DuckStation-x64.AppImage")),
             ("ps2", "PCSX2", "appimage", Some("https://github.com/PCSX2/pcsx2/releases/latest/download/pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"), Some("pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage")),
@@ -280,7 +280,7 @@ impl Database {
             self.conn.execute(
                 "UPDATE runners SET runner_type = ?3, command_template = '\"{executable_path}\" \"{rom}\"',
                  download_url = ?4, download_filename = ?5
-                 WHERE platform_id = (SELECT id FROM platforms WHERE slug = ?1) AND name = ?2",
+                 WHERE name = ?2",
                 params![platform_slug, name, runner_type, download_url, download_filename],
             )?;
         }
