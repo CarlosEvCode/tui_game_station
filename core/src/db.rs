@@ -3,7 +3,6 @@ use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
 use crate::models::{Game, Platform, PlatformType, Runner};
-use crate::runner_detector::RunnerDetector;
 
 pub struct Database {
     conn: Connection,
@@ -58,6 +57,7 @@ impl Database {
                 executable_path TEXT,
                 command_template TEXT NOT NULL,
                 default_env TEXT,
+                is_configured BOOLEAN DEFAULT 0,
                 is_default BOOLEAN DEFAULT 0
             );
 
@@ -138,6 +138,7 @@ impl Database {
 
     fn seed_defaults(&self) -> Result<()> {
         let platforms = vec![
+            ("3ds", "Nintendo 3DS", "emulator", ".3ds,.cia,.cci"),
             ("snes", "Nintendo Super NES", "emulator", ".sfc,.smc,.zip,.7z"),
             ("nes", "Nintendo NES", "emulator", ".nes,.unf,.zip,.7z"),
             ("gba", "Nintendo Game Boy Advance", "emulator", ".gba,.zip,.7z"),
@@ -146,7 +147,6 @@ impl Database {
             ("gamecube", "Nintendo GameCube", "emulator", ".iso,.gcz,.rvz,.ciso"),
             ("wii", "Nintendo Wii", "emulator", ".iso,.wbfs,.rvz"),
             ("wii_u", "Nintendo Wii U", "emulator", ".wud,.wux,.rpx,.wua"),
-            ("3ds", "Nintendo 3DS", "emulator", ".3ds,.cia,.cci"),
             ("ds", "Nintendo DS", "emulator", ".nds,.ds"),
             ("switch", "Nintendo Switch", "emulator", ".nsp,.xci,.nca,.nso"),
             ("ps1", "Sony PlayStation", "emulator", ".bin,.chd,.pbp,.cue,.iso,.img"),
@@ -169,7 +169,10 @@ impl Database {
             )?;
         }
 
+        // Seed preset runners per platform
         let default_runners = vec![
+            ("3ds", "Azahar (AppImage / Binary)", "appimage", "\"{executable_path}\" \"{rom}\""),
+            ("3ds", "Citra (AppImage / Binary)", "appimage", "\"{executable_path}\" \"{rom}\""),
             ("snes", "Snes9x (Libretro)", "libretro", "retroarch -L /usr/lib/libretro/snes9x_libretro.so \"{rom}\""),
             ("ps1", "DuckStation (Standalone)", "standalone_emulator", "duckstation-qt \"{rom}\""),
             ("ps2", "PCSX2 (Standalone)", "standalone_emulator", "pcsx2-qt \"{rom}\""),
@@ -195,8 +198,8 @@ impl Database {
 
                 if count == 0 {
                     self.conn.execute(
-                        "INSERT INTO runners (platform_id, name, runner_type, command_template, is_default)
-                         VALUES (?1, ?2, ?3, ?4, 1)",
+                        "INSERT INTO runners (platform_id, name, runner_type, command_template, is_configured, is_default)
+                         VALUES (?1, ?2, ?3, ?4, 0, 1)",
                         params![pid, r_name, r_type, cmd],
                     )?;
                 }
@@ -210,7 +213,7 @@ impl Database {
         self.get_active_platforms(true)
     }
 
-    /// Return platforms filtered by active presence (has games OR has installed runner OR show_all = true)
+    /// Return platforms filtered by active status (has games OR user configured runner)
     pub fn get_active_platforms(&self, show_all: bool) -> Result<Vec<Platform>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, slug, name, platform_type, extensions FROM platforms ORDER BY name ASC",
@@ -244,7 +247,7 @@ impl Database {
             if show_all {
                 list.push(platform);
             } else {
-                // Check if platform has games
+                // Check if platform has games in DB
                 let game_count: i64 = self.conn.query_row(
                     "SELECT COUNT(*) FROM games WHERE platform_id = ?1",
                     params![platform.id],
@@ -256,15 +259,19 @@ impl Database {
                     continue;
                 }
 
-                // Check if default runner binary is installed on system
-                if let Ok(Some(runner)) = self.get_runner_for_platform(platform.id) {
-                    if RunnerDetector::is_runner_installed(&runner.command_template) {
-                        list.push(platform);
-                        continue;
-                    }
+                // Check if any runner is explicitly configured for this platform
+                let configured_runner_count: i64 = self.conn.query_row(
+                    "SELECT COUNT(*) FROM runners WHERE platform_id = ?1 AND is_configured = 1",
+                    params![platform.id],
+                    |r| r.get(0),
+                ).unwrap_or(0);
+
+                if configured_runner_count > 0 {
+                    list.push(platform);
+                    continue;
                 }
 
-                // Always include Native Linux and Windows Wine platforms for manual adding
+                // Always include Native Linux and Windows Wine platforms for manual game additions
                 if platform.slug == "linux" || platform.slug == "windows" {
                     list.push(platform);
                 }
@@ -272,6 +279,57 @@ impl Database {
         }
 
         Ok(list)
+    }
+
+    pub fn get_runners_for_platform(&self, platform_id: i64) -> Result<Vec<Runner>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, is_default
+             FROM runners
+             WHERE platform_id = ?1
+             ORDER BY is_default DESC, name ASC",
+        )?;
+
+        let rows = stmt.query_map(params![platform_id], |row| {
+            Ok(Runner {
+                id: row.get(0)?,
+                platform_id: row.get(1)?,
+                name: row.get(2)?,
+                runner_type: row.get(3)?,
+                executable_path: row.get(4)?,
+                command_template: row.get(5)?,
+                default_env: row.get(6)?,
+                is_default: row.get(7)?,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    pub fn update_runner_config(&self, runner_id: i64, executable_path: &str, is_default: bool) -> Result<()> {
+        let runner_platform_id: i64 = self.conn.query_row(
+            "SELECT platform_id FROM runners WHERE id = ?1",
+            params![runner_id],
+            |r| r.get(0),
+        )?;
+
+        if is_default {
+            // Unset previous defaults for this platform
+            self.conn.execute(
+                "UPDATE runners SET is_default = 0 WHERE platform_id = ?1",
+                params![runner_platform_id],
+            )?;
+        }
+
+        self.conn.execute(
+            "UPDATE runners SET executable_path = ?1, is_configured = 1, is_default = ?2 WHERE id = ?3",
+            params![executable_path, is_default, runner_id],
+        )?;
+
+        Ok(())
     }
 
     pub fn get_games_for_platform(&self, platform_id: i64) -> Result<Vec<Game>> {
@@ -375,7 +433,7 @@ impl Database {
             "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, is_default
              FROM runners
              WHERE platform_id = ?1
-             ORDER BY is_default DESC, id ASC
+             ORDER BY is_default DESC, is_configured DESC, id ASC
              LIMIT 1",
         )?;
 

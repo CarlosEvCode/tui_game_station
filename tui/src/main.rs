@@ -48,33 +48,44 @@ async fn main() -> Result<()> {
                                     app.update(Action::ModalNextField).await;
                                 }
                             }
-                            KeyCode::Up => {
-                                if let ModalState::AddGameStep1Type { .. } = app.modal_state {
+                            KeyCode::Up => match app.modal_state {
+                                ModalState::AddGameStep1Type { .. }
+                                | ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
-                                } else {
+                                }
+                                _ => {
                                     app.update(Action::ModalPrevField).await;
                                 }
-                            }
-                            KeyCode::Down => {
-                                if let ModalState::AddGameStep1Type { .. } = app.modal_state {
+                            },
+                            KeyCode::Down => match app.modal_state {
+                                ModalState::AddGameStep1Type { .. }
+                                | ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::ModalSelectNext).await;
-                                } else {
+                                }
+                                _ => {
                                     app.update(Action::ModalNextField).await;
                                 }
-                            }
+                            },
                             KeyCode::Left => {
                                 app.update(Action::ModalSelectPrev).await;
                             }
                             KeyCode::Right => {
                                 app.update(Action::ModalSelectNext).await;
                             }
-                            KeyCode::Enter => {
-                                if let ModalState::AddGameStep1Type { .. } = app.modal_state {
+                            KeyCode::Enter => match app.modal_state {
+                                ModalState::AddGameStep1Type { .. } => {
                                     app.update(Action::ModalConfirmStep1).await;
-                                } else {
+                                }
+                                ModalState::ManageRunnersStep1Platform { .. } => {
+                                    app.update(Action::RunnerModalConfirmPlatform).await;
+                                }
+                                ModalState::ManageRunnersStep2Config { .. } => {
+                                    app.update(Action::SaveRunnerConfig).await;
+                                }
+                                _ => {
                                     app.update(Action::SaveModalGame).await;
                                 }
-                            }
+                            },
                             KeyCode::Backspace => {
                                 app.update(Action::ModalBackspace).await;
                             }
@@ -91,6 +102,9 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('a') => {
                                 app.update(Action::OpenAddGameModal).await;
+                            }
+                            KeyCode::Char('m') => {
+                                app.update(Action::OpenManageRunnersModal).await;
                             }
                             KeyCode::Tab => {
                                 app.update(Action::TogglePane).await;

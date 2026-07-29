@@ -182,7 +182,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [a] Agregar | [p] Plataformas ({}) | [r] Sync Steam | [Tab] Panel | [Enter] Jugar | [s] Escanear | [q] Salir | Info: {}",
+        " [m] Emuladores/Runners | [a] Agregar | [p] Plataformas ({}) | [r] Sync Steam | [Enter] Jugar | [q] Salir | Info: {}",
         filter_text, app.status_msg
     );
 
@@ -197,10 +197,105 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &App) {
-    let popup_area = centered_rect(65, 60, frame.area());
-    frame.render_widget(Clear, popup_area); // Clear background behind modal
+    let popup_area = centered_rect(68, 65, frame.area());
+    frame.render_widget(Clear, popup_area);
 
     match app.modal_state {
+        ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
+            let all_platforms = app.db.get_platforms().unwrap_or_default();
+            let items: Vec<ListItem> = all_platforms
+                .iter()
+                .enumerate()
+                .map(|(idx, p)| {
+                    let is_selected = idx == selected_platform_idx;
+                    let style = if is_selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    ListItem::new(format!("  {} ({}) ", p.name, p.slug)).style(style)
+                })
+                .collect();
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " ⚙️ Gestionar Emuladores/Runners - Paso 1: Selecciona Plataforma ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [↑/↓] Seleccionar Plataforma | [Enter] Configurar Runner | [Esc] Cancelar")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::ManageRunnersStep2Config {
+            ref platform,
+            ref runners,
+            selected_runner_idx,
+            ref exe_path_input,
+        } => {
+            let mut lines = Vec::new();
+            lines.push(Line::from(vec![
+                Span::styled("Plataforma a Configurar: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(&platform.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("1. Emulador / Runner Disponible: (Usar ←/→ para cambiar)", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+
+            for (idx, r) in runners.iter().enumerate() {
+                let is_sel = idx == selected_runner_idx;
+                let mark = if is_sel { " -> [X] " } else { "    [ ] " };
+                let style = if is_sel {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(mark, style),
+                    Span::styled(&r.name, style),
+                ]));
+            }
+
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("2. Ruta al Ejecutable / .AppImage:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(vec![
+                Span::raw("   "),
+                Span::styled(exe_path_input, Style::default().fg(Color::White).bg(Color::DarkGray)),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("[ GUARDAR RUNNER Y ACTIVAR PLATAFORMA ]", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))));
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        format!(" ⚙️ Configurar Runner para {} ", platform.name),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(p, chunks[0]);
+
+            let help = Paragraph::new(" [←/→] Cambiar Runner | [Escribir/Borrar] Ruta AppImage | [Enter] Guardar | [Esc] Cancelar")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(help, chunks[1]);
+        }
         ModalState::AddGameStep1Type { selected_type_idx } => {
             let options = vec![
                 "🕹️ Emulador (SNES, PS1, PS2, GBA, N64, 3DS...)",

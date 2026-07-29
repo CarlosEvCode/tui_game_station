@@ -30,7 +30,7 @@ impl From<&str> for PlatformType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Platform {
     pub id: i64,
     pub slug: String,
@@ -39,7 +39,7 @@ pub struct Platform {
     pub default_extensions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Runner {
     pub id: i64,
     pub platform_id: Option<i64>,

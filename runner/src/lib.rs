@@ -7,7 +7,7 @@ use tokio::process::Command;
 pub struct GameRunner;
 
 impl GameRunner {
-    /// Format and build the executable command line string for a game.
+    /// Format and build executable command line string for a game.
     pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
         let mut env_vars = HashMap::new();
 
@@ -28,6 +28,15 @@ impl GameRunner {
             let file_path = game.file_path.clone().unwrap_or_default();
             template = template.replace("{rom}", &file_path);
             template = template.replace("{file_path}", &file_path);
+
+            if let Some(exe) = &r.executable_path {
+                template = template.replace("{executable_path}", exe);
+            } else {
+                // If template requires executable_path and none configured
+                if template.contains("{executable_path}") {
+                    anyhow::bail!("No se ha configurado la ruta del ejecutable/AppImage para el runner '{}'. Presiona [m] para configurarlo.", r.name);
+                }
+            }
 
             if let Some(prefix) = &game.wine_prefix {
                 env_vars.insert("WINEPREFIX".to_string(), prefix.clone());
@@ -82,7 +91,6 @@ fn parse_command_string(full_cmd: &str, _game: &Game) -> Result<(String, Vec<Str
 }
 
 fn shlex_split(cmd: &str) -> Vec<String> {
-    // Basic whitespace & quote parser for command line strings
     let mut args = Vec::new();
     let mut current = String::new();
     let mut in_quotes = false;

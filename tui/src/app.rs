@@ -1,6 +1,6 @@
 use anyhow::Result;
 use game_core::db::Database;
-use game_core::models::{Game, Platform, PlatformType};
+use game_core::models::{Game, Platform, PlatformType, Runner};
 use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
 use runner::GameRunner;
@@ -29,6 +29,15 @@ pub enum ModalState {
         steam_appid: String,
         custom_command: String,
     },
+    ManageRunnersStep1Platform {
+        selected_platform_idx: usize,
+    },
+    ManageRunnersStep2Config {
+        platform: Platform,
+        runners: Vec<Runner>,
+        selected_runner_idx: usize,
+        exe_path_input: String,
+    },
 }
 
 pub enum Action {
@@ -41,6 +50,8 @@ pub enum Action {
     LaunchGame,
     ScanCurrentFolder,
     ScanSteamGames,
+
+    // Add Game Modal Actions
     OpenAddGameModal,
     CloseModal,
     ModalSelectNext,
@@ -51,6 +62,12 @@ pub enum Action {
     ModalInputChar(char),
     ModalBackspace,
     SaveModalGame,
+
+    // Manage Runners Modal Actions
+    OpenManageRunnersModal,
+    RunnerModalConfirmPlatform,
+    SaveRunnerConfig,
+
     Quit,
     SetStatus(String),
 }
@@ -72,10 +89,9 @@ impl App {
     pub fn new() -> Result<Self> {
         let db = Database::open_default()?;
 
-        // Auto-detect installed Steam games on app startup
         let steam_added = SteamScanner::scan_steam_games(&db).unwrap_or(0);
 
-        let show_all_platforms = false; // By default show only active/installed platforms
+        let show_all_platforms = false;
         let platforms = db.get_active_platforms(show_all_platforms)?;
 
         let mut app = Self {
@@ -90,7 +106,7 @@ impl App {
             status_msg: if steam_added > 0 {
                 format!("Detectados {} juegos de Steam automáticamente!", steam_added)
             } else {
-                "TUI Game Station listo! [p] Filtrar plataformas | [a] Agregar | [s] Escanear".to_string()
+                "TUI Game Station listo! [m] Gestionar Emuladores/Runners | [a] Agregar | [s] Escanear".to_string()
             },
             should_quit: false,
         };
@@ -238,7 +254,52 @@ impl App {
                 }
             }
 
-            // Modal Actions
+            // Runner Manager Actions
+            Action::OpenManageRunnersModal => {
+                self.modal_state = ModalState::ManageRunnersStep1Platform {
+                    selected_platform_idx: 0,
+                };
+            }
+            Action::RunnerModalConfirmPlatform => {
+                if let ModalState::ManageRunnersStep1Platform { selected_platform_idx } = self.modal_state {
+                    let all_platforms = self.db.get_platforms().unwrap_or_default();
+                    if let Some(p) = all_platforms.get(selected_platform_idx) {
+                        let runners = self.db.get_runners_for_platform(p.id).unwrap_or_default();
+                        let default_exe = runners.first().and_then(|r| r.executable_path.clone()).unwrap_or_default();
+
+                        self.modal_state = ModalState::ManageRunnersStep2Config {
+                            platform: p.clone(),
+                            runners,
+                            selected_runner_idx: 0,
+                            exe_path_input: default_exe,
+                        };
+                    }
+                }
+            }
+            Action::SaveRunnerConfig => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref runners,
+                    selected_runner_idx,
+                    ref exe_path_input,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(runner) = runners.get(selected_runner_idx) {
+                        match self.db.update_runner_config(runner.id, exe_path_input, true) {
+                            Ok(_) => {
+                                self.status_msg = format!("Runner '{}' configurado correctamente. Plataforma activada!", runner.name);
+                                self.modal_state = ModalState::None;
+                                self.load_platforms();
+                            }
+                            Err(err) => {
+                                self.status_msg = format!("Error guardando runner: {}", err);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add Game Modal Actions
             Action::OpenAddGameModal => {
                 self.modal_state = ModalState::AddGameStep1Type {
                     selected_type_idx: 0,
@@ -248,29 +309,73 @@ impl App {
                 self.modal_state = ModalState::None;
             }
             Action::ModalSelectNext => {
-                if let ModalState::AddGameStep1Type { ref mut selected_type_idx } = self.modal_state {
-                    *selected_type_idx = (*selected_type_idx + 1) % 4;
-                } else if let ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } = self.modal_state {
-                    if !self.platforms.is_empty() {
-                        *platform_idx = (*platform_idx + 1) % self.platforms.len();
+                match self.modal_state {
+                    ModalState::AddGameStep1Type { ref mut selected_type_idx } => {
+                        *selected_type_idx = (*selected_type_idx + 1) % 4;
                     }
+                    ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
+                        if !self.platforms.is_empty() {
+                            *platform_idx = (*platform_idx + 1) % self.platforms.len();
+                        }
+                    }
+                    ModalState::ManageRunnersStep1Platform { ref mut selected_platform_idx } => {
+                        let total = self.db.get_platforms().unwrap_or_default().len();
+                        if total > 0 {
+                            *selected_platform_idx = (*selected_platform_idx + 1) % total;
+                        }
+                    }
+                    ModalState::ManageRunnersStep2Config { ref runners, ref mut selected_runner_idx, ref mut exe_path_input, .. } => {
+                        if !runners.is_empty() {
+                            *selected_runner_idx = (*selected_runner_idx + 1) % runners.len();
+                            if let Some(r) = runners.get(*selected_runner_idx) {
+                                *exe_path_input = r.executable_path.clone().unwrap_or_default();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             Action::ModalSelectPrev => {
-                if let ModalState::AddGameStep1Type { ref mut selected_type_idx } = self.modal_state {
-                    if *selected_type_idx == 0 {
-                        *selected_type_idx = 3;
-                    } else {
-                        *selected_type_idx -= 1;
-                    }
-                } else if let ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } = self.modal_state {
-                    if !self.platforms.is_empty() {
-                        if *platform_idx == 0 {
-                            *platform_idx = self.platforms.len() - 1;
+                match self.modal_state {
+                    ModalState::AddGameStep1Type { ref mut selected_type_idx } => {
+                        if *selected_type_idx == 0 {
+                            *selected_type_idx = 3;
                         } else {
-                            *platform_idx -= 1;
+                            *selected_type_idx -= 1;
                         }
                     }
+                    ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
+                        if !self.platforms.is_empty() {
+                            if *platform_idx == 0 {
+                                *platform_idx = self.platforms.len() - 1;
+                            } else {
+                                *platform_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::ManageRunnersStep1Platform { ref mut selected_platform_idx } => {
+                        let total = self.db.get_platforms().unwrap_or_default().len();
+                        if total > 0 {
+                            if *selected_platform_idx == 0 {
+                                *selected_platform_idx = total - 1;
+                            } else {
+                                *selected_platform_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::ManageRunnersStep2Config { ref runners, ref mut selected_runner_idx, ref mut exe_path_input, .. } => {
+                        if !runners.is_empty() {
+                            if *selected_runner_idx == 0 {
+                                *selected_runner_idx = runners.len() - 1;
+                            } else {
+                                *selected_runner_idx -= 1;
+                            }
+                            if let Some(r) = runners.get(*selected_runner_idx) {
+                                *exe_path_input = r.executable_path.clone().unwrap_or_default();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             Action::ModalConfirmStep1 => {
@@ -364,6 +469,8 @@ impl App {
                             _ => {}
                         },
                     }
+                } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
+                    exe_path_input.push(ch);
                 }
             }
             Action::ModalBackspace => {
@@ -410,6 +517,8 @@ impl App {
                     if let Some(s) = target_str {
                         s.pop();
                     }
+                } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
+                    exe_path_input.pop();
                 }
             }
             Action::SaveModalGame => {
