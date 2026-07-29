@@ -179,6 +179,7 @@ pub struct App {
     pub cover_rx: mpsc::Receiver<LoadedCoverEvent>,
     pub preview_tx: mpsc::Sender<LoadedPreviewEvent>,
     pub preview_rx: mpsc::Receiver<LoadedPreviewEvent>,
+    pub cover_manager: CoverManager,
     pub pending_cover_requests: HashSet<i64>,
     pub image_protocols: HashMap<i64, StatefulProtocol>,
     pub visual_preview_protocol: Option<StatefulProtocol>,
@@ -199,6 +200,7 @@ impl App {
         let platforms = db.get_active_platforms(show_all_platforms)?;
         let (cover_tx, cover_rx) = mpsc::channel::<LoadedCoverEvent>(50);
         let (preview_tx, preview_rx) = mpsc::channel::<LoadedPreviewEvent>(50);
+        let cover_manager = CoverManager::new();
 
         let mut app = Self {
             db,
@@ -216,6 +218,7 @@ impl App {
             cover_rx,
             preview_tx,
             preview_rx,
+            cover_manager,
             pending_cover_requests: HashSet::new(),
             image_protocols: HashMap::new(),
             visual_preview_protocol: None,
@@ -314,6 +317,7 @@ impl App {
 
         self.pending_cover_requests.insert(game_id);
         let tx = self.cover_tx.clone();
+        let manager = self.cover_manager.clone();
         let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
 
         tokio::spawn(async move {
@@ -346,7 +350,6 @@ impl App {
             };
 
             if let Some(path) = cover_path {
-                let mut manager = CoverManager::new();
                 if let Some(protocol) = manager.load_protocol_from_file(&path) {
                     let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
                 }
@@ -418,8 +421,7 @@ impl App {
                 let cache_path = cache_dir.join(format!("{}.jpg", url_hash));
 
                 if cache_path.exists() {
-                    let mut manager = CoverManager::new();
-                    if let Some(protocol) = manager.load_protocol_from_file(&cache_path) {
+                    if let Some(protocol) = self.cover_manager.load_protocol_from_file(&cache_path) {
                         self.visual_preview_protocol = Some(protocol);
                         self.visual_preview_loading = false;
                         return;
@@ -429,10 +431,10 @@ impl App {
                 let key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
                 let client = scraper::steamgriddb::SteamGridDBClient::new(key);
                 let tx = self.preview_tx.clone();
+                let manager = self.cover_manager.clone();
                 let url_to_fetch = url.clone();
                 tokio::spawn(async move {
                     if client.download_file_to_path(&url_to_fetch, &cache_path).await.is_ok() {
-                        let mut manager = CoverManager::new();
                         if let Some(protocol) = manager.load_protocol_from_file(&cache_path) {
                             let _ = tx.send(LoadedPreviewEvent { url: url_to_fetch, protocol }).await;
                         }
@@ -1566,6 +1568,7 @@ impl App {
                     self.download_rx = Some(progress_rx);
 
                     let key_str = api_key.unwrap();
+                    let manager = self.cover_manager.clone();
 
                     tokio::spawn(async move {
                         let client = scraper::steamgriddb::SteamGridDBClient::new(Some(key_str));
@@ -1604,7 +1607,6 @@ impl App {
                                         res.cover_path, res.banner_path, res.icon_path
                                     ));
                                     if let Some(path) = res.cover_path {
-                                        let mut manager = CoverManager::new();
                                         if let Some(protocol) =
                                             manager.load_protocol_from_file(&path)
                                         {
@@ -1818,8 +1820,8 @@ impl App {
                         1 => {
                             if let Some(c) = covers.get(selected_cover_idx) {
                                 let dest = media_dir.join("covers").join(format!("{}.jpg", game_id));
-                                self.status_msg = "Downloading selected cover...".to_string();
                                 let tx = self.cover_tx.clone();
+                                let manager = self.cover_manager.clone();
                                 let url = c.url.clone();
                                 tokio::spawn(async move {
                                     if client.download_file_to_path(&url, &dest).await.is_ok() {
@@ -1830,7 +1832,6 @@ impl App {
                                         if let Ok(db) = Database::open(&db_path) {
                                             let _ = db.record_media_status(game_id, "cover", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                         }
-                                        let mut manager = CoverManager::new();
                                         if let Some(protocol) = manager.load_protocol_from_file(&dest) {
                                             let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
                                         }

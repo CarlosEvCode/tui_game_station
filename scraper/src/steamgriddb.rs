@@ -83,7 +83,7 @@ impl SteamGridDBClient {
     /// Get images of type: "grids" (cover), "heroes" (banner), or "icons" (icon)
     pub async fn get_images(&self, sgdb_game_id: i64, image_type: &str) -> Result<Vec<SteamGridImageItem>> {
         let params = match image_type {
-            "grids" => "?limit=30",
+            "grids" => "?dimensions=600x900,660x930,342x482&limit=30",
             "heroes" => "?limit=30",
             "icons" => "?limit=30",
             _ => "?limit=30",
@@ -91,7 +91,14 @@ impl SteamGridDBClient {
 
         let url = format!("{}/{}/game/{}{}", BASE_URL, image_type, sgdb_game_id, params);
         let body = self.request_json::<Vec<SteamGridImageItem>>(&url).await?;
-        Ok(body.unwrap_or_default())
+        let res = body.unwrap_or_default();
+        if res.is_empty() && image_type == "grids" {
+            let fallback_url = format!("{}/grids/game/{}?limit=30", BASE_URL, sgdb_game_id);
+            if let Ok(Some(fallback_res)) = self.request_json::<Vec<SteamGridImageItem>>(&fallback_url).await {
+                return Ok(fallback_res);
+            }
+        }
+        Ok(res)
     }
 
     /// Download 3 media types (Cover, Banner, Icon) for a game and store locally with DB status persistence

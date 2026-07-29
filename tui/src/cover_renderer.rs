@@ -4,6 +4,7 @@ use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct CoverManager {
     pub picker: Picker,
 }
@@ -17,7 +18,11 @@ impl CoverManager {
         Self { picker }
     }
 
-    pub fn load_protocol_from_file(&mut self, path: &Path) -> Option<StatefulProtocol> {
+    pub fn with_picker(picker: Picker) -> Self {
+        Self { picker }
+    }
+
+    pub fn load_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
         if !path.exists() {
             return None;
         }
@@ -28,6 +33,7 @@ impl CoverManager {
             .ok()?
             .decode()
             .ok()?;
-        Some(self.picker.new_resize_protocol(dyn_img))
+        let mut picker = self.picker.clone();
+        Some(picker.new_resize_protocol(dyn_img))
     }
 }
