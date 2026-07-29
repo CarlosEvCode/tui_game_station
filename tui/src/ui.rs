@@ -261,11 +261,11 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     let current_platform = app.platforms.get(app.selected_platform_idx);
 
     // Vertical layout inside the right card pane:
-    // Top: Cover Image box (tailored height)
-    // Bottom: Detailed Game Information Panel
+    // Top: Cover Image box (reduced height proportion)
+    // Bottom: Detailed Game Information Panel (enlarged space)
     let card_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(12), Constraint::Length(8)])
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(area);
 
     // 1. Render Cover Image Box

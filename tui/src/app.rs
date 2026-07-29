@@ -7,11 +7,16 @@ use ratatui_image::protocol::StatefulProtocol;
 use runner::GameRunner;
 use scraper::downloader::{DownloadEvent, RunnerDownloader};
 use scraper::steam_cover::SteamCoverResolver;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 use crate::cover_renderer::CoverManager;
+
+pub struct LoadedCoverEvent {
+    pub game_id: i64,
+    pub protocol: StatefulProtocol,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
@@ -115,9 +120,10 @@ pub struct App {
     pub modal_state: ModalState,
     pub download_progress: Option<DownloadProgressState>,
     pub download_rx: Option<mpsc::Receiver<DownloadEvent>>,
-    pub cover_manager: CoverManager,
+    pub cover_tx: mpsc::Sender<LoadedCoverEvent>,
+    pub cover_rx: mpsc::Receiver<LoadedCoverEvent>,
+    pub pending_cover_requests: HashSet<i64>,
     pub image_protocols: HashMap<i64, StatefulProtocol>,
-    pub cover_cache: HashMap<i64, PathBuf>,
     pub show_all_platforms: bool,
     pub status_msg: String,
     pub should_quit: bool,
@@ -131,7 +137,7 @@ impl App {
 
         let show_all_platforms = false;
         let platforms = db.get_active_platforms(show_all_platforms)?;
-        let cover_manager = CoverManager::new();
+        let (cover_tx, cover_rx) = mpsc::channel::<LoadedCoverEvent>(50);
 
         let mut app = Self {
             db,
@@ -144,9 +150,10 @@ impl App {
             modal_state: ModalState::None,
             download_progress: None,
             download_rx: None,
-            cover_manager,
+            cover_tx,
+            cover_rx,
+            pending_cover_requests: HashSet::new(),
             image_protocols: HashMap::new(),
-            cover_cache: HashMap::new(),
             show_all_platforms,
             status_msg: if steam_added > 0 {
                 format!("Detectados {} juegos de Steam automáticamente!", steam_added)
@@ -185,6 +192,35 @@ impl App {
             self.games.clear();
             self.selected_game_idx = 0;
         }
+
+        self.trigger_async_cover_fetch();
+    }
+
+    pub fn trigger_async_cover_fetch(&mut self) {
+        if self.games.is_empty() || self.selected_game_idx >= self.games.len() {
+            return;
+        }
+
+        let game = &self.games[self.selected_game_idx];
+        let game_id = game.id;
+
+        if self.image_protocols.contains_key(&game_id) || self.pending_cover_requests.contains(&game_id) {
+            return;
+        }
+
+        if let Some(appid) = game.steam_appid {
+            self.pending_cover_requests.insert(game_id);
+            let tx = self.cover_tx.clone();
+
+            tokio::spawn(async move {
+                if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
+                    let mut manager = CoverManager::new();
+                    if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                        let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
+                    }
+                }
+            });
+        }
     }
 
     pub async fn check_download_events(&mut self) {
@@ -198,37 +234,10 @@ impl App {
             self.update(Action::UpdateDownloadProgress(evt)).await;
         }
 
-        // Auto-resolve cover & Kitty graphics protocol for currently selected game and next 3 games (pre-fetching)
-        if !self.games.is_empty() {
-            let start = self.selected_game_idx;
-            let end = (start + 4).min(self.games.len());
-
-            for idx in start..end {
-                let game = &self.games[idx];
-                let game_id = game.id;
-
-                if !self.image_protocols.contains_key(&game_id) {
-                    if let Some(appid) = game.steam_appid {
-                        let cover_path = match self.cover_cache.get(&game_id) {
-                            Some(p) => Some(p.clone()),
-                            None => {
-                                if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
-                                    self.cover_cache.insert(game_id, path.clone());
-                                    Some(path)
-                                } else {
-                                    None
-                                }
-                            }
-                        };
-
-                        if let Some(path) = cover_path {
-                            if let Some(proto) = self.cover_manager.load_protocol_from_file(&path) {
-                                self.image_protocols.insert(game_id, proto);
-                            }
-                        }
-                    }
-                }
-            }
+        // Receive loaded cover events from background task non-blocking
+        while let Ok(loaded) = self.cover_rx.try_recv() {
+            self.pending_cover_requests.remove(&loaded.game_id);
+            self.image_protocols.insert(loaded.game_id, loaded.protocol);
         }
     }
 
@@ -287,6 +296,7 @@ impl App {
             Action::NextGame => {
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
                     self.selected_game_idx = (self.selected_game_idx + 1) % self.games.len();
+                    self.trigger_async_cover_fetch();
                 }
             }
             Action::PrevGame => {
@@ -296,6 +306,7 @@ impl App {
                     } else {
                         self.selected_game_idx -= 1;
                     }
+                    self.trigger_async_cover_fetch();
                 }
             }
             Action::LaunchGame => {
