@@ -1,0 +1,112 @@
+use anyhow::{Context, Result};
+use game_core::models::{Game, Runner};
+use std::collections::HashMap;
+use std::process::ExitStatus;
+use tokio::process::Command;
+
+pub struct GameRunner;
+
+impl GameRunner {
+    /// Format and build the executable command line string for a game.
+    pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
+        let mut env_vars = HashMap::new();
+
+        // Custom command on game overrides everything
+        if let Some(cmd) = &game.custom_command {
+            return parse_command_string(cmd, game);
+        }
+
+        if game.game_type == "steam" {
+            let appid = game.steam_appid.unwrap_or(0);
+            let cmd = format!("steam steam://rungameid/{}", appid);
+            return parse_command_string(&cmd, game);
+        }
+
+        if let Some(r) = runner {
+            let mut template = r.command_template.clone();
+
+            let file_path = game.file_path.clone().unwrap_or_default();
+            template = template.replace("{rom}", &file_path);
+            template = template.replace("{file_path}", &file_path);
+
+            if let Some(prefix) = &game.wine_prefix {
+                env_vars.insert("WINEPREFIX".to_string(), prefix.clone());
+            }
+
+            return parse_command_string(&template, game);
+        }
+
+        // Direct execution fallback (e.g. native linux game)
+        if let Some(path) = &game.file_path {
+            return parse_command_string(&format!("\"{}\"", path), game);
+        }
+
+        anyhow::bail!("No suitable runner or executable command found for game: {}", game.title)
+    }
+
+    /// Launch game process asynchronously and wait for completion.
+    pub async fn launch_game(game: &Game, runner: Option<&Runner>) -> Result<ExitStatus> {
+        let (exe, args, envs) = Self::build_command_line(game, runner)?;
+
+        let mut cmd = Command::new(&exe);
+        cmd.args(&args);
+
+        if let Some(work_dir) = &game.working_dir {
+            cmd.current_dir(work_dir);
+        }
+
+        for (k, v) in envs {
+            cmd.env(k, v);
+        }
+
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("Failed to spawn game process: {} {:?}", exe, args))?;
+
+        let status = child.wait().await?;
+        Ok(status)
+    }
+}
+
+fn parse_command_string(full_cmd: &str, _game: &Game) -> Result<(String, Vec<String>, HashMap<String, String>)> {
+    let parts = shlex_split(full_cmd);
+    if parts.is_empty() {
+        anyhow::bail!("Empty command string");
+    }
+
+    let exe = parts[0].clone();
+    let args = parts[1..].to_vec();
+    let envs = HashMap::new();
+
+    Ok((exe, args, envs))
+}
+
+fn shlex_split(cmd: &str) -> Vec<String> {
+    // Basic whitespace & quote parser for command line strings
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in cmd.chars() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+            }
+            ' ' if !in_quotes => {
+                if !current.is_empty() {
+                    args.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
+}

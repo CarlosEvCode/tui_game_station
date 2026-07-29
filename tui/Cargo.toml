@@ -1,0 +1,19 @@
+[package]
+name = "tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+game_core = { path = "../core" }
+runner = { path = "../runner" }
+scraper = { path = "../scraper" }
+ratatui = "0.29"
+crossterm = "0.28"
+ratatui-image = "3.0"
+image = "0.25"
+tokio = { version = "1.43", features = ["full"] }
+dirs = "6.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tracing-appender = "0.2"

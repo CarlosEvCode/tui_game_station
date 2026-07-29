@@ -1,0 +1,10 @@
+[package]
+name = "runner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+game_core = { path = "../core" }
+tokio = { version = "1.43", features = ["full", "process"] }
+anyhow = "1.0"
+tracing = "0.1"
