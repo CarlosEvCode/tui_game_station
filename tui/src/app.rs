@@ -4,7 +4,7 @@ use game_core::models::{Game, Platform, PlatformType, Runner};
 use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
 use runner::GameRunner;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
@@ -50,6 +50,9 @@ pub enum Action {
     LaunchGame,
     ScanCurrentFolder,
     ScanSteamGames,
+
+    // File Picker Action
+    OpenFilePicker,
 
     // Add Game Modal Actions
     OpenAddGameModal,
@@ -106,7 +109,7 @@ impl App {
             status_msg: if steam_added > 0 {
                 format!("Detectados {} juegos de Steam automáticamente!", steam_added)
             } else {
-                "TUI Game Station listo! [m] Gestionar Emuladores/Runners | [a] Agregar | [s] Escanear".to_string()
+                "TUI Game Station listo! [m] Configurar Emuladores/Runners | [a] Agregar | [f] Seleccionar Archivo".to_string()
             },
             should_quit: false,
         };
@@ -254,6 +257,45 @@ impl App {
                 }
             }
 
+            // File Picker
+            Action::OpenFilePicker => {
+                if let Some(picked) = rfd::FileDialog::new().pick_file() {
+                    let path_str = picked.to_string_lossy().to_string();
+                    match self.modal_state {
+                        ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } => {
+                            *exe_path_input = path_str.clone();
+                            self.status_msg = format!("Archivo seleccionado: {}", path_str);
+                        }
+                        ModalState::AddGameForm {
+                            ref mut file_path,
+                            ref mut title,
+                            selected_field,
+                            game_type: ref gtype,
+                            ..
+                        } => {
+                            let filename = picked.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                            if title.is_empty() && !filename.is_empty() {
+                                *title = filename;
+                            }
+
+                            match gtype {
+                                PlatformType::Emulator if selected_field == 2 => {
+                                    *file_path = path_str.clone();
+                                }
+                                PlatformType::Native | PlatformType::Wine if selected_field == 1 => {
+                                    *file_path = path_str.clone();
+                                }
+                                _ => {
+                                    *file_path = path_str.clone();
+                                }
+                            }
+                            self.status_msg = format!("Archivo de juego seleccionado: {}", path_str);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
             // Runner Manager Actions
             Action::OpenManageRunnersModal => {
                 self.modal_state = ModalState::ManageRunnersStep1Platform {
@@ -284,10 +326,21 @@ impl App {
                     ..
                 } = self.modal_state.clone()
                 {
+                    let trimmed_path = exe_path_input.trim();
+                    if trimmed_path.is_empty() {
+                        self.status_msg = "❌ Error: Debes ingresar o seleccionar la ruta del ejecutable / .AppImage.".to_string();
+                        return;
+                    }
+
+                    if !Path::new(trimmed_path).exists() {
+                        self.status_msg = format!("❌ Error: El archivo no existe en el sistema: '{}'. Selecciona un ejecutable existente.", trimmed_path);
+                        return;
+                    }
+
                     if let Some(runner) = runners.get(selected_runner_idx) {
-                        match self.db.update_runner_config(runner.id, exe_path_input, true) {
+                        match self.db.update_runner_config(runner.id, trimmed_path, true) {
                             Ok(_) => {
-                                self.status_msg = format!("Runner '{}' configurado correctamente. Plataforma activada!", runner.name);
+                                self.status_msg = format!("✅ Runner '{}' configurado correctamente. Plataforma activada!", runner.name);
                                 self.modal_state = ModalState::None;
                                 self.load_platforms();
                             }

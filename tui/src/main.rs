@@ -89,6 +89,9 @@ async fn main() -> Result<()> {
                             KeyCode::Backspace => {
                                 app.update(Action::ModalBackspace).await;
                             }
+                            KeyCode::Char('f') => {
+                                app.update(Action::OpenFilePicker).await;
+                            }
                             KeyCode::Char(c) => {
                                 app.update(Action::ModalInputChar(c)).await;
                             }

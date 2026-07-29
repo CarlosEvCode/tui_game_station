@@ -23,7 +23,6 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
     render_main_content(frame, app, chunks[1]);
     render_footer(frame, app, chunks[2]);
 
-    // Render modal overlay if active
     if app.modal_state != ModalState::None {
         render_modal(frame, app);
     }
@@ -182,7 +181,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [m] Emuladores/Runners | [a] Agregar | [p] Plataformas ({}) | [r] Sync Steam | [Enter] Jugar | [q] Salir | Info: {}",
+        " [m] Emuladores/Runners | [a] Agregar | [f] Seleccionar Archivo | [p] Plataformas ({}) | [Enter] Jugar | [q] Salir | Info: {}",
         filter_text, app.status_msg
     );
 
@@ -197,7 +196,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &App) {
-    let popup_area = centered_rect(68, 65, frame.area());
+    let popup_area = centered_rect(70, 70, frame.area());
     frame.render_widget(Clear, popup_area);
 
     match app.modal_state {
@@ -220,7 +219,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " ⚙️ Gestionar Emuladores/Runners - Paso 1: Selecciona Plataforma ",
+                        " ⚙️ Configurar Emulador - Paso 1: Selecciona Plataforma ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -234,7 +233,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [↑/↓] Seleccionar Plataforma | [Enter] Configurar Runner | [Esc] Cancelar")
+            let help = Paragraph::new(" [↑/↓] Seleccionar Plataforma | [Enter] Siguiente | [Esc] Cancelar")
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
@@ -246,11 +245,11 @@ fn render_modal(frame: &mut Frame, app: &App) {
         } => {
             let mut lines = Vec::new();
             lines.push(Line::from(vec![
-                Span::styled("Plataforma a Configurar: ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Plataforma: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(&platform.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("1. Emulador / Runner Disponible: (Usar ←/→ para cambiar)", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("1. Emulador / Runner (←/→ para cambiar):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
 
             for (idx, r) in runners.iter().enumerate() {
                 let is_sel = idx == selected_runner_idx;
@@ -267,10 +266,13 @@ fn render_modal(frame: &mut Frame, app: &App) {
             }
 
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("2. Ruta al Ejecutable / .AppImage:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("2. Ruta al Executable / .AppImage:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
             lines.push(Line::from(vec![
                 Span::raw("   "),
-                Span::styled(exe_path_input, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                Span::styled(
+                    if exe_path_input.is_empty() { "< Presiona [f] para elegir o escribe la ruta >" } else { exe_path_input },
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                ),
             ]));
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled("[ GUARDAR RUNNER Y ACTIVAR PLATAFORMA ]", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))));
@@ -278,7 +280,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let p = Paragraph::new(lines).block(
                 Block::default()
                     .title(Span::styled(
-                        format!(" ⚙️ Configurar Runner para {} ", platform.name),
+                        format!(" ⚙️ Asignar Ejecutable / AppImage a {} ", platform.name),
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -292,8 +294,8 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [←/→] Cambiar Runner | [Escribir/Borrar] Ruta AppImage | [Enter] Guardar | [Esc] Cancelar")
-                .style(Style::default().fg(Color::DarkGray));
+            let help = Paragraph::new(" [f] Selector GUI de Sistema | [←/→] Cambiar Runner | [Enter] Guardar | [Esc] Cancelar")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::AddGameStep1Type { selected_type_idx } => {
@@ -382,7 +384,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Ruta ROM: ", field_style(2)),
-                        Span::raw(file_path),
+                        Span::raw(if file_path.is_empty() { "< Presiona [f] para buscar ROM >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("[ GUARDAR JUEGO ]", field_style(3)),
@@ -395,7 +397,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("2. Ruta Ejecutable: ", field_style(1)),
-                        Span::raw(file_path),
+                        Span::raw(if file_path.is_empty() { "< Presiona [f] para buscar >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Dir. Trabajo: ", field_style(2)),
@@ -416,7 +418,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("2. Ruta .exe: ", field_style(1)),
-                        Span::raw(file_path),
+                        Span::raw(if file_path.is_empty() { "< Presiona [f] para buscar .exe >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. WINEPREFIX: ", field_style(2)),
@@ -459,8 +461,8 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Tab/Shift+Tab] Cambiar Campo | [Escribir] Texto | [Enter] Guardar | [Esc] Cancelar")
-                .style(Style::default().fg(Color::DarkGray));
+            let help = Paragraph::new(" [f] Selector GUI de Archivo | [Tab/Shift+Tab] Cambiar Campo | [Enter] Guardar | [Esc] Cancelar")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::None => {}
