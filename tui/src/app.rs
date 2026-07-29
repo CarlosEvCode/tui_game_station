@@ -130,6 +130,7 @@ pub enum ModalState {
         selected_idx: usize,
     },
     ProtonDownloader {
+        active_section: usize,
         target_launcher: scraper::proton::TargetLauncher,
         repo_idx: usize,
         releases: Vec<scraper::proton::ProtonRelease>,
@@ -155,10 +156,12 @@ pub enum Action {
     PrevGame,
     OpenWineRunnerManager,
     OpenProtonDownloader,
-    SwitchProtonRepo,
-    SwitchProtonRepoPrev,
-    SwitchTargetLauncherNext,
-    SwitchTargetLauncherPrev,
+    ProtonDownloaderNavUp,
+    ProtonDownloaderNavDown,
+    ProtonDownloaderNavLeft,
+    ProtonDownloaderNavRight,
+    ProtonDownloaderTabNext,
+    ProtonDownloaderConfirm,
     FetchProtonReleases,
     StartProtonDownload,
     OpenWineRunnerPicker,
@@ -996,167 +999,198 @@ impl App {
             }
             Action::OpenProtonDownloader => {
                 let target_launcher = scraper::proton::TargetLauncher::Steam;
-                let valid = target_launcher.valid_repos();
-                let repo = valid[0];
-
                 self.modal_state = ModalState::ProtonDownloader {
+                    active_section: 0,
                     target_launcher,
                     repo_idx: 0,
                     releases: Vec::new(),
                     selected_release_idx: 0,
-                    is_loading: true,
+                    is_loading: false,
                     download_event: None,
                 };
-                self.status_msg = format!("Fetching releases for {} ({}) ...", repo.display_name(), target_launcher.display_name());
-
-                if let Ok(fetched_releases) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
-                    if let ModalState::ProtonDownloader {
-                        ref mut releases,
-                        ref mut is_loading,
-                        ref mut selected_release_idx,
-                        ..
-                    } = self.modal_state
-                    {
-                        *releases = fetched_releases;
-                        *is_loading = false;
+                self.status_msg = "Select target launcher with [Left/Right] or press [Enter] to browse available tools.".to_string();
+            }
+            Action::ProtonDownloaderNavLeft => {
+                if let ModalState::ProtonDownloader {
+                    active_section,
+                    ref mut target_launcher,
+                    ref mut repo_idx,
+                    ref mut releases,
+                    ref mut selected_release_idx,
+                    ..
+                } = self.modal_state
+                {
+                    if active_section == 0 {
+                        *target_launcher = target_launcher.prev();
+                        *repo_idx = 0;
+                        releases.clear();
                         *selected_release_idx = 0;
-                        self.status_msg = format!("[OK] Loaded {} release(s).", releases.len());
+                    } else if active_section == 1 {
+                        let valid = target_launcher.valid_repos();
+                        if !valid.is_empty() {
+                            if *repo_idx == 0 {
+                                *repo_idx = valid.len() - 1;
+                            } else {
+                                *repo_idx -= 1;
+                            }
+                            releases.clear();
+                            *selected_release_idx = 0;
+                        }
                     }
                 }
             }
-            Action::SwitchTargetLauncherNext => {
+            Action::ProtonDownloaderNavRight => {
                 if let ModalState::ProtonDownloader {
+                    active_section,
                     ref mut target_launcher,
                     ref mut repo_idx,
-                    ref mut is_loading,
                     ref mut releases,
                     ref mut selected_release_idx,
                     ..
                 } = self.modal_state
                 {
-                    let next_launcher = target_launcher.next();
-                    *target_launcher = next_launcher;
-                    *repo_idx = 0;
-                    *releases = Vec::new();
-                    *selected_release_idx = 0;
-                    *is_loading = true;
-
-                    let repo = next_launcher.valid_repos()[0];
-                    self.status_msg = format!("Fetching releases for {} ({}) ...", repo.display_name(), next_launcher.display_name());
-                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
-                        if let ModalState::ProtonDownloader {
-                            ref mut releases,
-                            ref mut is_loading,
-                            ..
-                        } = self.modal_state
-                        {
-                            *releases = fetched;
-                            *is_loading = false;
-                            self.status_msg = format!("[OK] Loaded {} release(s).", releases.len());
+                    if active_section == 0 {
+                        *target_launcher = target_launcher.next();
+                        *repo_idx = 0;
+                        releases.clear();
+                        *selected_release_idx = 0;
+                    } else if active_section == 1 {
+                        let valid = target_launcher.valid_repos();
+                        if !valid.is_empty() {
+                            *repo_idx = (*repo_idx + 1) % valid.len();
+                            releases.clear();
+                            *selected_release_idx = 0;
                         }
                     }
                 }
             }
-            Action::SwitchTargetLauncherPrev => {
+            Action::ProtonDownloaderNavUp => {
                 if let ModalState::ProtonDownloader {
-                    ref mut target_launcher,
-                    ref mut repo_idx,
-                    ref mut is_loading,
-                    ref mut releases,
+                    ref mut active_section,
                     ref mut selected_release_idx,
                     ..
                 } = self.modal_state
                 {
-                    let prev_launcher = target_launcher.prev();
-                    *target_launcher = prev_launcher;
-                    *repo_idx = 0;
-                    *releases = Vec::new();
-                    *selected_release_idx = 0;
-                    *is_loading = true;
-
-                    let repo = prev_launcher.valid_repos()[0];
-                    self.status_msg = format!("Fetching releases for {} ({}) ...", repo.display_name(), prev_launcher.display_name());
-                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
-                        if let ModalState::ProtonDownloader {
-                            ref mut releases,
-                            ref mut is_loading,
-                            ..
-                        } = self.modal_state
-                        {
-                            *releases = fetched;
-                            *is_loading = false;
-                            self.status_msg = format!("[OK] Loaded {} release(s).", releases.len());
+                    if *active_section == 2 {
+                        if *selected_release_idx > 0 {
+                            *selected_release_idx -= 1;
+                        } else {
+                            *active_section = 1;
+                        }
+                    } else if *active_section == 1 {
+                        *active_section = 0;
+                    }
+                }
+            }
+            Action::ProtonDownloaderNavDown => {
+                if let ModalState::ProtonDownloader {
+                    ref mut active_section,
+                    ref mut selected_release_idx,
+                    ref releases,
+                    ..
+                } = self.modal_state
+                {
+                    if *active_section == 0 {
+                        *active_section = 1;
+                    } else if *active_section == 1 {
+                        if !releases.is_empty() {
+                            *active_section = 2;
+                        }
+                    } else if *active_section == 2 {
+                        if !releases.is_empty() && *selected_release_idx + 1 < releases.len() {
+                            *selected_release_idx += 1;
                         }
                     }
                 }
             }
-            Action::SwitchProtonRepo => {
+            Action::ProtonDownloaderTabNext => {
                 if let ModalState::ProtonDownloader {
+                    ref mut active_section,
+                    ..
+                } = self.modal_state
+                {
+                    *active_section = (*active_section + 1) % 3;
+                }
+            }
+            Action::ProtonDownloaderConfirm => {
+                if let ModalState::ProtonDownloader {
+                    active_section,
                     target_launcher,
-                    ref mut repo_idx,
-                    ref mut is_loading,
-                    ref mut releases,
-                    ref mut selected_release_idx,
+                    repo_idx,
+                    ref releases,
+                    selected_release_idx,
                     ..
-                } = self.modal_state
+                } = self.modal_state.clone()
                 {
-                    let valid = target_launcher.valid_repos();
-                    if !valid.is_empty() {
-                        *repo_idx = (*repo_idx + 1) % valid.len();
-                        let current_repo = valid[*repo_idx];
-                        *releases = Vec::new();
-                        *selected_release_idx = 0;
-                        *is_loading = true;
-
-                        self.status_msg = format!("Fetching releases for {}...", current_repo.display_name());
-                        if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(current_repo, 1, 10).await {
+                    if active_section == 0 {
+                        if let ModalState::ProtonDownloader { ref mut active_section, .. } = self.modal_state {
+                            *active_section = 1;
+                        }
+                    } else if active_section == 1 {
+                        let valid = target_launcher.valid_repos();
+                        if let Some(&repo) = valid.get(repo_idx) {
                             if let ModalState::ProtonDownloader {
-                                ref mut releases,
                                 ref mut is_loading,
+                                ref mut releases,
+                                ref mut active_section,
+                                ref mut selected_release_idx,
                                 ..
                             } = self.modal_state
                             {
-                                *releases = fetched;
-                                *is_loading = false;
-                                self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), current_repo.display_name());
+                                *is_loading = true;
+                                *releases = Vec::new();
+                                *selected_release_idx = 0;
+                                *active_section = 2;
+                                self.status_msg = format!("Fetching releases for {}...", repo.display_name());
+                            }
+
+                            if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
+                                if let ModalState::ProtonDownloader {
+                                    ref mut releases,
+                                    ref mut is_loading,
+                                    ..
+                                } = self.modal_state
+                                {
+                                    *releases = fetched;
+                                    *is_loading = false;
+                                    self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), repo.display_name());
+                                }
                             }
                         }
-                    }
-                }
-            }
-            Action::SwitchProtonRepoPrev => {
-                if let ModalState::ProtonDownloader {
-                    target_launcher,
-                    ref mut repo_idx,
-                    ref mut is_loading,
-                    ref mut releases,
-                    ref mut selected_release_idx,
-                    ..
-                } = self.modal_state
-                {
-                    let valid = target_launcher.valid_repos();
-                    if !valid.is_empty() {
-                        if *repo_idx == 0 {
-                            *repo_idx = valid.len() - 1;
-                        } else {
-                            *repo_idx -= 1;
-                        }
-                        let current_repo = valid[*repo_idx];
-                        *releases = Vec::new();
-                        *selected_release_idx = 0;
-                        *is_loading = true;
+                    } else if active_section == 2 {
+                        if !releases.is_empty() {
+                            if self.download_progress.is_some() {
+                                self.status_msg = "[Warning] A download/extraction task is already in progress. Please wait for it to complete.".to_string();
+                                return;
+                            }
 
-                        self.status_msg = format!("Fetching releases for {}...", current_repo.display_name());
-                        if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(current_repo, 1, 10).await {
-                            if let ModalState::ProtonDownloader {
-                                ref mut releases,
-                                ref mut is_loading,
-                                ..
-                            } = self.modal_state
-                            {
-                                *releases = fetched;
-                                *is_loading = false;
-                                self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), current_repo.display_name());
+                            let valid = target_launcher.valid_repos();
+                            if let (Some(repo), Some(release)) = (valid.get(repo_idx), releases.get(selected_release_idx)) {
+                                let target_dir = target_launcher.installation_dir(*repo);
+
+                                let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
+                                self.download_rx = Some(rx);
+                                self.download_progress = Some(DownloadProgressState {
+                                    runner_id: 0,
+                                    runner_name: release.name.clone(),
+                                    downloaded_bytes: 0,
+                                    total_bytes: release.asset.as_ref().map(|a| a.size).unwrap_or(0),
+                                    percentage: 0.0,
+                                    is_finished: false,
+                                    error_msg: None,
+                                });
+                                let rel_clone = release.clone();
+
+                                self.status_msg = format!("Downloading & extracting {}...", release.name);
+
+                                tokio::spawn(async move {
+                                    let _ = scraper::proton::ProtonDownloaderClient::download_and_extract(
+                                        &rel_clone,
+                                        &target_dir,
+                                        tx,
+                                    )
+                                    .await;
+                                });
                             }
                         }
                     }

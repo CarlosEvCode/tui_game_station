@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::BackTab => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::SwitchProtonRepoPrev).await;
+                                    app.update(Action::ProtonDownloaderTabNext).await;
                                 } else {
                                     app.update(Action::ModalPrevField).await;
                                 }
@@ -56,11 +56,7 @@ async fn main() -> Result<()> {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
                                     app.update(Action::SwitchVisualMediaTab).await;
                                 } else if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                        app.update(Action::SwitchProtonRepoPrev).await;
-                                    } else {
-                                        app.update(Action::SwitchProtonRepo).await;
-                                    }
+                                    app.update(Action::ProtonDownloaderTabNext).await;
                                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
@@ -71,11 +67,13 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavUp).await;
                                 }
+                                ModalState::ProtonDownloader { .. } => {
+                                    app.update(Action::ProtonDownloaderNavUp).await;
+                                }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::ManageWineRunners { .. }
-                                | ModalState::ProtonDownloader { .. }
                                 | ModalState::SelectWineRunnerPicker { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
@@ -87,11 +85,13 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavDown).await;
                                 }
+                                ModalState::ProtonDownloader { .. } => {
+                                    app.update(Action::ProtonDownloaderNavDown).await;
+                                }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::ManageWineRunners { .. }
-                                | ModalState::ProtonDownloader { .. }
                                 | ModalState::SelectWineRunnerPicker { .. } => {
                                     app.update(Action::ModalSelectNext).await;
                                 }
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::FormNavLeft).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::SwitchTargetLauncherPrev).await;
+                                    app.update(Action::ProtonDownloaderNavLeft).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::FormNavRight).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::SwitchTargetLauncherNext).await;
+                                    app.update(Action::ProtonDownloaderNavRight).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectNext).await;
@@ -157,7 +157,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('r') => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::SwitchProtonRepo).await;
+                                    app.update(Action::ProtonDownloaderTabNext).await;
                                 } else {
                                     app.update(Action::ModalInputChar('r')).await;
                                 }
@@ -213,7 +213,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::OpenProtonDownloader).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::StartProtonDownload).await;
+                                    app.update(Action::ProtonDownloaderConfirm).await;
                                 }
                                 ModalState::SelectWineRunnerPicker { .. } => {
                                     app.update(Action::SelectWineRunnerFromPicker).await;
@@ -333,7 +333,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('t') => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::SwitchTargetLauncherNext).await;
+                                    app.update(Action::ProtonDownloaderTabNext).await;
                                 } else {
                                     app.update(Action::ModalInputChar('t')).await;
                                 }
