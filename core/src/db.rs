@@ -109,6 +109,18 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS game_media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                media_type TEXT NOT NULL,
+                file_path TEXT,
+                source TEXT NOT NULL DEFAULT 'steamgriddb',
+                url TEXT,
+                status TEXT NOT NULL DEFAULT 'downloaded',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(game_id, media_type)
+            );
             ",
         )?;
         Ok(())
@@ -429,6 +441,48 @@ impl Database {
         self.conn.execute(
             "UPDATE runners SET executable_path = NULL, is_configured = 0 WHERE id = ?1",
             params![runner_id],
+        )?;
+        Ok(())
+    }
+
+    // ----------------------------------------------------
+    // Media cache queries
+    // ----------------------------------------------------
+    pub fn media_statuses(&self, game_id: i64) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT media_type, status FROM game_media WHERE game_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![game_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn get_media_status(&self, game_id: i64, media_type: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT status FROM game_media WHERE game_id = ?1 AND media_type = ?2",
+        )?;
+        let mut rows = stmt.query(params![game_id, media_type])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn record_media_status(
+        &self,
+        game_id: i64,
+        media_type: &str,
+        status: &str,
+        file_path: Option<&str>,
+        url: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO game_media (game_id, media_type, file_path, source, url, status)
+             VALUES (?1, ?2, ?3, 'steamgriddb', ?4, ?5)
+             ON CONFLICT(game_id, media_type) DO UPDATE SET
+                file_path = excluded.file_path, url = excluded.url, status = excluded.status,
+                updated_at = CURRENT_TIMESTAMP",
+            params![game_id, media_type, file_path, url, status],
         )?;
         Ok(())
     }

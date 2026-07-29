@@ -98,6 +98,13 @@ async fn main() -> Result<()> {
                                 ModalState::AppSettings { .. } => {
                                     app.update(Action::SaveAppSettings).await;
                                 }
+                                ModalState::VisualMediaSelector { active_tab, .. } => {
+                                    if active_tab == 0 {
+                                        app.update(Action::SelectVisualMediaCandidate).await;
+                                    } else {
+                                        app.update(Action::ApplyVisualMediaSelection).await;
+                                    }
+                                }
                                 ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::RunnerModalConfirmPlatform).await;
                                 }
@@ -156,8 +163,15 @@ async fn main() -> Result<()> {
                             KeyCode::Char('m') => {
                                 app.update(Action::OpenManageRunnersModal).await;
                             }
+                            KeyCode::Char('w') => {
+                                app.update(Action::OpenVisualMediaModal).await;
+                            }
                             KeyCode::Tab => {
-                                app.update(Action::TogglePane).await;
+                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
+                                    app.update(Action::SwitchVisualMediaTab).await;
+                                } else {
+                                    app.update(Action::TogglePane).await;
+                                }
                             }
                             KeyCode::Up => match app.focused_pane {
                                 FocusedPane::Platforms => app.update(Action::PrevPlatform).await,

@@ -371,7 +371,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [v] View | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View | [w] Media Selector | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 
@@ -694,6 +694,181 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let help = Paragraph::new(" [Typing] Edit API Key | [Enter] Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
+        }
+        ModalState::VisualMediaSelector {
+            ref game_title,
+            ref search_query,
+            active_tab,
+            is_searching,
+            ref candidates,
+            selected_candidate_idx,
+            ref covers,
+            selected_cover_idx,
+            ref banners,
+            selected_banner_idx,
+            ref icons,
+            selected_icon_idx,
+            ..
+        } => {
+            let tab_titles = vec![
+                format!("1. Candidates ({})", candidates.len()),
+                format!("2. Covers ({})", covers.len()),
+                format!("3. Banners ({})", banners.len()),
+                format!("4. Icons ({})", icons.len()),
+            ];
+
+            let tab_spans: Vec<Span> = tab_titles
+                .iter()
+                .enumerate()
+                .map(|(idx, title)| {
+                    if idx == active_tab {
+                        Span::styled(format!(" [ {} ] ", title), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
+                    } else {
+                        Span::styled(format!("   {}   ", title), Style::default().fg(Color::Gray))
+                    }
+                })
+                .collect();
+
+            let modal_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(2), Constraint::Min(8), Constraint::Length(2)])
+                .split(popup_area);
+
+            let tabs_line = Line::from(tab_spans);
+            frame.render_widget(Paragraph::new(tabs_line), modal_chunks[0]);
+
+            match active_tab {
+                0 => {
+                    let items: Vec<ListItem> = if is_searching {
+                        vec![ListItem::new(" [ Searching SteamGridDB... ]").style(Style::default().fg(Color::Yellow))]
+                    } else if candidates.is_empty() {
+                        vec![ListItem::new(format!(" No SteamGridDB candidates found for '{}'. Try editing search query.", search_query)).style(Style::default().fg(Color::Red))]
+                    } else {
+                        candidates
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, cand)| {
+                                let is_selected = idx == selected_candidate_idx;
+                                let style = if is_selected {
+                                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                                } else {
+                                    Style::default().fg(Color::White)
+                                };
+                                ListItem::new(format!("  {} (SGDB ID: {})", cand.name, cand.id)).style(style)
+                            })
+                            .collect()
+                    };
+
+                    let list = List::new(items).block(
+                        Block::default()
+                            .title(Span::styled(
+                                format!(" Candidates for '{}' ", game_title),
+                                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Cyan)),
+                    );
+                    frame.render_widget(list, modal_chunks[1]);
+                }
+                1 => {
+                    let items: Vec<ListItem> = if covers.is_empty() {
+                        vec![ListItem::new(" No covers available for this candidate. Select another candidate in Tab 1.").style(Style::default().fg(Color::Yellow))]
+                    } else {
+                        covers
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, c)| {
+                                let is_selected = idx == selected_cover_idx;
+                                let style = if is_selected {
+                                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else {
+                                    Style::default().fg(Color::White)
+                                };
+                                ListItem::new(format!("  Cover #{} - ID: {} | URL: {}", idx + 1, c.id, c.url)).style(style)
+                            })
+                            .collect()
+                    };
+
+                    let list = List::new(items).block(
+                        Block::default()
+                            .title(Span::styled(
+                                " Available Cover Posters (600x900) ",
+                                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Green)),
+                    );
+                    frame.render_widget(list, modal_chunks[1]);
+                }
+                2 => {
+                    let items: Vec<ListItem> = if banners.is_empty() {
+                        vec![ListItem::new(" No banners available for this candidate. Select another candidate in Tab 1.").style(Style::default().fg(Color::Yellow))]
+                    } else {
+                        banners
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, b)| {
+                                let is_selected = idx == selected_banner_idx;
+                                let style = if is_selected {
+                                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else {
+                                    Style::default().fg(Color::White)
+                                };
+                                ListItem::new(format!("  Banner #{} - ID: {} | URL: {}", idx + 1, b.id, b.url)).style(style)
+                            })
+                            .collect()
+                    };
+
+                    let list = List::new(items).block(
+                        Block::default()
+                            .title(Span::styled(
+                                " Available Banners / Heroes ",
+                                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Green)),
+                    );
+                    frame.render_widget(list, modal_chunks[1]);
+                }
+                3 => {
+                    let items: Vec<ListItem> = if icons.is_empty() {
+                        vec![ListItem::new(" No icons available for this candidate. Select another candidate in Tab 1.").style(Style::default().fg(Color::Yellow))]
+                    } else {
+                        icons
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, ic)| {
+                                let is_selected = idx == selected_icon_idx;
+                                let style = if is_selected {
+                                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else {
+                                    Style::default().fg(Color::White)
+                                };
+                                ListItem::new(format!("  Icon #{} - ID: {} | URL: {}", idx + 1, ic.id, ic.url)).style(style)
+                            })
+                            .collect()
+                    };
+
+                    let list = List::new(items).block(
+                        Block::default()
+                            .title(Span::styled(
+                                " Available Game Icons ",
+                                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Green)),
+                    );
+                    frame.render_widget(list, modal_chunks[1]);
+                }
+                _ => {}
+            }
+
+            let help_str = match active_tab {
+                0 => " [Up/Down] Select Candidate | [Enter] Load Candidate Media | [Tab] Switch Tab | [Esc] Close",
+                _ => " [Up/Down] Select Image | [Enter] Apply Image | [Tab] Switch Tab | [Esc] Close",
+            };
+            let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, modal_chunks[2]);
         }
         ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
             let runner_platforms = app.get_runner_platforms();

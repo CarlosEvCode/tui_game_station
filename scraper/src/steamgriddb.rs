@@ -16,13 +16,13 @@ const USER_AGENTS: &[&str] = &[
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SteamGridSearchResult {
     pub id: i64,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SteamGridImageItem {
     pub id: i64,
     pub url: String,
@@ -94,12 +94,42 @@ impl SteamGridDBClient {
         Ok(body.unwrap_or_default())
     }
 
-    /// Download 3 media types (Cover, Banner, Icon) for a game and store locally
+    /// Download 3 media types (Cover, Banner, Icon) for a game and store locally with DB status persistence
     pub async fn download_all_media_for_game(
         &self,
+        db_path: Option<PathBuf>,
         game_id: i64,
         raw_title: &str,
+        force: bool,
     ) -> Result<DownloadedMediaResult> {
+        let media_dir = Self::get_media_dir();
+        fs::create_dir_all(media_dir.join("covers"))?;
+        fs::create_dir_all(media_dir.join("banners"))?;
+        fs::create_dir_all(media_dir.join("icons"))?;
+
+        let cover_dest = media_dir.join("covers").join(format!("{}.jpg", game_id));
+        let banner_dest = media_dir.join("banners").join(format!("{}.jpg", game_id));
+        let icon_dest = media_dir.join("icons").join(format!("{}.png", game_id));
+
+        let db = db_path.and_then(|p| game_core::db::Database::open(&p).ok());
+
+        // Check DB statuses
+        let cover_status = db.as_ref().and_then(|d| d.get_media_status(game_id, "cover").ok().flatten());
+        let banner_status = db.as_ref().and_then(|d| d.get_media_status(game_id, "banner").ok().flatten());
+        let icon_status = db.as_ref().and_then(|d| d.get_media_status(game_id, "icon").ok().flatten());
+
+        let need_cover = force || (!cover_dest.is_file() && cover_status.as_deref() != Some("not_found"));
+        let need_banner = force || (!banner_dest.is_file() && banner_status.as_deref() != Some("not_found"));
+        let need_icon = force || (!icon_dest.is_file() && icon_status.as_deref() != Some("not_found"));
+
+        if !need_cover && !need_banner && !need_icon {
+            return Ok(DownloadedMediaResult {
+                cover_path: if cover_dest.is_file() { Some(cover_dest) } else { None },
+                banner_path: if banner_dest.is_file() { Some(banner_dest) } else { None },
+                icon_path: if icon_dest.is_file() { Some(icon_dest) } else { None },
+            });
+        }
+
         let cleaned = TitleCleaner::clean_title(raw_title);
         let mut candidates_to_try = vec![raw_title.to_string()];
         if !cleaned.is_empty() && cleaned != raw_title {
@@ -122,59 +152,107 @@ impl SteamGridDBClient {
             Some(id) => id,
             None => {
                 tracing::warn!("[SteamGridDB] No candidates found on SteamGridDB for '{}'", raw_title);
+                if let Some(ref d) = db {
+                    let _ = d.record_media_status(game_id, "cover", "not_found", None, None);
+                    let _ = d.record_media_status(game_id, "banner", "not_found", None, None);
+                    let _ = d.record_media_status(game_id, "icon", "not_found", None, None);
+                }
                 anyhow::bail!("No candidate found on SteamGridDB for '{}'", raw_title);
             }
         };
 
-        let media_dir = Self::get_media_dir();
-        fs::create_dir_all(media_dir.join("covers"))?;
-        fs::create_dir_all(media_dir.join("banners"))?;
-        fs::create_dir_all(media_dir.join("icons"))?;
-
         // 1. Cover / Grid
-        let cover_dest = media_dir.join("covers").join(format!("{}.jpg", game_id));
-        let cover_path = if let Ok(covers) = self.get_images(sgdb_id, "grids").await {
-            if let Some(c) = covers.first() {
-                if self.download_file_to_path(&c.url, &cover_dest).await.is_ok() {
-                    Some(cover_dest)
+        let cover_path = if cover_dest.is_file() && !force {
+            Some(cover_dest.clone())
+        } else if need_cover {
+            if let Ok(covers) = self.get_images(sgdb_id, "grids").await {
+                if let Some(c) = covers.first() {
+                    if self.download_file_to_path(&c.url, &cover_dest).await.is_ok() {
+                        if let Some(ref d) = db {
+                            let _ = d.record_media_status(game_id, "cover", "downloaded", Some(&cover_dest.to_string_lossy()), Some(&c.url));
+                        }
+                        Some(cover_dest)
+                    } else {
+                        if let Some(ref d) = db {
+                            let _ = d.record_media_status(game_id, "cover", "failed", None, None);
+                        }
+                        None
+                    }
                 } else {
+                    if let Some(ref d) = db {
+                        let _ = d.record_media_status(game_id, "cover", "not_found", None, None);
+                    }
                     None
                 }
             } else {
                 None
             }
+        } else if cover_dest.is_file() {
+            Some(cover_dest.clone())
         } else {
             None
         };
 
         // 2. Banner / Hero
-        let banner_dest = media_dir.join("banners").join(format!("{}.jpg", game_id));
-        let banner_path = if let Ok(banners) = self.get_images(sgdb_id, "heroes").await {
-            if let Some(b) = banners.first() {
-                if self.download_file_to_path(&b.url, &banner_dest).await.is_ok() {
-                    Some(banner_dest)
+        let banner_path = if banner_dest.is_file() && !force {
+            Some(banner_dest.clone())
+        } else if need_banner {
+            if let Ok(banners) = self.get_images(sgdb_id, "heroes").await {
+                if let Some(b) = banners.first() {
+                    if self.download_file_to_path(&b.url, &banner_dest).await.is_ok() {
+                        if let Some(ref d) = db {
+                            let _ = d.record_media_status(game_id, "banner", "downloaded", Some(&banner_dest.to_string_lossy()), Some(&b.url));
+                        }
+                        Some(banner_dest)
+                    } else {
+                        if let Some(ref d) = db {
+                            let _ = d.record_media_status(game_id, "banner", "failed", None, None);
+                        }
+                        None
+                    }
                 } else {
+                    if let Some(ref d) = db {
+                        let _ = d.record_media_status(game_id, "banner", "not_found", None, None);
+                    }
                     None
                 }
             } else {
                 None
             }
+        } else if banner_dest.is_file() {
+            Some(banner_dest.clone())
         } else {
             None
         };
 
         // 3. Icon
-        let icon_dest = media_dir.join("icons").join(format!("{}.png", game_id));
-        let icon_path = if let Ok(icons) = self.get_images(sgdb_id, "icons").await {
-            if let Some(i) = icons.first() {
-                if self.download_file_to_path(&i.url, &icon_dest).await.is_ok() {
-                    Some(icon_dest)
+        let icon_path = if icon_dest.is_file() && !force {
+            Some(icon_dest.clone())
+        } else if need_icon {
+            if let Ok(icons) = self.get_images(sgdb_id, "icons").await {
+                if let Some(i) = icons.first() {
+                    if self.download_file_to_path(&i.url, &icon_dest).await.is_ok() {
+                        if let Some(ref d) = db {
+                            let _ = d.record_media_status(game_id, "icon", "downloaded", Some(&icon_dest.to_string_lossy()), Some(&i.url));
+                        }
+                        Some(icon_dest)
+                    } else {
+                        if let Some(ref d) = db {
+                            let _ = d.record_media_status(game_id, "icon", "failed", None, None);
+                        }
+                        None
+                    }
                 } else {
+                    if let Some(ref d) = db {
+                        let _ = d.record_media_status(game_id, "icon", "not_found", None, None);
+                    }
                     None
                 }
             } else {
                 None
             }
+        } else if icon_dest.is_file() {
+            Some(icon_dest.clone())
         } else {
             None
         };
@@ -188,7 +266,7 @@ impl SteamGridDBClient {
         })
     }
 
-    async fn download_file_to_path(&self, url: &str, dest: &PathBuf) -> Result<()> {
+    pub async fn download_file_to_path(&self, url: &str, dest: &PathBuf) -> Result<()> {
         let resp = self
             .client
             .get(url)
