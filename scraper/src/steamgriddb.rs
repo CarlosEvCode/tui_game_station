@@ -230,8 +230,10 @@ impl SteamGridDBClient {
                         } else {
                             return Ok(None);
                         }
+                    } else if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+                        anyhow::bail!("SteamGridDB API 401 Unauthorized: Invalid or missing API Key");
                     } else {
-                        return Ok(None);
+                        anyhow::bail!("SteamGridDB API Error: HTTP {}", response.status());
                     }
                 }
                 Err(err) => {
