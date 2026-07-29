@@ -45,7 +45,9 @@ async fn main() -> Result<()> {
                                 app.update(Action::CloseModal).await;
                             }
                             KeyCode::Tab => {
-                                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
+                                    app.update(Action::SwitchVisualMediaTab).await;
+                                } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
                                     app.update(Action::ModalNextField).await;
@@ -53,7 +55,8 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Up => match app.modal_state {
                                 ModalState::AddGameStep1Type { .. }
-                                | ModalState::ManageRunnersStep1Platform { .. } => {
+                                | ModalState::ManageRunnersStep1Platform { .. }
+                                | ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
                                 _ => {
@@ -62,18 +65,57 @@ async fn main() -> Result<()> {
                             },
                             KeyCode::Down => match app.modal_state {
                                 ModalState::AddGameStep1Type { .. }
-                                | ModalState::ManageRunnersStep1Platform { .. } => {
+                                | ModalState::ManageRunnersStep1Platform { .. }
+                                | ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::ModalSelectNext).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalNextField).await;
                                 }
                             },
-                            KeyCode::Left => {
-                                app.update(Action::ModalSelectPrev).await;
+                            KeyCode::Left => match app.modal_state {
+                                ModalState::VisualMediaSelector { .. } => {
+                                    app.update(Action::SwitchVisualMediaTab).await;
+                                }
+                                _ => {
+                                    app.update(Action::ModalSelectPrev).await;
+                                }
+                            },
+                            KeyCode::Right => match app.modal_state {
+                                ModalState::VisualMediaSelector { .. } => {
+                                    app.update(Action::SwitchVisualMediaTab).await;
+                                }
+                                _ => {
+                                    app.update(Action::ModalSelectNext).await;
+                                }
+                            },
+                            KeyCode::Char('1') => {
+                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
+                                    app.update(Action::SetVisualMediaTab(0)).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('1')).await;
+                                }
                             }
-                            KeyCode::Right => {
-                                app.update(Action::ModalSelectNext).await;
+                            KeyCode::Char('2') => {
+                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
+                                    app.update(Action::SetVisualMediaTab(1)).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('2')).await;
+                                }
+                            }
+                            KeyCode::Char('3') => {
+                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
+                                    app.update(Action::SetVisualMediaTab(2)).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('3')).await;
+                                }
+                            }
+                            KeyCode::Char('4') => {
+                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
+                                    app.update(Action::SetVisualMediaTab(3)).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('4')).await;
+                                }
                             }
                             KeyCode::Char(' ') => {
                                 if let ModalState::ScanFolderForm { .. } = app.modal_state {

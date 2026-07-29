@@ -148,6 +148,7 @@ pub enum Action {
     SearchVisualMedia,
     SelectVisualMediaCandidate,
     SwitchVisualMediaTab,
+    SetVisualMediaTab(usize),
     ApplyVisualMediaSelection,
 
     // Manage Runners Modal Actions
@@ -1793,6 +1794,12 @@ impl App {
             Action::SwitchVisualMediaTab => {
                 if let ModalState::VisualMediaSelector { ref mut active_tab, .. } = self.modal_state {
                     *active_tab = (*active_tab + 1) % 4;
+                }
+                self.update_visual_media_preview();
+            }
+            Action::SetVisualMediaTab(tab_idx) => {
+                if let ModalState::VisualMediaSelector { ref mut active_tab, .. } = self.modal_state {
+                    *active_tab = tab_idx % 4;
                 }
                 self.update_visual_media_preview();
             }
