@@ -269,6 +269,21 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
     render_game_cover_card(frame, app, grid_chunks[1]);
 }
 
+fn render_cover_placeholder(frame: &mut Frame, app: &App, game_id: i64, area: Rect) {
+    frame.render_widget(Clear, area);
+    let cover_status = app.db.get_media_status(game_id, "cover").ok().flatten();
+    let msg = if cover_status.as_deref() == Some("not_found") {
+        "  [ No Cover Found ]"
+    } else {
+        "  [ Fetching Cover Image... ]"
+    };
+    let placeholder = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(msg, Style::default().fg(Color::Yellow))),
+    ]);
+    frame.render_widget(placeholder, area);
+}
+
 fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     if app.games.is_empty() || app.selected_game_idx >= app.games.len() {
         let empty_p = Paragraph::new("No game selected").block(
@@ -301,17 +316,36 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
         .border_style(Style::default().fg(Color::Cyan));
 
     let inner_cover_area = cover_block.inner(card_vertical_chunks[0]);
+    frame.render_widget(Clear, card_vertical_chunks[0]);
     frame.render_widget(cover_block, card_vertical_chunks[0]);
 
     if let Some(protocol) = app.image_protocols.get_mut(&game_id) {
         let image_widget = StatefulImage::new(None);
         frame.render_stateful_widget(image_widget, inner_cover_area, protocol);
     } else {
-        let placeholder = Paragraph::new(vec![
-            Line::from(""),
-            Line::from(Span::styled("  [ Fetching Cover Image... ]", Style::default().fg(Color::Yellow))),
-        ]);
-        frame.render_widget(placeholder, inner_cover_area);
+        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+        let covers_dir = media_dir.join("covers");
+        let local_cover = vec![
+            covers_dir.join(format!("{}.jpg", game_id)),
+            covers_dir.join(format!("{}.png", game_id)),
+            covers_dir.join(format!("{}.webp", game_id)),
+        ]
+        .into_iter()
+        .find(|p| p.exists());
+
+        if let Some(path) = local_cover {
+            if let Some(protocol) = app.cover_manager.load_protocol_from_file(&path) {
+                app.image_protocols.insert(game_id, protocol);
+                if let Some(proto) = app.image_protocols.get_mut(&game_id) {
+                    let image_widget = StatefulImage::new(None);
+                    frame.render_stateful_widget(image_widget, inner_cover_area, proto);
+                }
+            } else {
+                render_cover_placeholder(frame, app, game_id, inner_cover_area);
+            }
+        } else {
+            render_cover_placeholder(frame, app, game_id, inner_cover_area);
+        }
     }
 
     // 2. Render Game Details Panel
