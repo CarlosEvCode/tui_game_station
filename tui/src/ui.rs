@@ -37,13 +37,13 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
 fn render_header(frame: &mut Frame, area: Rect) {
     let header_text = vec![Line::from(vec![
         Span::styled(
-            " 🎮 TUI GAME STATION ",
+            " TUI GAME STATION ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            " | Standalone Retro & PC Games Launcher ",
+            "| Standalone Games Launcher ",
             Style::default().fg(Color::DarkGray),
         ),
     ])];
@@ -101,7 +101,7 @@ fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let title = format!(" Plataformas ({}) ", app.platforms.len());
+    let title = format!(" Platforms ({}) ", app.platforms.len());
     let list_widget = List::new(items).block(
         Block::default()
             .title(Span::styled(title, Style::default().add_modifier(Modifier::BOLD)))
@@ -122,7 +122,7 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
         Color::Gray
     };
 
-    let header = Row::new(vec!["Título", "Ext", "Tamaño", "Tipo"])
+    let header = Row::new(vec!["Title", "Ext", "Size", "Type"])
         .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
 
     let rows: Vec<Row> = app
@@ -149,9 +149,9 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Juegos - {} ({}) ", p.name, app.games.len())
+        format!(" Games - {} ({}) ", p.name, app.games.len())
     } else {
-        " Juegos (0) ".to_string()
+        " Games (0) ".to_string()
     };
 
     let table = Table::new(
@@ -181,13 +181,13 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let filter_text = if app.show_all_platforms {
-        "Todas"
+        "All"
     } else {
-        "Solo Activas"
+        "Active Only"
     };
 
     let help_text = format!(
-        " [m] Configurar/Descargar Emuladores | [a] Agregar | [f] Archivo GUI | [p] ({}) | [Enter] Jugar | Info: {}",
+        " [m] Runners/Emulators | [a] Add Game | [f] File Picker | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 
@@ -200,9 +200,9 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-/// Render download progress gauge popup overlay
+/// Render sleek compact download progress popup overlay
 fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgressState) {
-    let popup_area = centered_rect(60, 20, frame.area());
+    let popup_area = centered_rect(65, 12, frame.area());
     frame.render_widget(Clear, popup_area);
 
     let downloaded_mb = progress.downloaded_bytes as f64 / (1024.0 * 1024.0);
@@ -213,7 +213,7 @@ fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgr
         .block(
             Block::default()
                 .title(Span::styled(
-                    format!(" ⬇️ Descargando {} ", progress.runner_name),
+                    format!(" Downloading: {} ", progress.runner_name),
                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                 ))
                 .borders(Borders::ALL)
@@ -233,7 +233,7 @@ fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgr
 
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &App) {
-    let popup_area = centered_rect(75, 75, frame.area());
+    let popup_area = centered_rect(75, 70, frame.area());
     frame.render_widget(Clear, popup_area);
 
     match app.modal_state {
@@ -249,9 +249,9 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     let is_active = active_ids.contains(&p.id);
 
                     let status_badge = if is_active {
-                        " [✓ ACTIVA / CONFIGURADA]"
+                        " [Active / Configured]"
                     } else {
-                        " [ Sin Configurar ]"
+                        " [Unconfigured]"
                     };
 
                     let style = if is_selected {
@@ -269,7 +269,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " ⚙️ Configurar/Descargar Emuladores - Paso 1: Selecciona Plataforma ",
+                        " Runner Management - Select Platform ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -283,7 +283,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [↑/↓] Seleccionar Plataforma | [Enter] Editar / Configurar Runner | [Esc] Volver")
+            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Configure Runner | [Esc] Back")
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
@@ -295,18 +295,18 @@ fn render_modal(frame: &mut Frame, app: &App) {
         } => {
             let mut lines = Vec::new();
             lines.push(Line::from(vec![
-                Span::styled("Plataforma: ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Target Platform: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(&platform.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("1. Seleccionar Emulador / Runner (Usar ←/→ para alternar):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("1. Available Runners (Use Left/Right to switch):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
 
             let mut current_runner_has_download = false;
             let mut is_downloaded = false;
 
             for (idx, r) in runners.iter().enumerate() {
                 let is_sel = idx == selected_runner_idx;
-                let mark = if is_sel { " -> [X] " } else { "    [ ] " };
+                let mark = if is_sel { " -> [x] " } else { "    [ ] " };
                 let style = if is_sel {
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                 } else {
@@ -314,7 +314,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                 };
 
                 let configured_info = if let Some(exe) = &r.executable_path {
-                    format!(" (Configurado: {})", exe)
+                    format!(" (Path: {})", exe)
                 } else {
                     String::new()
                 };
@@ -337,39 +337,39 @@ fn render_modal(frame: &mut Frame, app: &App) {
             }
 
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("2. Ruta al Ejecutable / .AppImage:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("2. Executable / .AppImage Path:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
             lines.push(Line::from(vec![
                 Span::raw("   "),
                 Span::styled(
-                    if exe_path_input.is_empty() { "< Presiona [f] para elegir o [w] para descargar oficial >" } else { exe_path_input },
+                    if exe_path_input.is_empty() { "< Press [f] to browse file or [w] to download >" } else { exe_path_input },
                     Style::default().fg(Color::White).bg(Color::DarkGray),
                 ),
             ]));
             lines.push(Line::from(""));
 
             let mut actions_line = vec![
-                Span::styled("[ GUARDAR RUNNER ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled("[ SAVE RUNNER ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::raw("  "),
             ];
 
             if current_runner_has_download {
-                actions_line.push(Span::styled("[w] ⬇️ Descargar AppImage Oficial", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)));
+                actions_line.push(Span::styled("[w] Download AppImage", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)));
                 actions_line.push(Span::raw("  "));
             }
 
             if is_downloaded {
-                actions_line.push(Span::styled("[x] 🗑️ Borrar del Disco", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)));
+                actions_line.push(Span::styled("[x] Delete from Disk", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)));
                 actions_line.push(Span::raw("  "));
             }
 
-            actions_line.push(Span::styled("[d] Desactivar", Style::default().fg(Color::Red)));
+            actions_line.push(Span::styled("[d] Deactivate", Style::default().fg(Color::Red)));
 
             lines.push(Line::from(actions_line));
 
             let p = Paragraph::new(lines).block(
                 Block::default()
                     .title(Span::styled(
-                        format!(" ⚙️ Editar / Descargar Runner para {} ", platform.name),
+                        format!(" Runner Options: {} ", platform.name),
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -383,16 +383,16 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [w] Descargar AppImage | [x] Borrar del Disco | [f] Selector GUI | [Enter] Guardar | [Esc] Volver")
+            let help = Paragraph::new(" [w] Download | [x] Delete | [f] File Picker | [Enter] Save | [Esc] Back")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::AddGameStep1Type { selected_type_idx } => {
             let options = vec![
-                "🕹️ Emulador (SNES, PS1, PS2, GBA, N64, 3DS...)",
-                "🐧 Linux Nativo (Ejecutable binario, Script, AppImage)",
-                "🪟 Windows (Wine / Proton .exe)",
-                "🚂 Steam (Lanzamiento por Steam AppID)",
+                "[EMU] Emulator (SNES, PS1, PS2, GBA, N64, 3DS...)",
+                "[NAT] Linux Native (Executable, Script, AppImage)",
+                "[WIN] Windows Games (Wine / Proton .exe)",
+                "[STM] Steam Games (Launch via Steam AppID)",
             ];
 
             let items: Vec<ListItem> = options
@@ -412,7 +412,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " ➕ Agregar Nuevo Juego - Paso 1: Selecciona el Tipo ",
+                        " Add New Game - Step 1: Select Type ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -426,7 +426,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [↑/↓] Seleccionar | [Enter] Siguiente | [Esc] Cancelar")
+            let help = Paragraph::new(" [Up/Down] Select | [Enter] Next | [Esc] Cancel")
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
@@ -442,13 +442,13 @@ fn render_modal(frame: &mut Frame, app: &App) {
             ref custom_command,
         } => {
             let gtype_name = match game_type {
-                PlatformType::Emulator => "EMULADOR",
-                PlatformType::Native => "LINUX NATIVO",
+                PlatformType::Emulator => "EMULATOR",
+                PlatformType::Native => "LINUX NATIVE",
                 PlatformType::Wine => "WINDOWS (WINE)",
                 PlatformType::Steam => "STEAM",
             };
 
-            let block_title = format!(" ➕ Detalles de Juego ({}) ", gtype_name);
+            let block_title = format!(" Add Game Details ({}) ", gtype_name);
             let mut lines = Vec::new();
 
             let field_style = |idx: usize| {
@@ -461,69 +461,69 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             match game_type {
                 PlatformType::Emulator => {
-                    let p_name = app.platforms.get(platform_idx).map(|p| p.name.as_str()).unwrap_or("Desconocida");
+                    let p_name = app.platforms.get(platform_idx).map(|p| p.name.as_str()).unwrap_or("Unknown");
                     lines.push(Line::from(vec![
-                        Span::styled("1. Título: ", field_style(0)),
+                        Span::styled("1. Title: ", field_style(0)),
                         Span::raw(title),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("2. Plataforma: < ", field_style(1)),
+                        Span::styled("2. Platform: < ", field_style(1)),
                         Span::styled(p_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        Span::styled(" > (Usar ←/→ para cambiar)", field_style(1)),
+                        Span::styled(" > (Use Left/Right to change)", field_style(1)),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("3. Ruta ROM: ", field_style(2)),
-                        Span::raw(if file_path.is_empty() { "< Presiona [f] para buscar ROM >" } else { file_path }),
+                        Span::styled("3. ROM Path: ", field_style(2)),
+                        Span::raw(if file_path.is_empty() { "< Press [f] to select ROM >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("[ GUARDAR JUEGO ]", field_style(3)),
+                        Span::styled("[ SAVE GAME ]", field_style(3)),
                     ]));
                 }
                 PlatformType::Native => {
                     lines.push(Line::from(vec![
-                        Span::styled("1. Título: ", field_style(0)),
+                        Span::styled("1. Title: ", field_style(0)),
                         Span::raw(title),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("2. Ruta Ejecutable: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Presiona [f] para buscar >" } else { file_path }),
+                        Span::styled("2. Executable Path: ", field_style(1)),
+                        Span::raw(if file_path.is_empty() { "< Press [f] to browse >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("3. Dir. Trabajo: ", field_style(2)),
+                        Span::styled("3. Working Dir: ", field_style(2)),
                         Span::raw(working_dir),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("4. Comando Extra: ", field_style(3)),
+                        Span::styled("4. Custom Args: ", field_style(3)),
                         Span::raw(custom_command),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("[ GUARDAR JUEGO ]", field_style(4)),
+                        Span::styled("[ SAVE GAME ]", field_style(4)),
                     ]));
                 }
                 PlatformType::Wine => {
                     lines.push(Line::from(vec![
-                        Span::styled("1. Título: ", field_style(0)),
+                        Span::styled("1. Title: ", field_style(0)),
                         Span::raw(title),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("2. Ruta .exe: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Presiona [f] para buscar .exe >" } else { file_path }),
+                        Span::styled("2. Executable .exe Path: ", field_style(1)),
+                        Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. WINEPREFIX: ", field_style(2)),
                         Span::raw(wine_prefix),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("4. Dir. Trabajo: ", field_style(3)),
+                        Span::styled("4. Working Dir: ", field_style(3)),
                         Span::raw(working_dir),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("[ GUARDAR JUEGO ]", field_style(4)),
+                        Span::styled("[ SAVE GAME ]", field_style(4)),
                     ]));
                 }
                 PlatformType::Steam => {
                     lines.push(Line::from(vec![
-                        Span::styled("1. Título: ", field_style(0)),
+                        Span::styled("1. Title: ", field_style(0)),
                         Span::raw(title),
                     ]));
                     lines.push(Line::from(vec![
@@ -531,7 +531,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                         Span::raw(steam_appid),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("[ GUARDAR JUEGO ]", field_style(2)),
+                        Span::styled("[ SAVE GAME ]", field_style(2)),
                     ]));
                 }
             }
@@ -550,7 +550,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [f] Selector GUI de Archivo | [Tab/Shift+Tab] Cambiar Campo | [Enter] Guardar | [Esc] Cancelar")
+            let help = Paragraph::new(" [f] File Picker | [Tab/Shift+Tab] Field | [Enter] Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

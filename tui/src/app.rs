@@ -361,24 +361,24 @@ impl App {
                 {
                     let trimmed_path = exe_path_input.trim();
                     if trimmed_path.is_empty() {
-                        self.status_msg = "❌ Error: Debes ingresar o seleccionar la ruta del ejecutable / .AppImage.".to_string();
+                        self.status_msg = "Error: Executable / .AppImage path cannot be empty.".to_string();
                         return;
                     }
 
                     if !Path::new(trimmed_path).exists() {
-                        self.status_msg = format!("❌ Error: El archivo no existe en el sistema: '{}'. Selecciona un ejecutable existente.", trimmed_path);
+                        self.status_msg = format!("Error: File does not exist on system: '{}'. Select a valid executable.", trimmed_path);
                         return;
                     }
 
                     if let Some(runner) = runners.get(selected_runner_idx) {
                         match self.db.update_runner_config(runner.id, trimmed_path, true) {
                             Ok(_) => {
-                                self.status_msg = format!("✅ Runner '{}' configurado correctamente. Plataforma activada!", runner.name);
+                                self.status_msg = format!("Runner '{}' configured successfully. Platform activated!", runner.name);
                                 self.modal_state = ModalState::None;
                                 self.load_platforms();
                             }
                             Err(err) => {
-                                self.status_msg = format!("Error guardando runner: {}", err);
+                                self.status_msg = format!("Error saving runner: {}", err);
                             }
                         }
                     }
@@ -419,7 +419,7 @@ impl App {
                                 let _ = std::fs::remove_file(&path);
                             }
                             let _ = self.db.reset_runner_config(runner.id);
-                            self.status_msg = format!("🗑️ Archivo de runner '{}' eliminado del disco y desactivado.", runner.name);
+                            self.status_msg = format!("[Deleted] Runner '{}' executable deleted from disk and deactivated.", runner.name);
                             self.modal_state = ModalState::None;
                             self.load_platforms();
                         }
@@ -438,7 +438,7 @@ impl App {
                         let download_url = match &runner.download_url {
                             Some(url) if !url.is_empty() => url.clone(),
                             _ => {
-                                self.status_msg = format!("❌ No hay URL de descarga oficial configurada para '{}'.", runner.name);
+                                self.status_msg = format!("[Error] No official download URL configured for '{}'.", runner.name);
                                 return;
                             }
                         };
@@ -451,7 +451,7 @@ impl App {
                         let target_dir = match RunnerDownloader::get_runner_dir(&platform.slug) {
                             Ok(d) => d,
                             Err(e) => {
-                                self.status_msg = format!("Error creando carpeta de descarga: {}", e);
+                                self.status_msg = format!("Error creating download directory: {}", e);
                                 return;
                             }
                         };
@@ -469,7 +469,7 @@ impl App {
                             error_msg: None,
                         });
 
-                        self.status_msg = format!("Iniciando descarga de {}...", runner.name);
+                        self.status_msg = format!("Downloading {}...", runner.name);
 
                         let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
                         self.download_rx = Some(rx);
@@ -500,9 +500,9 @@ impl App {
 
                     if event.finished {
                         if let Some(err) = event.error {
-                            self.status_msg = format!("❌ Error en la descarga: {}", err);
+                            self.status_msg = format!("[Error] Download failed: {}", err);
                         } else {
-                            self.status_msg = format!("✅ Descarga de '{}' completada e instalada!", progress.runner_name);
+                            self.status_msg = format!("[OK] Download of '{}' completed and installed successfully!", progress.runner_name);
                             self.modal_state = ModalState::None;
                             self.download_rx = None;
                             self.load_platforms();
