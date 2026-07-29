@@ -130,10 +130,10 @@ pub enum ModalState {
         selected_idx: usize,
     },
     ProtonDownloader {
-        selected_repo: scraper::proton::ProtonRepo,
+        target_launcher: scraper::proton::TargetLauncher,
+        repo_idx: usize,
         releases: Vec<scraper::proton::ProtonRelease>,
         selected_release_idx: usize,
-        selected_target_idx: usize,
         is_loading: bool,
         download_event: Option<scraper::downloader::DownloadEvent>,
     },
@@ -157,8 +157,8 @@ pub enum Action {
     OpenProtonDownloader,
     SwitchProtonRepo,
     SwitchProtonRepoPrev,
-    SwitchProtonTargetLocationNext,
-    SwitchProtonTargetLocationPrev,
+    SwitchTargetLauncherNext,
+    SwitchTargetLauncherPrev,
     FetchProtonReleases,
     StartProtonDownload,
     OpenWineRunnerPicker,
@@ -995,16 +995,19 @@ impl App {
                 };
             }
             Action::OpenProtonDownloader => {
-                let repo = scraper::proton::ProtonRepo::GEProton;
+                let target_launcher = scraper::proton::TargetLauncher::Steam;
+                let valid = target_launcher.valid_repos();
+                let repo = valid[0];
+
                 self.modal_state = ModalState::ProtonDownloader {
-                    selected_repo: repo,
+                    target_launcher,
+                    repo_idx: 0,
                     releases: Vec::new(),
                     selected_release_idx: 0,
-                    selected_target_idx: 0,
                     is_loading: true,
                     download_event: None,
                 };
-                self.status_msg = format!("Fetching releases for {}...", repo.display_name());
+                self.status_msg = format!("Fetching releases for {} ({}) ...", repo.display_name(), target_launcher.display_name());
 
                 if let Ok(fetched_releases) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
                     if let ModalState::ProtonDownloader {
@@ -1017,27 +1020,30 @@ impl App {
                         *releases = fetched_releases;
                         *is_loading = false;
                         *selected_release_idx = 0;
-                        self.status_msg = format!("[OK] Loaded {} Proton release(s).", releases.len());
+                        self.status_msg = format!("[OK] Loaded {} release(s).", releases.len());
                     }
                 }
             }
-            Action::SwitchProtonRepo => {
+            Action::SwitchTargetLauncherNext => {
                 if let ModalState::ProtonDownloader {
-                    ref mut selected_repo,
+                    ref mut target_launcher,
+                    ref mut repo_idx,
                     ref mut is_loading,
                     ref mut releases,
                     ref mut selected_release_idx,
                     ..
                 } = self.modal_state
                 {
-                    let next_repo = selected_repo.next();
-                    *selected_repo = next_repo;
+                    let next_launcher = target_launcher.next();
+                    *target_launcher = next_launcher;
+                    *repo_idx = 0;
                     *releases = Vec::new();
                     *selected_release_idx = 0;
                     *is_loading = true;
 
-                    self.status_msg = format!("Fetching releases for {}...", next_repo.display_name());
-                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(next_repo, 1, 10).await {
+                    let repo = next_launcher.valid_repos()[0];
+                    self.status_msg = format!("Fetching releases for {} ({}) ...", repo.display_name(), next_launcher.display_name());
+                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
                         if let ModalState::ProtonDownloader {
                             ref mut releases,
                             ref mut is_loading,
@@ -1046,60 +1052,113 @@ impl App {
                         {
                             *releases = fetched;
                             *is_loading = false;
-                            self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), next_repo.display_name());
+                            self.status_msg = format!("[OK] Loaded {} release(s).", releases.len());
+                        }
+                    }
+                }
+            }
+            Action::SwitchTargetLauncherPrev => {
+                if let ModalState::ProtonDownloader {
+                    ref mut target_launcher,
+                    ref mut repo_idx,
+                    ref mut is_loading,
+                    ref mut releases,
+                    ref mut selected_release_idx,
+                    ..
+                } = self.modal_state
+                {
+                    let prev_launcher = target_launcher.prev();
+                    *target_launcher = prev_launcher;
+                    *repo_idx = 0;
+                    *releases = Vec::new();
+                    *selected_release_idx = 0;
+                    *is_loading = true;
+
+                    let repo = prev_launcher.valid_repos()[0];
+                    self.status_msg = format!("Fetching releases for {} ({}) ...", repo.display_name(), prev_launcher.display_name());
+                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
+                        if let ModalState::ProtonDownloader {
+                            ref mut releases,
+                            ref mut is_loading,
+                            ..
+                        } = self.modal_state
+                        {
+                            *releases = fetched;
+                            *is_loading = false;
+                            self.status_msg = format!("[OK] Loaded {} release(s).", releases.len());
+                        }
+                    }
+                }
+            }
+            Action::SwitchProtonRepo => {
+                if let ModalState::ProtonDownloader {
+                    target_launcher,
+                    ref mut repo_idx,
+                    ref mut is_loading,
+                    ref mut releases,
+                    ref mut selected_release_idx,
+                    ..
+                } = self.modal_state
+                {
+                    let valid = target_launcher.valid_repos();
+                    if !valid.is_empty() {
+                        *repo_idx = (*repo_idx + 1) % valid.len();
+                        let current_repo = valid[*repo_idx];
+                        *releases = Vec::new();
+                        *selected_release_idx = 0;
+                        *is_loading = true;
+
+                        self.status_msg = format!("Fetching releases for {}...", current_repo.display_name());
+                        if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(current_repo, 1, 10).await {
+                            if let ModalState::ProtonDownloader {
+                                ref mut releases,
+                                ref mut is_loading,
+                                ..
+                            } = self.modal_state
+                            {
+                                *releases = fetched;
+                                *is_loading = false;
+                                self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), current_repo.display_name());
+                            }
                         }
                     }
                 }
             }
             Action::SwitchProtonRepoPrev => {
                 if let ModalState::ProtonDownloader {
-                    ref mut selected_repo,
+                    target_launcher,
+                    ref mut repo_idx,
                     ref mut is_loading,
                     ref mut releases,
                     ref mut selected_release_idx,
                     ..
                 } = self.modal_state
                 {
-                    let prev_repo = selected_repo.prev();
-                    *selected_repo = prev_repo;
-                    *releases = Vec::new();
-                    *selected_release_idx = 0;
-                    *is_loading = true;
-
-                    self.status_msg = format!("Fetching releases for {}...", prev_repo.display_name());
-                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(prev_repo, 1, 10).await {
-                        if let ModalState::ProtonDownloader {
-                            ref mut releases,
-                            ref mut is_loading,
-                            ..
-                        } = self.modal_state
-                        {
-                            *releases = fetched;
-                            *is_loading = false;
-                            self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), prev_repo.display_name());
+                    let valid = target_launcher.valid_repos();
+                    if !valid.is_empty() {
+                        if *repo_idx == 0 {
+                            *repo_idx = valid.len() - 1;
+                        } else {
+                            *repo_idx -= 1;
                         }
-                    }
-                }
-            }
-            Action::SwitchProtonTargetLocationNext => {
-                if let ModalState::ProtonDownloader {
-                    ref mut selected_target_idx,
-                    ..
-                } = self.modal_state
-                {
-                    *selected_target_idx = (*selected_target_idx + 1) % 5;
-                }
-            }
-            Action::SwitchProtonTargetLocationPrev => {
-                if let ModalState::ProtonDownloader {
-                    ref mut selected_target_idx,
-                    ..
-                } = self.modal_state
-                {
-                    if *selected_target_idx == 0 {
-                        *selected_target_idx = 4;
-                    } else {
-                        *selected_target_idx -= 1;
+                        let current_repo = valid[*repo_idx];
+                        *releases = Vec::new();
+                        *selected_release_idx = 0;
+                        *is_loading = true;
+
+                        self.status_msg = format!("Fetching releases for {}...", current_repo.display_name());
+                        if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(current_repo, 1, 10).await {
+                            if let ModalState::ProtonDownloader {
+                                ref mut releases,
+                                ref mut is_loading,
+                                ..
+                            } = self.modal_state
+                            {
+                                *releases = fetched;
+                                *is_loading = false;
+                                self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), current_repo.display_name());
+                            }
+                        }
                     }
                 }
             }
@@ -1111,21 +1170,16 @@ impl App {
                 }
 
                 if let ModalState::ProtonDownloader {
+                    target_launcher,
+                    repo_idx,
                     ref releases,
                     selected_release_idx,
-                    selected_target_idx,
                     ..
                 } = self.modal_state.clone()
                 {
-                    if let Some(release) = releases.get(selected_release_idx) {
-                        let home = dirs::home_dir().unwrap_or_default();
-                        let target_dir = match selected_target_idx {
-                            0 => home.join(".local/share/tui_game_station/runners/wine"),
-                            1 => home.join(".local/share/Steam/compatibilitytools.d"),
-                            2 => home.join(".config/heroic/tools/proton"),
-                            3 => home.join(".config/heroic/tools/wine"),
-                            _ => home.join(".local/share/lutris/runners/wine"),
-                        };
+                    let valid = target_launcher.valid_repos();
+                    if let (Some(repo), Some(release)) = (valid.get(repo_idx), releases.get(selected_release_idx)) {
+                        let target_dir = target_launcher.installation_dir(*repo);
 
                         let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
                         self.download_rx = Some(rx);

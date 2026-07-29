@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::FormNavLeft).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::SwitchProtonTargetLocationPrev).await;
+                                    app.update(Action::SwitchTargetLauncherPrev).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::FormNavRight).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::SwitchProtonTargetLocationNext).await;
+                                    app.update(Action::SwitchTargetLauncherNext).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectNext).await;
@@ -333,7 +333,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('t') => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::SwitchProtonTargetLocationNext).await;
+                                    app.update(Action::SwitchTargetLauncherNext).await;
                                 } else {
                                     app.update(Action::ModalInputChar('t')).await;
                                 }

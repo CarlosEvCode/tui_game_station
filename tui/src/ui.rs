@@ -1275,34 +1275,35 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::ProtonDownloader {
-            selected_repo,
+            target_launcher,
+            repo_idx,
             ref releases,
             selected_release_idx,
-            selected_target_idx,
             is_loading,
             download_event: _,
         } => {
-            let repo_line = Line::from(vec![
-                Span::styled(" Repository: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" < {} > ", selected_repo.display_name()), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled("  (Press [Tab] or [r] to switch repository)", Style::default().fg(Color::Gray)),
-            ]);
+            let launcher_spans: Vec<Span> = scraper::proton::TargetLauncher::all()
+                .iter()
+                .map(|t| {
+                    if *t == target_launcher {
+                        Span::styled(format!(" [ {} ] ", t.display_name()), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    } else {
+                        Span::styled(format!("  {}  ", t.display_name()), Style::default().fg(Color::Gray))
+                    }
+                })
+                .collect();
 
-            let targets = [
-                "1. TUI Game Station",
-                "2. Steam (compatibilitytools.d)",
-                "3. Heroic Proton",
-                "4. Heroic Wine",
-                "5. Lutris Wine",
-            ];
-            let target_spans: Vec<Span> = targets
+            let valid_repos = target_launcher.valid_repos();
+            let current_repo = valid_repos.get(repo_idx).copied().unwrap_or(scraper::proton::ProtonRepo::GEProton);
+
+            let repo_spans: Vec<Span> = valid_repos
                 .iter()
                 .enumerate()
-                .map(|(idx, t)| {
-                    if idx == selected_target_idx {
-                        Span::styled(format!(" [{}] ", t), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+                .map(|(idx, repo)| {
+                    if idx == repo_idx {
+                        Span::styled(format!(" [ {} ] ", repo.display_name()), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
                     } else {
-                        Span::styled(format!("  {}  ", t), Style::default().fg(Color::Gray))
+                        Span::styled(format!("  {}  ", repo.display_name()), Style::default().fg(Color::Gray))
                     }
                 })
                 .collect();
@@ -1312,8 +1313,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .constraints([Constraint::Length(2), Constraint::Length(2), Constraint::Min(6), Constraint::Length(2)])
                 .split(popup_area);
 
-            frame.render_widget(Paragraph::new(repo_line), modal_chunks[0]);
-            frame.render_widget(Paragraph::new(Line::from(target_spans)), modal_chunks[1]);
+            frame.render_widget(Paragraph::new(Line::from(launcher_spans)), modal_chunks[0]);
+            frame.render_widget(Paragraph::new(Line::from(repo_spans)), modal_chunks[1]);
 
             if is_loading {
                 let loading_p = Paragraph::new("\n  [ Fetching releases from API... ]")
@@ -1339,10 +1340,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         .collect()
                 };
 
+                let target_dir = target_launcher.installation_dir(current_repo);
+                let folder_name = target_dir.file_name().and_then(|f| f.to_str()).unwrap_or("runners");
                 let list = List::new(items).block(
                     Block::default()
                         .title(Span::styled(
-                            format!(" Available Releases for {} ({}) ", selected_repo.display_name(), releases.len()),
+                            format!(" Available Releases for {} -> [{}] ({}) ", current_repo.display_name(), folder_name, releases.len()),
                             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                         ))
                         .borders(Borders::ALL)
@@ -1351,7 +1354,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 frame.render_widget(list, modal_chunks[2]);
             }
 
-            let help = Paragraph::new(" [Tab / r] Switch Repo | [Left/Right] Select Target Location | [Up/Down] Select Release | [Enter] Download & Extract | [Esc] Close")
+            let help = Paragraph::new(" [Left/Right] Launcher | [Tab / r] Tool/Repo | [Up/Down] Select Release | [Enter] Download & Extract | [Esc] Close")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[3]);
         }

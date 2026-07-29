@@ -22,6 +22,133 @@ pub struct ProtonRelease {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TargetLauncher {
+    Steam,
+    Heroic,
+    Lutris,
+    TUIGameStation,
+}
+
+impl TargetLauncher {
+    pub fn all() -> &'static [TargetLauncher] {
+        &[
+            TargetLauncher::Steam,
+            TargetLauncher::Heroic,
+            TargetLauncher::Lutris,
+            TargetLauncher::TUIGameStation,
+        ]
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TargetLauncher::Steam => "1. Steam",
+            TargetLauncher::Heroic => "2. Heroic Games Launcher",
+            TargetLauncher::Lutris => "3. Lutris",
+            TargetLauncher::TUIGameStation => "4. TUI Game Station",
+        }
+    }
+
+    pub fn valid_repos(&self) -> Vec<ProtonRepo> {
+        match self {
+            TargetLauncher::Steam => vec![
+                ProtonRepo::GEProton,
+                ProtonRepo::ProtonCachyOS,
+                ProtonRepo::DWProton,
+                ProtonRepo::ProtonEM,
+                ProtonRepo::ProtonTkg,
+                ProtonRepo::Boxtron,
+                ProtonRepo::Luxtorpeda,
+                ProtonRepo::Roberta,
+                ProtonRepo::SteamTinkerLaunch,
+            ],
+            TargetLauncher::Heroic => vec![
+                ProtonRepo::GEProton,
+                ProtonRepo::ProtonCachyOS,
+                ProtonRepo::DWProton,
+                ProtonRepo::ProtonEM,
+                ProtonRepo::ProtonTkg,
+                ProtonRepo::WineVanillaKron4ek,
+                ProtonRepo::WineStagingKron4ek,
+                ProtonRepo::WineProtonKron4ek,
+                ProtonRepo::Boxtron,
+                ProtonRepo::Luxtorpeda,
+                ProtonRepo::Roberta,
+            ],
+            TargetLauncher::Lutris => vec![
+                ProtonRepo::GEProton,
+                ProtonRepo::ProtonCachyOS,
+                ProtonRepo::DWProton,
+                ProtonRepo::ProtonEM,
+                ProtonRepo::ProtonTkg,
+                ProtonRepo::WineVanillaKron4ek,
+                ProtonRepo::WineStagingKron4ek,
+                ProtonRepo::WineProtonKron4ek,
+                ProtonRepo::Boxtron,
+                ProtonRepo::Luxtorpeda,
+                ProtonRepo::Roberta,
+                ProtonRepo::DXVK,
+                ProtonRepo::VKD3DProton,
+            ],
+            TargetLauncher::TUIGameStation => vec![
+                ProtonRepo::GEProton,
+                ProtonRepo::ProtonCachyOS,
+                ProtonRepo::DWProton,
+                ProtonRepo::ProtonEM,
+                ProtonRepo::ProtonTkg,
+                ProtonRepo::WineVanillaKron4ek,
+                ProtonRepo::WineStagingKron4ek,
+                ProtonRepo::WineProtonKron4ek,
+                ProtonRepo::Boxtron,
+                ProtonRepo::Luxtorpeda,
+                ProtonRepo::Roberta,
+                ProtonRepo::DXVK,
+                ProtonRepo::VKD3DProton,
+            ],
+        }
+    }
+
+    pub fn installation_dir(&self, repo: ProtonRepo) -> std::path::PathBuf {
+        let home = dirs::home_dir().unwrap_or_default();
+        match self {
+            TargetLauncher::Steam => home.join(".local/share/Steam/compatibilitytools.d"),
+            TargetLauncher::Heroic => match repo {
+                ProtonRepo::WineVanillaKron4ek | ProtonRepo::WineStagingKron4ek | ProtonRepo::WineProtonKron4ek => {
+                    home.join(".config/heroic/tools/wine")
+                }
+                _ => home.join(".config/heroic/tools/proton"),
+            },
+            TargetLauncher::Lutris => match repo {
+                ProtonRepo::DXVK | ProtonRepo::VKD3DProton => {
+                    home.join(".local/share/lutris/runtime")
+                }
+                _ => home.join(".local/share/lutris/runners/wine"),
+            },
+            TargetLauncher::TUIGameStation => {
+                home.join(".local/share/tui_game_station/runners/wine")
+            }
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            TargetLauncher::Steam => TargetLauncher::Heroic,
+            TargetLauncher::Heroic => TargetLauncher::Lutris,
+            TargetLauncher::Lutris => TargetLauncher::TUIGameStation,
+            TargetLauncher::TUIGameStation => TargetLauncher::Steam,
+        }
+    }
+
+    pub fn prev(&self) -> Self {
+        match self {
+            TargetLauncher::Steam => TargetLauncher::TUIGameStation,
+            TargetLauncher::Heroic => TargetLauncher::Steam,
+            TargetLauncher::Lutris => TargetLauncher::Heroic,
+            TargetLauncher::TUIGameStation => TargetLauncher::Lutris,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProtonRepo {
     GEProton,
     ProtonCachyOS,
