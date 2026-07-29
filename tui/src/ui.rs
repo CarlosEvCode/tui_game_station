@@ -616,6 +616,46 @@ fn render_modal(frame: &mut Frame, app: &App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
+        ModalState::ConfigureApiKeyInput { ref input } => {
+            let mut lines = Vec::new();
+            lines.push(Line::from(Span::styled("SteamGridDB API Key Required", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(""));
+            lines.push(Line::from("Enter your personal SteamGridDB API key to download HD covers, banners, and icons."));
+            lines.push(Line::from("You can get a free API key at: https://www.steamgriddb.com/profile/api"));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("API Key: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    if input.is_empty() { "< Type or Paste SteamGridDB API Key here >" } else { input },
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                ),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("[ SAVE API KEY & FETCH MEDIA ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]));
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        " SteamGridDB Configuration ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(p, chunks[0]);
+
+            let help = Paragraph::new(" [Enter] Save API Key | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
         ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
             let runner_platforms = app.get_runner_platforms();
             let active_ids: Vec<i64> = app.platforms.iter().map(|p| p.id).collect();

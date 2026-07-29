@@ -92,6 +92,9 @@ async fn main() -> Result<()> {
                                 ModalState::ScanFolderForm { .. } => {
                                     app.update(Action::StartFolderScan).await;
                                 }
+                                ModalState::ConfigureApiKeyInput { .. } => {
+                                    app.update(Action::SaveApiKey).await;
+                                }
                                 ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::RunnerModalConfirmPlatform).await;
                                 }

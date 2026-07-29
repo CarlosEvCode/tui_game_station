@@ -68,6 +68,9 @@ pub enum ModalState {
         steam_appid: String,
         custom_command: String,
     },
+    ConfigureApiKeyInput {
+        input: String,
+    },
     ManageRunnersStep1Platform {
         selected_platform_idx: usize,
     },
@@ -113,6 +116,7 @@ pub enum Action {
     ToggleSelectGame,
     DeleteSelectedGames,
     FetchGameMedia,
+    SaveApiKey,
 
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
@@ -257,6 +261,7 @@ impl App {
 
         self.pending_cover_requests.insert(game_id);
         let tx = self.cover_tx.clone();
+        let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
 
         tokio::spawn(async move {
             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
@@ -267,7 +272,7 @@ impl App {
             } else if let Some(id) = appid {
                 SteamCoverResolver::resolve_cover(id).await
             } else {
-                let client = scraper::steamgriddb::SteamGridDBClient::new(None);
+                let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
                 if let Ok(res) = client.download_all_media_for_game(game_id, &title).await {
                     res.cover_path
                 } else {
@@ -909,6 +914,8 @@ impl App {
                     }
                 } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
                     exe_path_input.push(ch);
+                } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state {
+                    input.push(ch);
                 }
             }
             Action::ModalBackspace => {
@@ -969,6 +976,8 @@ impl App {
                     }
                 } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
                     exe_path_input.pop();
+                } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state {
+                    input.pop();
                 }
             }
             Action::StartFolderScan => {
@@ -1058,6 +1067,15 @@ impl App {
             }
             Action::FetchGameMedia => {
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
+                    let api_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
+                    if api_key.as_ref().map(|k| k.trim().is_empty()).unwrap_or(true) {
+                        self.modal_state = ModalState::ConfigureApiKeyInput {
+                            input: String::new(),
+                        };
+                        self.status_msg = "[API Key Required] Enter your SteamGridDB API key to fetch media.".to_string();
+                        return;
+                    }
+
                     let target_games: Vec<Game> = if !self.selected_game_ids.is_empty() {
                         self.games.iter().filter(|g| self.selected_game_ids.contains(&g.id)).cloned().collect()
                     } else if self.selected_game_idx < self.games.len() {
@@ -1070,14 +1088,37 @@ impl App {
                         return;
                     }
 
-                    self.status_msg = format!("Fetching SteamGridDB media (Cover, Banner, Icon) for {} game(s)...", target_games.len());
+                    let total_games = target_games.len();
+                    self.download_progress = Some(DownloadProgressState {
+                        runner_id: 0,
+                        runner_name: format!("SteamGridDB Media (0/{})", total_games),
+                        downloaded_bytes: 0,
+                        total_bytes: total_games as u64,
+                        percentage: 0.0,
+                        is_finished: false,
+                        error_msg: None,
+                    });
+
+                    self.status_msg = format!("Fetching SteamGridDB media (Cover, Banner, Icon) for {} game(s)...", total_games);
                     let tx = self.cover_tx.clone();
+                    let (progress_tx, progress_rx) = mpsc::channel::<DownloadEvent>(100);
+                    self.download_rx = Some(progress_rx);
+
+                    let key_str = api_key.unwrap();
 
                     tokio::spawn(async move {
-                        let client = scraper::steamgriddb::SteamGridDBClient::new(None);
+                        let client = scraper::steamgriddb::SteamGridDBClient::new(Some(key_str));
                         let mut success_count = 0;
 
-                        for game in target_games {
+                        for (idx, game) in target_games.iter().enumerate() {
+                            let _ = progress_tx.send(DownloadEvent {
+                                downloaded: (idx + 1) as u64,
+                                total: total_games as u64,
+                                percentage: (((idx + 1) as f64 / total_games as f64) * 100.0),
+                                finished: false,
+                                error: None,
+                            }).await;
+
                             if let Ok(res) = client.download_all_media_for_game(game.id, &game.title).await {
                                 if let Some(path) = res.cover_path {
                                     let mut manager = CoverManager::new();
@@ -1088,8 +1129,29 @@ impl App {
                                 success_count += 1;
                             }
                         }
-                        let _ = success_count;
+
+                        let _ = progress_tx.send(DownloadEvent {
+                            downloaded: total_games as u64,
+                            total: total_games as u64,
+                            percentage: 100.0,
+                            finished: true,
+                            error: None,
+                        }).await;
                     });
+                }
+            }
+            Action::SaveApiKey => {
+                if let ModalState::ConfigureApiKeyInput { ref input } = self.modal_state.clone() {
+                    let trimmed = input.trim();
+                    if trimmed.is_empty() {
+                        self.status_msg = "Error: API Key cannot be empty.".to_string();
+                        return;
+                    }
+
+                    if self.db.set_setting("steamgriddb_api_key", trimmed).is_ok() {
+                        self.status_msg = "[OK] SteamGridDB API Key saved successfully!".to_string();
+                        self.modal_state = ModalState::None;
+                    }
                 }
             }
             Action::SaveModalGame => {
