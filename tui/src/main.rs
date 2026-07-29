@@ -187,8 +187,11 @@ async fn main() -> Result<()> {
                             KeyCode::Char('r') => {
                                 app.update(Action::QuickRescanPlatform).await;
                             }
-                            KeyCode::Char('x') => {
-                                app.update(Action::ScanSteamGames).await;
+                            KeyCode::Char(' ') => {
+                                app.update(Action::ToggleSelectGame).await;
+                            }
+                            KeyCode::Delete | KeyCode::Char('x') => {
+                                app.update(Action::DeleteSelectedGames).await;
                             }
                             _ => {}
                         }

@@ -365,4 +365,19 @@ impl Database {
 
         Ok(self.conn.last_insert_rowid())
     }
+
+    pub fn delete_game(&self, game_id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM games WHERE id = ?1", params![game_id])?;
+        Ok(())
+    }
+
+    pub fn delete_games(&self, game_ids: &[i64]) -> Result<usize> {
+        let mut deleted = 0;
+        for id in game_ids {
+            if self.delete_game(*id).is_ok() {
+                deleted += 1;
+            }
+        }
+        Ok(deleted)
+    }
 }

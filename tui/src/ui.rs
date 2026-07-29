@@ -136,25 +136,38 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(idx, g)| {
             let is_selected = idx == app.selected_game_idx;
+            let is_checked = app.selected_game_ids.contains(&g.id);
+
             let style = if is_selected {
                 Style::default()
                     .fg(Color::Black)
                     .bg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
+            } else if is_checked {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
 
+            let mark = if is_checked { "[x] " } else { "" };
+            let title = format!("{}{}", mark, g.title);
             let ext = g.file_extension.clone().unwrap_or_else(|| "-".to_string());
             let size_mb = g.file_size.map(|s| format!("{:.1} MB", s as f64 / (1024.0 * 1024.0))).unwrap_or_else(|| "-".to_string());
             let gtype = g.game_type.to_uppercase();
 
-            Row::new(vec![g.title.clone(), ext, size_mb, gtype]).style(style)
+            Row::new(vec![title, ext, size_mb, gtype]).style(style)
         })
         .collect();
 
+    let sel_count = app.selected_game_ids.len();
+    let sel_title = if sel_count > 0 {
+        format!(" ({}/{} selected)", sel_count, app.games.len())
+    } else {
+        format!(" ({})", app.games.len())
+    };
+
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Games Table - {} ({}) [v] Switch View ", p.name, app.games.len())
+        format!(" Games Table - {}{} [v] Switch View ", p.name, sel_title)
     } else {
         " Games (0) ".to_string()
     };
@@ -204,24 +217,36 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
         .enumerate()
         .map(|(idx, g)| {
             let is_selected = idx == app.selected_game_idx;
+            let is_checked = app.selected_game_ids.contains(&g.id);
+
             let style = if is_selected {
                 Style::default()
                     .fg(Color::Black)
                     .bg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
+            } else if is_checked {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
 
+            let mark = if is_checked { "[x] " } else { "" };
             let appid_info = g.steam_appid.map(|id| format!(" (AppID: {})", id)).unwrap_or_default();
-            let content = format!(" [{}] {}{}", g.game_type.to_uppercase(), g.title, appid_info);
+            let content = format!(" {}{}[{}] {}{}", mark, if is_checked { "" } else { " " }, g.game_type.to_uppercase(), g.title, appid_info);
 
             ListItem::new(content).style(style)
         })
         .collect();
 
+    let sel_count = app.selected_game_ids.len();
+    let sel_title = if sel_count > 0 {
+        format!(" ({}/{} selected)", sel_count, app.games.len())
+    } else {
+        format!(" ({})", app.games.len())
+    };
+
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Cards View - {} ({}) [v] Switch View ", p.name, app.games.len())
+        format!(" Cards View - {}{} [v] Switch View ", p.name, sel_title)
     } else {
         " Cards View (0) ".to_string()
     };
@@ -346,7 +371,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [v] View | [m] Runners | [a] Add Game/Scan | [r] Rescan Saved Folder | [f] Folder Picker | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View | [m] Runners | [a] Add/Scan | [r] Rescan | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 

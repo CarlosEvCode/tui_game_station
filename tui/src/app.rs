@@ -110,6 +110,8 @@ pub enum Action {
     SaveModalGame,
     StartFolderScan,
     QuickRescanPlatform,
+    ToggleSelectGame,
+    DeleteSelectedGames,
 
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
@@ -130,6 +132,7 @@ pub struct App {
     pub selected_platform_idx: usize,
     pub games: Vec<Game>,
     pub selected_game_idx: usize,
+    pub selected_game_ids: HashSet<i64>,
     pub focused_pane: FocusedPane,
     pub view_mode: ViewMode,
     pub modal_state: ModalState,
@@ -160,6 +163,7 @@ impl App {
             selected_platform_idx: 0,
             games: Vec::new(),
             selected_game_idx: 0,
+            selected_game_ids: HashSet::new(),
             focused_pane: FocusedPane::Platforms,
             view_mode: ViewMode::Grid,
             modal_state: ModalState::None,
@@ -1000,6 +1004,38 @@ impl App {
                         }
                     } else {
                         self.status_msg = format!("No saved ROM folder for '{}'. Press [a] to scan a folder.", platform.name);
+                    }
+                }
+            }
+            Action::ToggleSelectGame => {
+                if self.modal_state == ModalState::None && self.focused_pane == FocusedPane::Games && !self.games.is_empty() {
+                    let game_id = self.games[self.selected_game_idx].id;
+                    if self.selected_game_ids.contains(&game_id) {
+                        self.selected_game_ids.remove(&game_id);
+                    } else {
+                        self.selected_game_ids.insert(game_id);
+                    }
+                    if self.selected_game_idx + 1 < self.games.len() {
+                        self.selected_game_idx += 1;
+                        self.trigger_async_cover_fetch();
+                    }
+                }
+            }
+            Action::DeleteSelectedGames => {
+                if self.modal_state == ModalState::None && !self.games.is_empty() {
+                    if !self.selected_game_ids.is_empty() {
+                        let ids: Vec<i64> = self.selected_game_ids.iter().copied().collect();
+                        let count = self.db.delete_games(&ids).unwrap_or(0);
+                        self.selected_game_ids.clear();
+                        self.status_msg = format!("[OK] Removed {} selected game(s) from database.", count);
+                        self.load_platforms();
+                    } else if self.selected_game_idx < self.games.len() {
+                        let game = &self.games[self.selected_game_idx];
+                        let title = game.title.clone();
+                        if self.db.delete_game(game.id).is_ok() {
+                            self.status_msg = format!("[OK] Removed '{}' from database.", title);
+                            self.load_platforms();
+                        }
                     }
                 }
             }
