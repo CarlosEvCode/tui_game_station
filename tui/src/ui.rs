@@ -1567,13 +1567,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     let p_name = app.platforms.get(platform_idx).map(|p| p.name.as_str()).unwrap_or("Unknown");
                     lines.push(title_line);
                     lines.push(Line::from(vec![
-                        Span::styled("2. Platform: < ", field_style(1)),
-                        Span::styled(p_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        Span::styled(" > (Use Left/Right to change)", field_style(1)),
+                        Span::styled("2. Platform: ", field_style(1)),
+                        Span::styled(format!("< {} >", p_name), field_style(1)),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. ROM Path: ", field_style(2)),
-                        Span::raw(if file_path.is_empty() { "< Press [f] to select ROM >" } else { file_path }),
+                        Span::raw(if file_path.is_empty() { "< Press [Enter] to select ROM >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("[ SAVE GAME ]", field_style(3)),
@@ -1583,15 +1582,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Press [f] to browse >" } else { file_path }),
+                        Span::raw(if file_path.is_empty() { "< Press [Enter] to browse >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Working Dir: ", field_style(2)),
-                        Span::raw(working_dir),
+                        Span::raw(if working_dir.is_empty() { "< Auto-populated >" } else { working_dir }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("4. Custom Args: ", field_style(3)),
-                        Span::raw(custom_command),
+                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("[ SAVE GAME ]", field_style(4)),
@@ -1601,7 +1600,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable .exe Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
+                        Span::raw(if file_path.is_empty() { "< Press [Enter] to browse .exe >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Prefix: ", field_style(2)),
@@ -1616,13 +1615,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
                     lines.push(Line::from(vec![
                         Span::styled("5. Wine / Proton Runner: ", field_style(4)),
-                        Span::styled(format!(" < {} >  (Use Left/Right or press [p])", runner_str), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("< {} >", runner_str), field_style(4)),
                     ]));
                     let flags = extract_custom_flags(custom_command);
                     let flags_display = if flags.is_empty() {
-                        "< Optional: Press [Enter] or [p] to edit >".to_string()
+                        "< Optional >".to_string()
                     } else {
-                        format!("{}  (Press [Enter] or [p] to edit)", flags)
+                        flags
                     };
 
                     lines.push(Line::from(vec![
@@ -1638,7 +1637,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Steam AppID: ", field_style(1)),
-                        Span::raw(steam_appid),
+                        Span::raw(if steam_appid.is_empty() { "< Enter AppID >" } else { steam_appid }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("[ SAVE GAME ]", field_style(2)),
@@ -1660,7 +1659,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Move Cursor / Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Left/Right] Move Cursor / Switch Runner | [Enter] Select / Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -1715,11 +1714,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. ROM Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Press [f] to select ROM >" } else { file_path }),
+                        Span::raw(if file_path.is_empty() { "< Press [Enter] to select ROM >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Custom Command / Args: ", field_style(2)),
-                        Span::raw(if custom_command.is_empty() { "< None >" } else { custom_command }),
+                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
@@ -1730,15 +1729,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Press [f] to browse executable >" } else { file_path }),
+                        Span::raw(if file_path.is_empty() { "< Press [Enter] to browse >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Working Directory: ", field_style(2)),
-                        Span::raw(if working_dir.is_empty() { "< Optional: Press [f] to browse folder >" } else { working_dir }),
+                        Span::raw(if working_dir.is_empty() { "< Optional >" } else { working_dir }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("4. Custom Args / Command: ", field_style(3)),
-                        Span::raw(if custom_command.is_empty() { "< Optional: e.g. --fullscreen >" } else { custom_command }),
+                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
@@ -1749,7 +1748,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Executable .exe Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
+                        Span::raw(if file_path.is_empty() { "< Press [Enter] to browse .exe >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("3. Prefix: ", field_style(2)),
@@ -1764,13 +1763,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
                     lines.push(Line::from(vec![
                         Span::styled("5. Wine / Proton Runner: ", field_style(4)),
-                        Span::styled(format!(" < {} >  (Use Left/Right or press [p])", runner_str), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("< {} >", runner_str), field_style(4)),
                     ]));
                     let flags = extract_custom_flags(custom_command);
                     let flags_display = if flags.is_empty() {
-                        "< Optional: Press [Enter] or [p] to edit >".to_string()
+                        "< Optional >".to_string()
                     } else {
-                        format!("{}  (Press [Enter] or [p] to edit)", flags)
+                        flags
                     };
 
                     lines.push(Line::from(vec![
@@ -1813,7 +1812,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Move Cursor / Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Left/Right] Move Cursor / Switch Runner | [Enter] Select / Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
