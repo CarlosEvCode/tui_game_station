@@ -47,8 +47,11 @@ pub enum ModalState {
     AddGameStep1Type {
         selected_type_idx: usize,
     },
+    ScanFolderStep1Platform {
+        selected_platform_idx: usize,
+    },
     ScanFolderForm {
-        platform_idx: usize,
+        platform: Platform,
         folder_path: String,
         extensions_input: String,
         recursive: bool,
@@ -98,6 +101,7 @@ pub enum Action {
     ModalSelectNext,
     ModalSelectPrev,
     ModalConfirmStep1,
+    ScanModalConfirmPlatform,
     ModalNextField,
     ModalPrevField,
     ModalInputChar(char),
@@ -381,7 +385,7 @@ impl App {
                     let path_str = picked.to_string_lossy().to_string();
                     if let ModalState::ScanFolderForm { ref mut folder_path, .. } = self.modal_state {
                         *folder_path = path_str.clone();
-                        self.status_msg = format!("Carpeta seleccionada: {}", path_str);
+                        self.status_msg = format!("Folder selected: {}", path_str);
                     }
                 }
             }
@@ -391,7 +395,11 @@ impl App {
                     match self.modal_state {
                         ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } => {
                             *exe_path_input = path_str.clone();
-                            self.status_msg = format!("Archivo seleccionado: {}", path_str);
+                            self.status_msg = format!("File selected: {}", path_str);
+                        }
+                        ModalState::ScanFolderForm { ref mut folder_path, .. } => {
+                            *folder_path = path_str.clone();
+                            self.status_msg = format!("Folder path set: {}", path_str);
                         }
                         ModalState::AddGameForm {
                             ref mut file_path,
@@ -416,7 +424,7 @@ impl App {
                                     *file_path = path_str.clone();
                                 }
                             }
-                            self.status_msg = format!("Archivo de juego seleccionado: {}", path_str);
+                            self.status_msg = format!("File selected: {}", path_str);
                         }
                         _ => {}
                     }
@@ -619,12 +627,10 @@ impl App {
                     ModalState::AddGameStep1Type { ref mut selected_type_idx } => {
                         *selected_type_idx = (*selected_type_idx + 1) % 4;
                     }
-                    ModalState::ScanFolderForm { ref mut platform_idx, ref mut extensions_input, .. } => {
-                        let all_platforms = self.db.get_platforms().unwrap_or_default();
-                        if !all_platforms.is_empty() {
-                            *platform_idx = (*platform_idx + 1) % all_platforms.len();
-                            let p = &all_platforms[*platform_idx];
-                            *extensions_input = p.default_extensions.join(", ");
+                    ModalState::ScanFolderStep1Platform { ref mut selected_platform_idx } => {
+                        let total = self.db.get_platforms().unwrap_or_default().len();
+                        if total > 0 {
+                            *selected_platform_idx = (*selected_platform_idx + 1) % total;
                         }
                     }
                     ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
@@ -658,16 +664,14 @@ impl App {
                             *selected_type_idx -= 1;
                         }
                     }
-                    ModalState::ScanFolderForm { ref mut platform_idx, ref mut extensions_input, .. } => {
-                        let all_platforms = self.db.get_platforms().unwrap_or_default();
-                        if !all_platforms.is_empty() {
-                            if *platform_idx == 0 {
-                                *platform_idx = all_platforms.len() - 1;
+                    ModalState::ScanFolderStep1Platform { ref mut selected_platform_idx } => {
+                        let total = self.db.get_platforms().unwrap_or_default().len();
+                        if total > 0 {
+                            if *selected_platform_idx == 0 {
+                                *selected_platform_idx = total - 1;
                             } else {
-                                *platform_idx -= 1;
+                                *selected_platform_idx -= 1;
                             }
-                            let p = &all_platforms[*platform_idx];
-                            *extensions_input = p.default_extensions.join(", ");
                         }
                     }
                     ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
@@ -707,16 +711,9 @@ impl App {
             Action::ModalConfirmStep1 => {
                 if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state {
                     if selected_type_idx == 0 {
-                        // Scan ROMs Folder Mode
-                        let all_platforms = self.db.get_platforms().unwrap_or_default();
-                        let default_exts = all_platforms.first().map(|p| p.default_extensions.join(", ")).unwrap_or_default();
-
-                        self.modal_state = ModalState::ScanFolderForm {
-                            platform_idx: 0,
-                            folder_path: dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home")).join("Juegos").to_string_lossy().to_string(),
-                            extensions_input: default_exts,
-                            recursive: true,
-                            selected_field: 0,
+                        // Scan ROMs Folder Mode -> Step 2: Select Platform
+                        self.modal_state = ModalState::ScanFolderStep1Platform {
+                            selected_platform_idx: 0,
                         };
                     } else {
                         let game_type = match selected_type_idx {
@@ -739,9 +736,24 @@ impl App {
                     }
                 }
             }
+            Action::ScanModalConfirmPlatform => {
+                if let ModalState::ScanFolderStep1Platform { selected_platform_idx } = self.modal_state {
+                    let all_platforms = self.db.get_platforms().unwrap_or_default();
+                    if let Some(p) = all_platforms.get(selected_platform_idx) {
+                        let default_exts = p.default_extensions.join(", ");
+                        self.modal_state = ModalState::ScanFolderForm {
+                            platform: p.clone(),
+                            folder_path: dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home")).join("Juegos").to_string_lossy().to_string(),
+                            extensions_input: default_exts,
+                            recursive: true,
+                            selected_field: 0,
+                        };
+                    }
+                }
+            }
             Action::ModalToggleCheckbox => {
                 if let ModalState::ScanFolderForm { ref mut recursive, selected_field, .. } = self.modal_state {
-                    if selected_field == 3 {
+                    if selected_field == 2 {
                         *recursive = !*recursive;
                     }
                 }
@@ -758,7 +770,7 @@ impl App {
                         *selected_field = (*selected_field + 1) % total_fields;
                     }
                     ModalState::ScanFolderForm { ref mut selected_field, .. } => {
-                        *selected_field = (*selected_field + 1) % 5;
+                        *selected_field = (*selected_field + 1) % 4;
                     }
                     _ => {}
                 }
@@ -780,7 +792,7 @@ impl App {
                     }
                     ModalState::ScanFolderForm { ref mut selected_field, .. } => {
                         if *selected_field == 0 {
-                            *selected_field = 4;
+                            *selected_field = 3;
                         } else {
                             *selected_field -= 1;
                         }
@@ -839,8 +851,8 @@ impl App {
                 } = self.modal_state
                 {
                     match selected_field {
-                        1 => folder_path.push(ch),
-                        2 => extensions_input.push(ch),
+                        0 => folder_path.push(ch),
+                        1 => extensions_input.push(ch),
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
@@ -899,8 +911,8 @@ impl App {
                 } = self.modal_state
                 {
                     match selected_field {
-                        1 => { folder_path.pop(); }
-                        2 => { extensions_input.pop(); }
+                        0 => { folder_path.pop(); }
+                        1 => { extensions_input.pop(); }
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
@@ -909,38 +921,34 @@ impl App {
             }
             Action::StartFolderScan => {
                 if let ModalState::ScanFolderForm {
-                    platform_idx,
+                    ref platform,
                     ref folder_path,
-                    ref extensions_input,
                     recursive,
                     ..
                 } = self.modal_state.clone()
                 {
-                    let all_platforms = self.db.get_platforms().unwrap_or_default();
-                    if let Some(platform) = all_platforms.get(platform_idx) {
-                        let runner = self.db.get_runner_for_platform(platform.id).ok().flatten();
-                        if runner.as_ref().and_then(|r| r.executable_path.as_ref()).is_none() && platform.slug != "linux" && platform.slug != "windows" {
-                            self.status_msg = format!("❌ [Runner Not Configured] Configura o descarga un emulador para '{}' en [m] antes de escanear ROMs.", platform.name);
-                            return;
+                    let runner = self.db.get_runner_for_platform(platform.id).ok().flatten();
+                    if runner.as_ref().and_then(|r| r.executable_path.as_ref()).is_none() && platform.slug != "linux" && platform.slug != "windows" {
+                        self.status_msg = format!("[Runner Not Configured] Configure or download a runner for '{}' in [m] before scanning ROMs.", platform.name);
+                        return;
+                    }
+
+                    let path = PathBuf::from(folder_path.trim());
+                    if !path.exists() {
+                        self.status_msg = format!("[Error] Folder path does not exist: '{}'", folder_path);
+                        return;
+                    }
+
+                    self.status_msg = format!("Scanning ROMs folder for {}...", platform.name);
+
+                    match Scanner::scan_folder(&self.db, &platform, &path, recursive, false) {
+                        Ok(added) => {
+                            self.status_msg = format!("[OK] Scan completed: {} ROMs imported/updated.", added);
+                            self.modal_state = ModalState::None;
+                            self.load_platforms();
                         }
-
-                        let path = PathBuf::from(folder_path.trim());
-                        if !path.exists() {
-                            self.status_msg = format!("❌ [Error] La carpeta no existe: '{}'", folder_path);
-                            return;
-                        }
-
-                        self.status_msg = format!("Escaneando carpeta de ROMs para {}...", platform.name);
-
-                        match Scanner::scan_folder(&self.db, platform, &path, recursive, false) {
-                            Ok(added) => {
-                                self.status_msg = format!("✅ Escaneo completado: {} ROMs importadas/actualizadas.", added);
-                                self.modal_state = ModalState::None;
-                                self.load_platforms();
-                            }
-                            Err(err) => {
-                                self.status_msg = format!("Error durante el escaneo: {}", err);
-                            }
+                        Err(err) => {
+                            self.status_msg = format!("Error during scan: {}", err);
                         }
                     }
                 }

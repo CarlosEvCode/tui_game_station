@@ -86,6 +86,9 @@ async fn main() -> Result<()> {
                                 ModalState::AddGameStep1Type { .. } => {
                                     app.update(Action::ModalConfirmStep1).await;
                                 }
+                                ModalState::ScanFolderStep1Platform { .. } => {
+                                    app.update(Action::ScanModalConfirmPlatform).await;
+                                }
                                 ModalState::ScanFolderForm { .. } => {
                                     app.update(Action::StartFolderScan).await;
                                 }
