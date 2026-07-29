@@ -1,6 +1,7 @@
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 use crate::db::Database;
@@ -32,26 +33,19 @@ impl Scanner {
             walker = walker.max_depth(1);
         }
 
-        for entry in walker.into_iter().filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
+        let paths: Vec<PathBuf> = walker
+            .into_iter()
+            .filter_map(|entry| entry.ok().map(|entry| entry.into_path()))
+            .filter(|path| path.is_file() && has_supported_extension(path, platform))
+            .collect();
+        let paths = if platform.slug == "ps1" {
+            select_ps1_images(paths)
+        } else {
+            paths
+        };
 
-            let ext = path
-                .extension()
-                .and_then(OsStr::to_str)
-                .map(|s| format!(".{}", s.to_lowercase()))
-                .unwrap_or_default();
-
-            if !platform.default_extensions.is_empty()
-                && !platform
-                    .default_extensions
-                    .iter()
-                    .any(|e| e.to_lowercase() == ext)
-            {
-                continue;
-            }
+        for path in paths {
+            let ext = extension_for(&path);
 
             let file_name = path
                 .file_name()
@@ -69,7 +63,7 @@ impl Scanner {
             // directory and `meta/meta.xml`.  Treat its RPX as one game,
             // use its metadata title, and avoid importing updates/DLC as games.
             let title = if platform.slug == "wii_u" && ext == ".rpx" {
-                match wii_u_directory_title(path) {
+                match wii_u_directory_title(&path) {
                     Some(Some(title)) => title,
                     Some(None) => continue,
                     None => clean_game_title(&stem),
@@ -79,7 +73,7 @@ impl Scanner {
             };
 
             let (crc32, md5, sha1, size) = if calculate_hashes {
-                if let Ok(hashes) = HashCalculator::calculate_hashes(path) {
+                if let Ok(hashes) = HashCalculator::calculate_hashes(&path) {
                     (
                         Some(hashes.crc32),
                         Some(hashes.md5),
@@ -90,7 +84,7 @@ impl Scanner {
                     (None, None, None, None)
                 }
             } else {
-                let size = std::fs::metadata(path).map(|m| m.len() as i64).ok();
+                let size = std::fs::metadata(&path).map(|m| m.len() as i64).ok();
                 (None, None, None, size)
             };
 
@@ -135,6 +129,100 @@ impl Scanner {
 
         Ok(count)
     }
+}
+
+fn has_supported_extension(path: &Path, platform: &Platform) -> bool {
+    let ext = extension_for(path);
+    platform.default_extensions.is_empty()
+        || platform
+            .default_extensions
+            .iter()
+            .any(|supported| supported.to_lowercase() == ext)
+}
+
+fn extension_for(path: &Path) -> String {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .map(|extension| format!(".{}", extension.to_lowercase()))
+        .unwrap_or_default()
+}
+
+/// Select one launchable image per PS1 game without importing the data tracks
+/// referenced by a CUE sheet.  CUE is safest for multi-track discs; CHD and PBP
+/// are self-contained fallbacks, and raw BIN is used only when no better option
+/// is present.
+fn select_ps1_images(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let cue_references: HashSet<PathBuf> = paths
+        .iter()
+        .filter(|path| extension_for(path) == ".cue")
+        .flat_map(|cue_path| cue_referenced_files(cue_path))
+        .collect();
+
+    let mut best_by_name: HashMap<String, PathBuf> = HashMap::new();
+    for path in paths {
+        if extension_for(&path) == ".bin" && cue_references.contains(&path_identity(&path)) {
+            continue;
+        }
+
+        let name = path
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let replace_existing = best_by_name
+            .get(&name)
+            .map(|existing| ps1_priority(&path) < ps1_priority(existing))
+            .unwrap_or(true);
+        if replace_existing {
+            best_by_name.insert(name, path);
+        }
+    }
+
+    let mut selected: Vec<PathBuf> = best_by_name.into_values().collect();
+    selected.sort();
+    selected
+}
+
+fn ps1_priority(path: &Path) -> u8 {
+    match extension_for(path).as_str() {
+        ".cue" => 0,
+        ".chd" => 1,
+        ".pbp" => 2,
+        ".bin" => 3,
+        _ => u8::MAX,
+    }
+}
+
+fn cue_referenced_files(cue_path: &Path) -> Vec<PathBuf> {
+    let parent = match cue_path.parent() {
+        Some(parent) => parent,
+        None => return Vec::new(),
+    };
+    let contents = match std::fs::read_to_string(cue_path) {
+        Ok(contents) => contents,
+        Err(_) => return Vec::new(),
+    };
+
+    contents
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if !line.to_ascii_uppercase().starts_with("FILE ") {
+                return None;
+            }
+            let remainder = line[5..].trim_start();
+            let file_name = if let Some(rest) = remainder.strip_prefix('"') {
+                rest.split('"').next()?
+            } else {
+                remainder.split_whitespace().next()?
+            };
+            Some(path_identity(&parent.join(file_name)))
+        })
+        .collect()
+}
+
+fn path_identity(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Returns `Some(Some(title))` for an unpacked Wii U base game,
@@ -212,7 +300,7 @@ fn clean_game_title(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_game_title, wii_u_directory_title, xml_tag_value};
+    use super::{clean_game_title, select_ps1_images, wii_u_directory_title, xml_tag_value};
     use std::fs;
 
     #[test]
@@ -267,6 +355,33 @@ mod tests {
             Some(None)
         );
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ps1_cue_keeps_the_descriptor_and_ignores_its_bin_tracks() {
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_ps1_scanner_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let cue = root.join("Game.cue");
+        let track_one = root.join("Game (Track 1).bin");
+        let track_two = root.join("Game (Track 2).bin");
+        let chd = root.join("Game.chd");
+        fs::write(&track_one, []).unwrap();
+        fs::write(&track_two, []).unwrap();
+        fs::write(&chd, []).unwrap();
+        fs::write(
+            &cue,
+            "FILE \"Game (Track 1).bin\" BINARY\nFILE \"Game (Track 2).bin\" BINARY\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            select_ps1_images(vec![track_one, track_two, chd, cue.clone()]),
+            vec![cue]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }
