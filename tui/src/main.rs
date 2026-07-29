@@ -48,6 +48,8 @@ async fn main() -> Result<()> {
                             KeyCode::Tab => {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
                                     app.update(Action::SwitchVisualMediaTab).await;
+                                } else if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                    app.update(Action::SwitchProtonRepo).await;
                                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
@@ -58,7 +60,10 @@ async fn main() -> Result<()> {
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
-                                | ModalState::VisualMediaSelector { .. } => {
+                                | ModalState::VisualMediaSelector { .. }
+                                | ModalState::ManageWineRunners { .. }
+                                | ModalState::ProtonDownloader { .. }
+                                | ModalState::SelectWineRunnerPicker { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
                                 _ => {
@@ -69,7 +74,10 @@ async fn main() -> Result<()> {
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
-                                | ModalState::VisualMediaSelector { .. } => {
+                                | ModalState::VisualMediaSelector { .. }
+                                | ModalState::ManageWineRunners { .. }
+                                | ModalState::ProtonDownloader { .. }
+                                | ModalState::SelectWineRunnerPicker { .. } => {
                                     app.update(Action::ModalSelectNext).await;
                                 }
                                 _ => {
@@ -77,16 +85,30 @@ async fn main() -> Result<()> {
                                 }
                             },
                             KeyCode::Left => match app.modal_state {
+                                ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
+                                | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
+                                    app.update(Action::CycleWineRunner(-1)).await;
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::SwitchVisualMediaTab).await;
+                                }
+                                ModalState::ProtonDownloader { .. } => {
+                                    app.update(Action::SwitchProtonTargetLocationPrev).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
                             },
                             KeyCode::Right => match app.modal_state {
+                                ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
+                                | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
+                                    app.update(Action::CycleWineRunner(1)).await;
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::SwitchVisualMediaTab).await;
+                                }
+                                ModalState::ProtonDownloader { .. } => {
+                                    app.update(Action::SwitchProtonTargetLocationNext).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectNext).await;
@@ -170,6 +192,22 @@ async fn main() -> Result<()> {
                                 ModalState::ManageRunnersStep2Config { .. } => {
                                     app.update(Action::SaveRunnerConfig).await;
                                 }
+                                ModalState::ManageWineRunners { .. } => {
+                                    app.update(Action::OpenProtonDownloader).await;
+                                }
+                                ModalState::ProtonDownloader { .. } => {
+                                    app.update(Action::StartProtonDownload).await;
+                                }
+                                ModalState::SelectWineRunnerPicker { .. } => {
+                                    app.update(Action::SelectWineRunnerFromPicker).await;
+                                }
+                                ModalState::EditCustomArgsInput { .. } => {
+                                    app.update(Action::SaveCustomArgsInput).await;
+                                }
+                                ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 5, .. }
+                                | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 5, .. } => {
+                                    app.update(Action::OpenCustomArgsEditor).await;
+                                }
                                 ModalState::EditGameForm { .. } => {
                                     app.update(Action::SaveEditGameModal).await;
                                 }
@@ -180,16 +218,54 @@ async fn main() -> Result<()> {
                             KeyCode::Backspace => {
                                 app.update(Action::ModalBackspace).await;
                             }
+                            KeyCode::Delete => {
+                                if let ModalState::ManageWineRunners { .. } = app.modal_state {
+                                    app.update(Action::DeleteInstalledWineRunner).await;
+                                }
+                            }
                             KeyCode::Char('d') => {
-                                if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
-                                    app.update(Action::ResetRunnerConfig).await;
+                                match app.modal_state {
+                                    ModalState::ManageRunnersStep2Config { .. } => {
+                                        app.update(Action::ResetRunnerConfig).await;
+                                    }
+                                    ModalState::ManageWineRunners { .. } => {
+                                        app.update(Action::OpenProtonDownloader).await;
+                                    }
+                                    _ => {
+                                        app.update(Action::ModalInputChar('d')).await;
+                                    }
+                                }
+                            }
+                            KeyCode::Char('p') => {
+                                match app.modal_state {
+                                    ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
+                                    | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
+                                        app.update(Action::OpenWineRunnerPicker).await;
+                                    }
+                                    ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 5, .. }
+                                    | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 5, .. } => {
+                                        app.update(Action::OpenCustomArgsEditor).await;
+                                    }
+                                    ModalState::ManageRunnersStep1Platform { .. } => {
+                                        app.update(Action::OpenWineRunnerManager).await;
+                                    }
+                                    _ => {
+                                        app.update(Action::ModalInputChar('p')).await;
+                                    }
+                                }
+                            }
+                            KeyCode::Char('t') => {
+                                if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                    app.update(Action::SwitchProtonTargetLocationNext).await;
                                 } else {
-                                    app.update(Action::ModalInputChar('d')).await;
+                                    app.update(Action::ModalInputChar('t')).await;
                                 }
                             }
                             KeyCode::Char('w') => {
                                 if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
                                     app.update(Action::StartRunnerDownload).await;
+                                } else if let ModalState::ManageRunnersStep1Platform { .. } = app.modal_state {
+                                    app.update(Action::OpenWineRunnerManager).await;
                                 } else {
                                     app.update(Action::ModalInputChar('w')).await;
                                 }

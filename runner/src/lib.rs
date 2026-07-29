@@ -13,6 +13,42 @@ impl GameRunner {
     pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
         let mut env_vars = HashMap::new();
 
+        if game.game_type == "wine" {
+            let file_path = game.file_path.clone().unwrap_or_default();
+            let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
+                if let Some(ref wdir) = game.working_dir {
+                    if !wdir.trim().is_empty() {
+                        return PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                    }
+                }
+                let data_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("~/.local/share"));
+                data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+            });
+
+            let _ = std::fs::create_dir_all(&wine_prefix);
+
+            if let Some(cmd) = &game.custom_command {
+                if !cmd.trim().is_empty() {
+                    let mut envs = env_vars.clone();
+                    if cmd.contains("proton") {
+                        envs.insert("STEAM_COMPAT_DATA_PATH".to_string(), wine_prefix.clone());
+                        let steam_dir = dirs::home_dir().map(|h| h.join(".local/share/Steam")).unwrap_or_default();
+                        envs.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH".to_string(), steam_dir.to_string_lossy().to_string());
+                    } else {
+                        envs.insert("WINEPREFIX".to_string(), wine_prefix.clone());
+                    }
+                    let (exe, args, mut parsed_envs) = parse_command_string(cmd, game)?;
+                    parsed_envs.extend(envs);
+                    return Ok((exe, args, parsed_envs));
+                }
+            }
+
+            // Default fallback if no custom_command specified for Windows game:
+            env_vars.insert("WINEPREFIX".to_string(), wine_prefix);
+            let cmd = format!("wine \"{}\"", file_path);
+            return parse_command_string(&cmd, game);
+        }
+
         if let Some(cmd) = &game.custom_command {
             return parse_command_string(cmd, game);
         }

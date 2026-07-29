@@ -15,23 +15,19 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Header
-            Constraint::Min(10),   // Content
-            Constraint::Length(3), // Footer / Status bar
+            Constraint::Min(8),    // Content
+            Constraint::Length(3), // Activity & Status Bar (Log + Download Slider)
+            Constraint::Length(3), // Shortcuts & Controls Footer
         ])
         .split(frame.area());
 
     render_header(frame, chunks[0]);
     render_main_content(frame, app, chunks[1]);
-    render_footer(frame, app, chunks[2]);
+    render_activity_status_bar(frame, app, chunks[2]);
+    render_controls_footer(frame, app, chunks[3]);
 
     if app.modal_state != ModalState::None {
         render_modal(frame, app);
-    }
-
-    if let Some(ref progress) = app.download_progress {
-        if !progress.is_finished {
-            render_download_gauge(frame, progress);
-        }
     }
 }
 
@@ -440,13 +436,101 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(details_p, card_vertical_chunks[1]);
 }
 
-fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let help_text = format!(
-        " [v] View | [w] Media | [e] Edit | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [Enter] Launch | {}",
-        app.status_msg
+fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let bar_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(area);
+
+    let status_style = if app.status_msg.starts_with("[Error]") || app.status_msg.starts_with("Error") {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else if app.status_msg.starts_with("[OK]") {
+        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+
+    let status_paragraph = Paragraph::new(Line::from(vec![
+        Span::styled(" LOG: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(&app.status_msg, status_style),
+    ]))
+    .block(
+        Block::default()
+            .title(Span::styled(" System Status & Log ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
     );
 
-    let paragraph = Paragraph::new(help_text).block(
+    frame.render_widget(status_paragraph, bar_chunks[0]);
+
+    if let Some(ref progress) = app.download_progress {
+        let downloaded_mb = progress.downloaded_bytes as f64 / (1024.0 * 1024.0);
+        let total_mb = progress.total_bytes as f64 / (1024.0 * 1024.0);
+        let is_extracting = progress.percentage >= 99.9;
+        let prefix = if is_extracting {
+            " Extracting Archive: "
+        } else {
+            " Downloading Archive: "
+        };
+        let label = format!("{:.1}% ({:.1}/{:.1} MB)", progress.percentage, downloaded_mb, total_mb);
+
+        let gauge = Gauge::default()
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        format!("{}{}", prefix, progress.runner_name),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green)),
+            )
+            .gauge_style(
+                Style::default()
+                    .fg(Color::Green)
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .percent(progress.percentage as u16)
+            .label(label);
+
+        frame.render_widget(gauge, bar_chunks[1]);
+    } else {
+        let idle_paragraph = Paragraph::new(" [ Download / Extraction Progress: Idle ]")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(
+                Block::default()
+                    .title(Span::styled(" Task Slider ", Style::default().fg(Color::DarkGray)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+
+        frame.render_widget(idle_paragraph, bar_chunks[1]);
+    }
+}
+
+fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
+    let line = Line::from(vec![
+        Span::styled(" [v] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("View "),
+        Span::styled(" [w] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("Media "),
+        Span::styled(" [e] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("Edit "),
+        Span::styled(" [m] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("Runners "),
+        Span::styled(" [a] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("Add/Scan "),
+        Span::styled(" [s] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("Settings "),
+        Span::styled(" [Space] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw("Select "),
+        Span::styled(" [Del] ", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)),
+        Span::raw("Delete "),
+        Span::styled(" [Enter] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw("Launch Game"),
+    ]);
+
+    let paragraph = Paragraph::new(line).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Blue)),
@@ -455,35 +539,55 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-/// Render sleek compact download progress popup overlay
-fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgressState) {
-    let popup_area = centered_rect(65, 12, frame.area());
-    frame.render_widget(Clear, popup_area);
+fn extract_custom_flags(cmd: &str) -> String {
+    let installed = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+    for r in &installed {
+        let runner_str = match r.kind {
+            game_core::runner_detector::RunnerKind::Proton => format!("\"{}\" run \"{{file_path}}\"", r.binary_path.display()),
+            game_core::runner_detector::RunnerKind::Wine => format!("\"{}\" \"{{file_path}}\"", r.binary_path.display()),
+        };
+        if cmd == runner_str {
+            return String::new();
+        }
+    }
+    if let Some(pos) = cmd.find("\"{file_path}\"") {
+        let remainder = cmd[pos + "\"{file_path}\"".len()..].trim();
+        if !remainder.is_empty() {
+            return remainder.to_string();
+        }
+    }
+    cmd.trim().to_string()
+}
 
-    let downloaded_mb = progress.downloaded_bytes as f64 / (1024.0 * 1024.0);
-    let total_mb = progress.total_bytes as f64 / (1024.0 * 1024.0);
-    let label = format!("{:.1}% ({:.1} MB / {:.1} MB)", progress.percentage, downloaded_mb, total_mb);
+fn extract_runner_display_name(cmd: &str) -> String {
+    if cmd.trim().is_empty() {
+        return "System Wine / Default".to_string();
+    }
 
-    let gauge = Gauge::default()
-        .block(
-            Block::default()
-                .title(Span::styled(
-                    format!(" Downloading: {} ", progress.runner_name),
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                ))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green)),
-        )
-        .gauge_style(
-            Style::default()
-                .fg(Color::Green)
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
-        .percent(progress.percentage as u16)
-        .label(label);
+    let installed = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+    for r in &installed {
+        if cmd.contains(&r.name) || cmd.contains(r.binary_path.to_str().unwrap_or("")) {
+            return format!("{} ({})", r.name, r.location.display_name());
+        }
+    }
 
-    frame.render_widget(gauge, popup_area);
+    if let Some(first_word) = cmd.split_whitespace().next() {
+        let clean = first_word.trim_matches('"').trim_matches('\'');
+        let path = std::path::Path::new(clean);
+        if let Some(parent) = path.parent() {
+            if let Some(fname) = parent.file_name() {
+                let name = fname.to_string_lossy();
+                if name != "bin" && name != "usr" {
+                    return name.to_string();
+                }
+            }
+        }
+        if let Some(fname) = path.file_name() {
+            return fname.to_string_lossy().to_string();
+        }
+    }
+
+    "Custom Runner".to_string()
 }
 
 /// Render centered pop-up modal overlay dialog
@@ -1059,8 +1163,226 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Configure Emulator | [Esc] Back")
-                .style(Style::default().fg(Color::DarkGray));
+            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Configure Emulator | [w] Wine/Proton Manager | [Esc] Back")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::ManageWineRunners {
+            ref installed_runners,
+            selected_idx,
+        } => {
+            let items: Vec<ListItem> = if installed_runners.is_empty() {
+                vec![ListItem::new("  [ No Wine / Proton runners detected on system ]").style(Style::default().fg(Color::Yellow))]
+            } else {
+                installed_runners
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, r)| {
+                        let is_selected = idx == selected_idx;
+                        let kind_badge = match r.kind {
+                            game_core::runner_detector::RunnerKind::Proton => "[Proton]",
+                            game_core::runner_detector::RunnerKind::Wine => "[Wine]",
+                        };
+                        let style = if is_selected {
+                            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::White)
+                        };
+                        let line = format!("  {:8} {:30}  {:25} ({})", kind_badge, r.name, r.location.display_name(), r.binary_path.display());
+                        ListItem::new(line).style(style)
+                    })
+                    .collect()
+            };
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(
+                        format!(" Installed Wine & Proton Runners ({}) ", installed_runners.len()),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [d] Download GE-Proton / Proton-CachyOS | [Del] Delete Folder | [Esc] Close")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::ProtonDownloader {
+            selected_repo,
+            ref releases,
+            selected_release_idx,
+            selected_target_idx,
+            is_loading,
+            download_event: _,
+        } => {
+            let repo_spans = vec![
+                if selected_repo == scraper::proton::ProtonRepo::GEProton {
+                    Span::styled(" [ 1. GE-Proton (GloriousEggroll) ] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
+                } else {
+                    Span::styled("   1. GE-Proton (GloriousEggroll)   ", Style::default().fg(Color::Gray))
+                },
+                if selected_repo == scraper::proton::ProtonRepo::ProtonCachyOS {
+                    Span::styled(" [ 2. Proton-CachyOS (CachyOS) ] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
+                } else {
+                    Span::styled("   2. Proton-CachyOS (CachyOS)   ", Style::default().fg(Color::Gray))
+                },
+            ];
+
+            let targets = [
+                "1. TUI Game Station",
+                "2. Steam (compatibilitytools.d)",
+                "3. Heroic Proton",
+                "4. Heroic Wine",
+                "5. Lutris Wine",
+            ];
+            let target_spans: Vec<Span> = targets
+                .iter()
+                .enumerate()
+                .map(|(idx, t)| {
+                    if idx == selected_target_idx {
+                        Span::styled(format!(" [{}] ", t), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    } else {
+                        Span::styled(format!("  {}  ", t), Style::default().fg(Color::Gray))
+                    }
+                })
+                .collect();
+
+            let modal_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(2), Constraint::Length(2), Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(Paragraph::new(Line::from(repo_spans)), modal_chunks[0]);
+            frame.render_widget(Paragraph::new(Line::from(target_spans)), modal_chunks[1]);
+
+            if is_loading {
+                let loading_p = Paragraph::new("\n  [ Fetching releases from GitHub API... ]")
+                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+                frame.render_widget(loading_p, modal_chunks[2]);
+            } else {
+                let items: Vec<ListItem> = if releases.is_empty() {
+                    vec![ListItem::new(" No downloadable releases found for this repository.").style(Style::default().fg(Color::Red))]
+                } else {
+                    releases
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, rel)| {
+                            let is_selected = idx == selected_release_idx;
+                            let size_mb = rel.asset.as_ref().map(|a| a.size as f64 / 1_048_576.0).unwrap_or(0.0);
+                            let style = if is_selected {
+                                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::White)
+                            };
+                            ListItem::new(format!("  {:25}  ({:.1} MB)  Published: {}", rel.name, size_mb, rel.published_at.chars().take(10).collect::<String>())).style(style)
+                        })
+                        .collect()
+                };
+
+                let list = List::new(items).block(
+                    Block::default()
+                        .title(Span::styled(
+                            format!(" Available Releases for {} ({}) ", selected_repo.display_name(), releases.len()),
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        ))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green)),
+                );
+                frame.render_widget(list, modal_chunks[2]);
+            }
+
+            let help = Paragraph::new(" [Tab] Switch Repo | [Left/Right] Select Target Location | [Up/Down] Select Release | [Enter] Download & Extract | [Esc] Close")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, modal_chunks[3]);
+        }
+
+        ModalState::SelectWineRunnerPicker {
+            ref installed_runners,
+            selected_idx,
+            ..
+        } => {
+            let items: Vec<ListItem> = installed_runners
+                .iter()
+                .enumerate()
+                .map(|(idx, r)| {
+                    let is_selected = idx == selected_idx;
+                    let kind_badge = match r.kind {
+                        game_core::runner_detector::RunnerKind::Proton => "[Proton]",
+                        game_core::runner_detector::RunnerKind::Wine => "[Wine]",
+                    };
+                    let style = if is_selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    ListItem::new(format!("  {:8} {:25} ({})", kind_badge, r.name, r.location.display_name())).style(style)
+                })
+                .collect();
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Select Installed Wine / Proton Runner ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Select Runner | [Enter] Apply to Game | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::EditCustomArgsInput { ref input, .. } => {
+            let p = Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(" Enter Custom Command / Launcher Arguments: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" > ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw(input),
+                    Span::styled("█", Style::default().fg(Color::Yellow)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" Examples: --fullscreen, -dx11, WINEFSYNC=1 ", Style::default().fg(Color::DarkGray)),
+                ]),
+            ])
+            .block(
+                Block::default()
+                    .title(Span::styled(" Custom Launcher Arguments ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let popup_area = centered_rect(65, 30, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(p, chunks[0]);
+
+            let help = Paragraph::new(" [Enter] Save Arguments | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::ManageRunnersStep2Config {
@@ -1215,15 +1537,34 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("3. WINEPREFIX: ", field_style(2)),
-                        Span::raw(wine_prefix),
+                        Span::styled("3. Prefix: ", field_style(2)),
+                        Span::raw(if wine_prefix.is_empty() { "< Auto-created in working folder if empty >" } else { wine_prefix }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("4. Working Dir: ", field_style(3)),
-                        Span::raw(working_dir),
+                        Span::raw(if working_dir.is_empty() { "< Auto-populated >" } else { working_dir }),
                     ]));
+
+                    let runner_str = extract_runner_display_name(custom_command);
+
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE GAME ]", field_style(4)),
+                        Span::styled("5. Wine / Proton Runner: ", field_style(4)),
+                        Span::styled(format!(" < {} >  (Use Left/Right or press [p])", runner_str), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    ]));
+                    let flags = extract_custom_flags(custom_command);
+                    let flags_display = if flags.is_empty() {
+                        "< Optional: Press [Enter] or [p] to edit >".to_string()
+                    } else {
+                        format!("{}  (Press [Enter] or [p] to edit)", flags)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled("6. Custom Args: ", field_style(5)),
+                        Span::raw(flags_display),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE GAME ]", field_style(6)),
                     ]));
                 }
                 PlatformType::Steam => {
@@ -1255,7 +1596,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [f] File Picker | [Tab/Shift+Tab] Field | [Enter] Save | [Esc] Cancel")
+            let help = Paragraph::new(" [f] File Picker | [p] Select Runner | [Left/Right] Cycle Runner | [Tab/Shift+Tab] Field | [Enter] Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -1339,20 +1680,34 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::raw(if file_path.is_empty() { "< Press [f] to browse .exe >" } else { file_path }),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("3. WINEPREFIX: ", field_style(2)),
-                        Span::raw(if wine_prefix.is_empty() { "< Optional: e.g. ~/.wine >" } else { wine_prefix }),
+                        Span::styled("3. Prefix: ", field_style(2)),
+                        Span::raw(if wine_prefix.is_empty() { "< Auto-created in working folder if empty >" } else { wine_prefix }),
                     ]));
                     lines.push(Line::from(vec![
                         Span::styled("4. Working Directory: ", field_style(3)),
                         Span::raw(if working_dir.is_empty() { "< Optional >" } else { working_dir }),
                     ]));
+
+                    let runner_str = extract_runner_display_name(custom_command);
+
                     lines.push(Line::from(vec![
-                        Span::styled("5. Custom Args / Command: ", field_style(4)),
-                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
+                        Span::styled("5. Wine / Proton Runner: ", field_style(4)),
+                        Span::styled(format!(" < {} >  (Use Left/Right or press [p])", runner_str), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    ]));
+                    let flags = extract_custom_flags(custom_command);
+                    let flags_display = if flags.is_empty() {
+                        "< Optional: Press [Enter] or [p] to edit >".to_string()
+                    } else {
+                        format!("{}  (Press [Enter] or [p] to edit)", flags)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled("6. Custom Args: ", field_style(5)),
+                        Span::raw(flags_display),
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE CHANGES ]", field_style(5)),
+                        Span::styled("[ SAVE CHANGES ]", field_style(6)),
                     ]));
                 }
                 PlatformType::Steam => {

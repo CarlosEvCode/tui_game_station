@@ -49,7 +49,7 @@ pub struct DownloadProgressState {
     pub error_msg: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModalState {
     None,
     AddGameStep1Type {
@@ -121,6 +121,27 @@ pub enum ModalState {
         runner_info: game_core::models::UniqueRunnerInfo,
         exe_path_input: String,
     },
+    ManageWineRunners {
+        installed_runners: Vec<game_core::runner_detector::InstalledWineRunner>,
+        selected_idx: usize,
+    },
+    ProtonDownloader {
+        selected_repo: scraper::proton::ProtonRepo,
+        releases: Vec<scraper::proton::ProtonRelease>,
+        selected_release_idx: usize,
+        selected_target_idx: usize,
+        is_loading: bool,
+        download_event: Option<scraper::downloader::DownloadEvent>,
+    },
+    SelectWineRunnerPicker {
+        installed_runners: Vec<game_core::runner_detector::InstalledWineRunner>,
+        selected_idx: usize,
+        parent_modal: Option<Box<ModalState>>,
+    },
+    EditCustomArgsInput {
+        input: String,
+        parent_modal: Box<ModalState>,
+    },
 }
 
 pub enum Action {
@@ -128,6 +149,19 @@ pub enum Action {
     PrevPlatform,
     NextGame,
     PrevGame,
+    OpenWineRunnerManager,
+    OpenProtonDownloader,
+    SwitchProtonRepo,
+    SwitchProtonTargetLocationNext,
+    SwitchProtonTargetLocationPrev,
+    FetchProtonReleases,
+    StartProtonDownload,
+    OpenWineRunnerPicker,
+    SelectWineRunnerFromPicker,
+    CycleWineRunner(i32),
+    DeleteInstalledWineRunner,
+    OpenCustomArgsEditor,
+    SaveCustomArgsInput,
     TogglePane,
     ToggleViewMode,
     ToggleShowAllPlatforms,
@@ -847,6 +881,11 @@ impl App {
                 }
             }
             Action::StartRunnerDownload => {
+                if self.download_progress.is_some() {
+                    self.status_msg = "[Warning] A download task is already in progress. Please wait for it to complete.".to_string();
+                    return;
+                }
+
                 if let ModalState::ManageRunnersStep2Config {
                     ref runner_info,
                     ..
@@ -936,7 +975,292 @@ impl App {
                     });
                 }
             }
+            Action::OpenWineRunnerManager => {
+                let installed_runners = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                self.modal_state = ModalState::ManageWineRunners {
+                    installed_runners,
+                    selected_idx: 0,
+                };
+            }
+            Action::OpenProtonDownloader => {
+                let repo = scraper::proton::ProtonRepo::GEProton;
+                self.modal_state = ModalState::ProtonDownloader {
+                    selected_repo: repo,
+                    releases: Vec::new(),
+                    selected_release_idx: 0,
+                    selected_target_idx: 0,
+                    is_loading: true,
+                    download_event: None,
+                };
+                self.status_msg = format!("Fetching releases for {}...", repo.display_name());
+
+                if let Ok(fetched_releases) = scraper::proton::ProtonDownloaderClient::fetch_releases(repo, 1, 10).await {
+                    if let ModalState::ProtonDownloader {
+                        ref mut releases,
+                        ref mut is_loading,
+                        ref mut selected_release_idx,
+                        ..
+                    } = self.modal_state
+                    {
+                        *releases = fetched_releases;
+                        *is_loading = false;
+                        *selected_release_idx = 0;
+                        self.status_msg = format!("[OK] Loaded {} Proton release(s).", releases.len());
+                    }
+                }
+            }
+            Action::SwitchProtonRepo => {
+                if let ModalState::ProtonDownloader {
+                    ref mut selected_repo,
+                    ref mut is_loading,
+                    ref mut releases,
+                    ref mut selected_release_idx,
+                    ..
+                } = self.modal_state
+                {
+                    let next_repo = match *selected_repo {
+                        scraper::proton::ProtonRepo::GEProton => scraper::proton::ProtonRepo::ProtonCachyOS,
+                        scraper::proton::ProtonRepo::ProtonCachyOS => scraper::proton::ProtonRepo::GEProton,
+                    };
+                    *selected_repo = next_repo;
+                    *releases = Vec::new();
+                    *selected_release_idx = 0;
+                    *is_loading = true;
+
+                    self.status_msg = format!("Fetching releases for {}...", next_repo.display_name());
+                    if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(next_repo, 1, 10).await {
+                        if let ModalState::ProtonDownloader {
+                            ref mut releases,
+                            ref mut is_loading,
+                            ..
+                        } = self.modal_state
+                        {
+                            *releases = fetched;
+                            *is_loading = false;
+                            self.status_msg = format!("[OK] Loaded {} release(s) for {}.", releases.len(), next_repo.display_name());
+                        }
+                    }
+                }
+            }
+            Action::SwitchProtonTargetLocationNext => {
+                if let ModalState::ProtonDownloader {
+                    ref mut selected_target_idx,
+                    ..
+                } = self.modal_state
+                {
+                    *selected_target_idx = (*selected_target_idx + 1) % 5;
+                }
+            }
+            Action::SwitchProtonTargetLocationPrev => {
+                if let ModalState::ProtonDownloader {
+                    ref mut selected_target_idx,
+                    ..
+                } = self.modal_state
+                {
+                    if *selected_target_idx == 0 {
+                        *selected_target_idx = 4;
+                    } else {
+                        *selected_target_idx -= 1;
+                    }
+                }
+            }
+            Action::FetchProtonReleases => {}
+            Action::StartProtonDownload => {
+                if self.download_progress.is_some() {
+                    self.status_msg = "[Warning] A download/extraction task is already in progress. Please wait for it to complete.".to_string();
+                    return;
+                }
+
+                if let ModalState::ProtonDownloader {
+                    ref releases,
+                    selected_release_idx,
+                    selected_target_idx,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(release) = releases.get(selected_release_idx) {
+                        let home = dirs::home_dir().unwrap_or_default();
+                        let target_dir = match selected_target_idx {
+                            0 => home.join(".local/share/tui_game_station/runners/wine"),
+                            1 => home.join(".local/share/Steam/compatibilitytools.d"),
+                            2 => home.join(".config/heroic/tools/proton"),
+                            3 => home.join(".config/heroic/tools/wine"),
+                            _ => home.join(".local/share/lutris/runners/wine"),
+                        };
+
+                        let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
+                        self.download_rx = Some(rx);
+                        self.download_progress = Some(DownloadProgressState {
+                            runner_id: 0,
+                            runner_name: release.name.clone(),
+                            downloaded_bytes: 0,
+                            total_bytes: release.asset.as_ref().map(|a| a.size).unwrap_or(0),
+                            percentage: 0.0,
+                            is_finished: false,
+                            error_msg: None,
+                        });
+                        let rel_clone = release.clone();
+
+                        self.status_msg = format!("Downloading & extracting {}...", release.name);
+
+                        tokio::spawn(async move {
+                            let _ = scraper::proton::ProtonDownloaderClient::download_and_extract(
+                                &rel_clone,
+                                &target_dir,
+                                tx,
+                            )
+                            .await;
+                        });
+                    }
+                }
+            }
+            Action::OpenWineRunnerPicker => {
+                let installed_runners = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                if installed_runners.is_empty() {
+                    self.status_msg = "No installed Wine/Proton runners detected. Press [m] to download GE-Proton.".to_string();
+                    return;
+                }
+                let parent_modal = match self.modal_state {
+                    ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. } => {
+                        Some(Box::new(self.modal_state.clone()))
+                    }
+                    _ => None,
+                };
+                self.modal_state = ModalState::SelectWineRunnerPicker {
+                    installed_runners,
+                    selected_idx: 0,
+                    parent_modal,
+                };
+            }
+            Action::SelectWineRunnerFromPicker => {
+                if let ModalState::SelectWineRunnerPicker {
+                    ref installed_runners,
+                    selected_idx,
+                    ref parent_modal,
+                } = self.modal_state.clone()
+                {
+                    if let Some(runner) = installed_runners.get(selected_idx) {
+                        let cmd_str = match runner.kind {
+                            game_core::runner_detector::RunnerKind::Proton => {
+                                format!("\"{}\" run \"{{file_path}}\"", runner.binary_path.display())
+                            }
+                            game_core::runner_detector::RunnerKind::Wine => {
+                                format!("\"{}\" \"{{file_path}}\"", runner.binary_path.display())
+                            }
+                        };
+
+                        if let Some(mut parent) = parent_modal.clone() {
+                            if let ModalState::AddGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. }
+                            | ModalState::EditGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. } = *parent
+                            {
+                                *custom_command = cmd_str;
+                            }
+                            self.modal_state = *parent;
+                        } else {
+                            self.modal_state = ModalState::None;
+                        }
+
+                        self.status_msg = format!("[OK] Selected runner '{}' ({})!", runner.name, runner.location.display_name());
+                    }
+                }
+            }
+            Action::OpenCustomArgsEditor => {
+                if let ModalState::AddGameForm { ref custom_command, .. }
+                | ModalState::EditGameForm { ref custom_command, .. } = self.modal_state
+                {
+                    let args = custom_command.clone();
+                    let parent = Box::new(self.modal_state.clone());
+                    self.modal_state = ModalState::EditCustomArgsInput {
+                        input: args,
+                        parent_modal: parent,
+                    };
+                }
+            }
+            Action::SaveCustomArgsInput => {
+                if let ModalState::EditCustomArgsInput { ref input, ref parent_modal } = self.modal_state.clone() {
+                    let mut parent = parent_modal.clone();
+                    if let ModalState::AddGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. }
+                    | ModalState::EditGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. } = *parent
+                    {
+                        *custom_command = input.clone();
+                    }
+                    self.modal_state = *parent;
+                    self.status_msg = "[OK] Custom launcher arguments updated.".to_string();
+                }
+            }
+            Action::CycleWineRunner(step) => {
+                let installed = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                if installed.is_empty() {
+                    self.status_msg = "[Warning] No installed Wine/Proton runners detected. Press [m] to download GE-Proton.".to_string();
+                    return;
+                }
+
+                let current_cmd = match self.modal_state {
+                    ModalState::AddGameForm { game_type: PlatformType::Wine, ref custom_command, .. }
+                    | ModalState::EditGameForm { game_type: PlatformType::Wine, ref custom_command, .. } => custom_command.clone(),
+                    _ => return,
+                };
+
+                let mut current_idx = None;
+                for (idx, r) in installed.iter().enumerate() {
+                    if !current_cmd.is_empty() && (current_cmd.contains(&r.name) || current_cmd.contains(r.binary_path.to_str().unwrap_or(""))) {
+                        current_idx = Some(idx);
+                        break;
+                    }
+                }
+
+                let next_idx = match current_idx {
+                    Some(i) => {
+                        if step > 0 {
+                            (i + 1) % installed.len()
+                        } else if i == 0 {
+                            installed.len() - 1
+                        } else {
+                            i - 1
+                        }
+                    }
+                    None => 0,
+                };
+
+                let runner = &installed[next_idx];
+                let cmd_str = match runner.kind {
+                    game_core::runner_detector::RunnerKind::Proton => {
+                        format!("\"{}\" run \"{{file_path}}\"", runner.binary_path.display())
+                    }
+                    game_core::runner_detector::RunnerKind::Wine => {
+                        format!("\"{}\" \"{{file_path}}\"", runner.binary_path.display())
+                    }
+                };
+
+                if let ModalState::AddGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. }
+                | ModalState::EditGameForm { game_type: PlatformType::Wine, ref mut custom_command, .. } = self.modal_state
+                {
+                    *custom_command = cmd_str;
+                    self.status_msg = format!("Selected Runner: {} ({})", runner.name, runner.location.display_name());
+                }
+            }
+            Action::DeleteInstalledWineRunner => {
+                if let ModalState::ManageWineRunners {
+                    ref mut installed_runners,
+                    selected_idx,
+                    ..
+                } = self.modal_state
+                {
+                    if let Some(runner) = installed_runners.get(selected_idx) {
+                        let path = runner.base_path.clone();
+                        if path.exists() {
+                            let _ = std::fs::remove_dir_all(&path);
+                            self.status_msg = format!("[OK] Removed runner '{}' from disk.", runner.name);
+                        }
+                    }
+                    *installed_runners = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                }
+            }
             Action::UpdateDownloadProgress(event) => {
+                if let ModalState::ProtonDownloader { ref mut download_event, .. } = self.modal_state {
+                    *download_event = Some(event.clone());
+                }
+
                 if let Some(ref mut progress) = self.download_progress {
                     progress.downloaded_bytes = event.downloaded;
                     progress.total_bytes = event.total;
@@ -959,7 +1283,13 @@ impl App {
                             if sel < self.games.len() {
                                 self.selected_game_idx = sel;
                             }
-                            self.trigger_async_cover_fetch();
+                            if matches!(self.modal_state, ModalState::ProtonDownloader { .. }) {
+                                let installed_runners = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
+                                self.modal_state = ModalState::ManageWineRunners {
+                                    installed_runners,
+                                    selected_idx: 0,
+                                };
+                            }
 
                             if let ModalState::ManageRunnersStep2Config {
                                 ref mut runner_info,
@@ -1026,7 +1356,18 @@ impl App {
                         game.file_path = if file_path.trim().is_empty() { None } else { Some(file_path.trim().to_string()) };
                         game.working_dir = if working_dir.trim().is_empty() { None } else { Some(working_dir.trim().to_string()) };
                         game.custom_command = if custom_command.trim().is_empty() { None } else { Some(custom_command.trim().to_string()) };
-                        game.wine_prefix = if wine_prefix.trim().is_empty() { None } else { Some(wine_prefix.trim().to_string()) };
+                        game.wine_prefix = if wine_prefix.trim().is_empty() {
+                            if let Some(ref wdir) = game.working_dir {
+                                let p = std::path::PathBuf::from(wdir).join("prefix");
+                                let _ = std::fs::create_dir_all(&p);
+                                Some(p.to_string_lossy().to_string())
+                            } else {
+                                None
+                            }
+                        } else {
+                            let _ = std::fs::create_dir_all(wine_prefix.trim());
+                            Some(wine_prefix.trim().to_string())
+                        };
                         game.steam_appid = steam_appid.trim().parse::<i64>().ok();
 
                         let target_slug = match game.game_type.as_str() {
@@ -1127,6 +1468,32 @@ impl App {
                         }
                         _ => {}
                     },
+                    ModalState::ManageWineRunners {
+                        ref installed_runners,
+                        ref mut selected_idx,
+                    } => {
+                        if !installed_runners.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % installed_runners.len();
+                        }
+                    }
+                    ModalState::ProtonDownloader {
+                        ref releases,
+                        ref mut selected_release_idx,
+                        ..
+                    } => {
+                        if !releases.is_empty() {
+                            *selected_release_idx = (*selected_release_idx + 1) % releases.len();
+                        }
+                    }
+                    ModalState::SelectWineRunnerPicker {
+                        ref installed_runners,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !installed_runners.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % installed_runners.len();
+                        }
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -1231,6 +1598,44 @@ impl App {
                         }
                         _ => {}
                     },
+                    ModalState::ManageWineRunners {
+                        ref installed_runners,
+                        ref mut selected_idx,
+                    } => {
+                        if !installed_runners.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = installed_runners.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::ProtonDownloader {
+                        ref releases,
+                        ref mut selected_release_idx,
+                        ..
+                    } => {
+                        if !releases.is_empty() {
+                            if *selected_release_idx == 0 {
+                                *selected_release_idx = releases.len() - 1;
+                            } else {
+                                *selected_release_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::SelectWineRunnerPicker {
+                        ref installed_runners,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !installed_runners.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = installed_runners.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
+                        }
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -1359,7 +1764,7 @@ impl App {
                     let total_fields = match gtype {
                         PlatformType::Emulator => 4,
                         PlatformType::Native => 5,
-                        PlatformType::Wine => 5,
+                        PlatformType::Wine => 7,
                         PlatformType::Steam => 3,
                     };
                     *selected_field = (*selected_field + 1) % total_fields;
@@ -1386,7 +1791,7 @@ impl App {
                     let total_fields = match gtype {
                         PlatformType::Emulator => 4,
                         PlatformType::Native => 5,
-                        PlatformType::Wine => 5,
+                        PlatformType::Wine => 7,
                         PlatformType::Steam => 3,
                     };
                     if *selected_field == 0 {
@@ -1459,12 +1864,16 @@ impl App {
                                 if let Some(parent) = std::path::Path::new(file_path).parent() {
                                     if !parent.as_os_str().is_empty() {
                                         *working_dir = parent.to_string_lossy().to_string();
+                                        if wine_prefix.trim().is_empty() {
+                                            *wine_prefix = parent.join("prefix").to_string_lossy().to_string();
+                                        }
                                     }
                                 }
                             }
                             2 => wine_prefix.push(ch),
                             3 => working_dir.push(ch),
-                            4 => custom_command.push(ch),
+                            4 => {}
+                            5 => custom_command.push(ch),
                             _ => {}
                         },
                         PlatformType::Steam => match selected_field {
@@ -1516,6 +1925,8 @@ impl App {
                     search_query.push(ch);
                     candidates.clear();
                     *selected_candidate_idx = 0;
+                } else if let ModalState::EditCustomArgsInput { ref mut input, .. } = self.modal_state {
+                    input.push(ch);
                 }
             }
             Action::ModalBackspace => {
@@ -1579,7 +1990,8 @@ impl App {
                             }
                             2 => { wine_prefix.pop(); }
                             3 => { working_dir.pop(); }
-                            4 => { custom_command.pop(); }
+                            4 => {}
+                            5 => { custom_command.pop(); }
                             _ => {}
                         },
                         PlatformType::Steam => match selected_field {
@@ -1631,6 +2043,8 @@ impl App {
                     search_query.pop();
                     candidates.clear();
                     *selected_candidate_idx = 0;
+                } else if let ModalState::EditCustomArgsInput { ref mut input, .. } = self.modal_state {
+                    input.pop();
                 }
             }
             Action::StartFolderScan => {
@@ -2278,10 +2692,17 @@ impl App {
                             Some(custom_command.clone())
                         },
                         env_vars: None,
-                        wine_prefix: if wine_prefix.is_empty() {
-                            None
+                        wine_prefix: if wine_prefix.trim().is_empty() {
+                            if !working_dir.trim().is_empty() {
+                                let p = std::path::PathBuf::from(working_dir.trim()).join("prefix");
+                                let _ = std::fs::create_dir_all(&p);
+                                Some(p.to_string_lossy().to_string())
+                            } else {
+                                None
+                            }
                         } else {
-                            Some(wine_prefix.clone())
+                            let _ = std::fs::create_dir_all(wine_prefix.trim());
+                            Some(wine_prefix.trim().to_string())
                         },
                         wine_runner_id: None,
                         steam_appid: steam_id,

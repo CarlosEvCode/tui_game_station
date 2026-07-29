@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DownloadEvent {
     pub downloaded: u64,
     pub total: u64,
@@ -105,7 +105,7 @@ impl RunnerDownloader {
         }
     }
 
-    async fn download_file(
+    pub async fn download_file(
         url: &str,
         dest_path: &Path,
         tx: &mpsc::Sender<DownloadEvent>,
