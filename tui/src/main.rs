@@ -196,22 +196,38 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char('f') => {
-                                if let ModalState::ScanFolderForm { .. } = app.modal_state {
-                                    app.update(Action::OpenFolderPicker).await;
-                                } else if let ModalState::AddGameForm { selected_field, game_type, .. } = &app.modal_state {
-                                    match game_type {
-                                        PlatformType::Native if *selected_field == 2 => app.update(Action::OpenFolderPicker).await,
-                                        PlatformType::Wine if *selected_field == 2 || *selected_field == 3 => app.update(Action::OpenFolderPicker).await,
-                                        _ => app.update(Action::OpenFilePicker).await,
+                                match &app.modal_state {
+                                    ModalState::ScanFolderForm { selected_field: 0, .. } => {
+                                        app.update(Action::OpenFolderPicker).await;
                                     }
-                                } else if let ModalState::EditGameForm { selected_field, game_type, .. } = &app.modal_state {
-                                    match game_type {
-                                        PlatformType::Native if *selected_field == 2 => app.update(Action::OpenFolderPicker).await,
-                                        PlatformType::Wine if *selected_field == 2 || *selected_field == 3 => app.update(Action::OpenFolderPicker).await,
-                                        _ => app.update(Action::OpenFilePicker).await,
+                                    ModalState::ManageRunnersStep2Config { .. } => {
+                                        app.update(Action::OpenFilePicker).await;
                                     }
-                                } else {
-                                    app.update(Action::OpenFilePicker).await;
+                                    ModalState::AddGameForm { selected_field, game_type, .. } => {
+                                        match (game_type, *selected_field) {
+                                            (PlatformType::Emulator, 2) => app.update(Action::OpenFilePicker).await,
+                                            (PlatformType::Native, 1) => app.update(Action::OpenFilePicker).await,
+                                            (PlatformType::Native, 2) => app.update(Action::OpenFolderPicker).await,
+                                            (PlatformType::Wine, 1) => app.update(Action::OpenFilePicker).await,
+                                            (PlatformType::Wine, 2) => app.update(Action::OpenFolderPicker).await,
+                                            (PlatformType::Wine, 3) => app.update(Action::OpenFolderPicker).await,
+                                            _ => app.update(Action::ModalInputChar('f')).await,
+                                        }
+                                    }
+                                    ModalState::EditGameForm { selected_field, game_type, .. } => {
+                                        match (game_type, *selected_field) {
+                                            (PlatformType::Emulator, 1) => app.update(Action::OpenFilePicker).await,
+                                            (PlatformType::Native, 1) => app.update(Action::OpenFilePicker).await,
+                                            (PlatformType::Native, 2) => app.update(Action::OpenFolderPicker).await,
+                                            (PlatformType::Wine, 1) => app.update(Action::OpenFilePicker).await,
+                                            (PlatformType::Wine, 2) => app.update(Action::OpenFolderPicker).await,
+                                            (PlatformType::Wine, 3) => app.update(Action::OpenFolderPicker).await,
+                                            _ => app.update(Action::ModalInputChar('f')).await,
+                                        }
+                                    }
+                                    _ => {
+                                        app.update(Action::ModalInputChar('f')).await;
+                                    }
                                 }
                             }
                             KeyCode::Char(c) => {
