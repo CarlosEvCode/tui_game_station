@@ -5,9 +5,9 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Row, Table, TableState},
     Frame,
 };
+use ratatui_image::StatefulImage;
 
 use crate::app::{App, FocusedPane, ModalState, ViewMode};
-use crate::cover_renderer;
 use game_core::models::PlatformType;
 
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
@@ -184,8 +184,8 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
-/// Render Lutris-style Cards / Grid View with Cover previews
-fn render_games_grid(frame: &mut Frame, app: &App, area: Rect) {
+/// Render Lutris-style Cards / Grid View with Kitty graphics protocol cover previews
+fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
     let border_color = if app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None {
         Color::Yellow
     } else {
@@ -244,7 +244,7 @@ fn render_games_grid(frame: &mut Frame, app: &App, area: Rect) {
     render_game_cover_card(frame, app, grid_chunks[1]);
 }
 
-fn render_game_cover_card(frame: &mut Frame, app: &App, area: Rect) {
+fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     if app.games.is_empty() || app.selected_game_idx >= app.games.len() {
         let empty_p = Paragraph::new("No game selected").block(
             Block::default()
@@ -257,13 +257,14 @@ fn render_game_cover_card(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let game = &app.games[app.selected_game_idx];
+    let game_id = game.id;
 
     let card_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(8), Constraint::Length(6)])
         .split(area);
 
-    // Render Cover Image using ANSI half-blocks
+    // Render Cover Image Box
     let cover_block = Block::default()
         .title(Span::styled(
             format!(" Cover - {} ", game.title),
@@ -275,18 +276,9 @@ fn render_game_cover_card(frame: &mut Frame, app: &App, area: Rect) {
     let inner_area = cover_block.inner(card_chunks[0]);
     frame.render_widget(cover_block, card_chunks[0]);
 
-    if let Some(cover_path) = app.cover_cache.get(&game.id) {
-        let width = inner_area.width as u32;
-        let height = inner_area.height as u32;
-
-        if let Some(lines) = cover_renderer::load_and_render_cover_ansi(cover_path, width, height) {
-            let img_p = Paragraph::new(lines);
-            frame.render_widget(img_p, inner_area);
-        } else {
-            let placeholder = Paragraph::new("  [Cover Image Loading / Format Error]")
-                .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(placeholder, inner_area);
-        }
+    if let Some(protocol) = app.image_protocols.get_mut(&game_id) {
+        let image_widget = StatefulImage::new(None);
+        frame.render_stateful_widget(image_widget, inner_area, protocol);
     } else {
         let placeholder = Paragraph::new(vec![
             Line::from(""),

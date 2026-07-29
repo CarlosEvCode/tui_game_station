@@ -3,12 +3,15 @@ use game_core::db::Database;
 use game_core::models::{Game, Platform, PlatformType, Runner};
 use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
+use ratatui_image::protocol::StatefulProtocol;
 use runner::GameRunner;
 use scraper::downloader::{DownloadEvent, RunnerDownloader};
 use scraper::steam_cover::SteamCoverResolver;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
+
+use crate::cover_renderer::CoverManager;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
@@ -112,6 +115,8 @@ pub struct App {
     pub modal_state: ModalState,
     pub download_progress: Option<DownloadProgressState>,
     pub download_rx: Option<mpsc::Receiver<DownloadEvent>>,
+    pub cover_manager: CoverManager,
+    pub image_protocols: HashMap<i64, StatefulProtocol>,
     pub cover_cache: HashMap<i64, PathBuf>,
     pub show_all_platforms: bool,
     pub status_msg: String,
@@ -126,6 +131,7 @@ impl App {
 
         let show_all_platforms = false;
         let platforms = db.get_active_platforms(show_all_platforms)?;
+        let cover_manager = CoverManager::new();
 
         let mut app = Self {
             db,
@@ -138,6 +144,8 @@ impl App {
             modal_state: ModalState::None,
             download_progress: None,
             download_rx: None,
+            cover_manager,
+            image_protocols: HashMap::new(),
             cover_cache: HashMap::new(),
             show_all_platforms,
             status_msg: if steam_added > 0 {
@@ -190,13 +198,29 @@ impl App {
             self.update(Action::UpdateDownloadProgress(evt)).await;
         }
 
-        // Auto-resolve cover for currently selected game if missing
+        // Auto-resolve cover & Kitty graphics protocol for currently selected game
         if !self.games.is_empty() && self.selected_game_idx < self.games.len() {
             let game = &self.games[self.selected_game_idx];
-            if !self.cover_cache.contains_key(&game.id) {
+            let game_id = game.id;
+
+            if !self.image_protocols.contains_key(&game_id) {
                 if let Some(appid) = game.steam_appid {
-                    if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
-                        self.cover_cache.insert(game.id, path);
+                    let cover_path = match self.cover_cache.get(&game_id) {
+                        Some(p) => Some(p.clone()),
+                        None => {
+                            if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
+                                self.cover_cache.insert(game_id, path.clone());
+                                Some(path)
+                            } else {
+                                None
+                            }
+                        }
+                    };
+
+                    if let Some(path) = cover_path {
+                        if let Some(proto) = self.cover_manager.load_protocol_from_file(&path) {
+                            self.image_protocols.insert(game_id, proto);
+                        }
                     }
                 }
             }
