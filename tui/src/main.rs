@@ -95,6 +95,9 @@ async fn main() -> Result<()> {
                                 ModalState::ConfigureApiKeyInput { .. } => {
                                     app.update(Action::SaveApiKey).await;
                                 }
+                                ModalState::AppSettings { .. } => {
+                                    app.update(Action::SaveAppSettings).await;
+                                }
                                 ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::RunnerModalConfirmPlatform).await;
                                 }
@@ -182,7 +185,7 @@ async fn main() -> Result<()> {
                                 app.update(Action::ToggleViewMode).await;
                             }
                             KeyCode::Char('s') => {
-                                app.update(Action::ScanCurrentFolder).await;
+                                app.update(Action::OpenSettingsModal).await;
                             }
                             KeyCode::Char('p') => {
                                 app.update(Action::ToggleShowAllPlatforms).await;

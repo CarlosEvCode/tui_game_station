@@ -71,6 +71,10 @@ pub enum ModalState {
     ConfigureApiKeyInput {
         input: String,
     },
+    AppSettings {
+        api_key_input: String,
+        selected_field: usize,
+    },
     ManageRunnersStep1Platform {
         selected_platform_idx: usize,
     },
@@ -117,6 +121,8 @@ pub enum Action {
     DeleteSelectedGames,
     FetchGameMedia,
     SaveApiKey,
+    OpenSettingsModal,
+    SaveAppSettings,
 
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
@@ -931,6 +937,8 @@ impl App {
                     exe_path_input.push(ch);
                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state {
                     input.push(ch);
+                } else if let ModalState::AppSettings { ref mut api_key_input, .. } = self.modal_state {
+                    api_key_input.push(ch);
                 }
             }
             Action::ModalBackspace => {
@@ -993,6 +1001,8 @@ impl App {
                     exe_path_input.pop();
                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state {
                     input.pop();
+                } else if let ModalState::AppSettings { ref mut api_key_input, .. } = self.modal_state {
+                    api_key_input.pop();
                 }
             }
             Action::StartFolderScan => {
@@ -1165,6 +1175,23 @@ impl App {
 
                     if self.db.set_setting("steamgriddb_api_key", trimmed).is_ok() {
                         self.status_msg = "[OK] SteamGridDB API Key saved successfully!".to_string();
+                        self.modal_state = ModalState::None;
+                    }
+                }
+            }
+            Action::OpenSettingsModal => {
+                let current_key = self.db.get_setting("steamgriddb_api_key").ok().flatten().unwrap_or_default();
+                self.modal_state = ModalState::AppSettings {
+                    api_key_input: current_key,
+                    selected_field: 0,
+                };
+                self.status_msg = "Settings menu opened. Edit API Key and press Enter to save.".to_string();
+            }
+            Action::SaveAppSettings => {
+                if let ModalState::AppSettings { ref api_key_input, .. } = self.modal_state.clone() {
+                    let trimmed = api_key_input.trim();
+                    if self.db.set_setting("steamgriddb_api_key", trimmed).is_ok() {
+                        self.status_msg = "[OK] Settings updated successfully!".to_string();
                         self.modal_state = ModalState::None;
                     }
                 }

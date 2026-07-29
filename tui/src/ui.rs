@@ -371,7 +371,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [v] View | [m] Runners | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 
@@ -653,6 +653,45 @@ fn render_modal(frame: &mut Frame, app: &App) {
             frame.render_widget(p, chunks[0]);
 
             let help = Paragraph::new(" [Enter] Save API Key | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::AppSettings { ref api_key_input, .. } => {
+            let mut lines = Vec::new();
+            lines.push(Line::from(Span::styled("Application Settings", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("SteamGridDB API Key: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    if api_key_input.is_empty() { "< No API Key Configured >" } else { api_key_input },
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                ),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from("  * You can get your SteamGridDB key at: https://www.steamgriddb.com/profile/api"));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("[ SAVE SETTINGS ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]));
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        " App Settings & Configuration ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(p, chunks[0]);
+
+            let help = Paragraph::new(" [Typing] Edit API Key | [Enter] Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
