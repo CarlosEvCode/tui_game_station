@@ -5,6 +5,7 @@ mod ui;
 use anyhow::Result;
 use app::{Action, App, FocusedPane, ModalState};
 use crossterm::{
+    cursor,
     event::{self, Event, KeyCode, KeyModifiers, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -21,7 +22,7 @@ async fn main() -> Result<()> {
     // Enable Crossterm raw mode & alternate screen
     enable_raw_mode()?;
     let mut stdout_handle = stdout();
-    execute!(stdout_handle, EnterAlternateScreen)?;
+    execute!(stdout_handle, EnterAlternateScreen, cursor::Hide)?;
     let backend = CrosstermBackend::new(stdout_handle);
     let mut terminal = Terminal::new(backend)?;
 
@@ -128,14 +129,18 @@ async fn main() -> Result<()> {
                                 FocusedPane::Games => app.update(Action::NextGame).await,
                             },
                             KeyCode::Enter => {
+                                // 1. Cleanly suspend TUI & leave alternate screen
                                 disable_raw_mode()?;
-                                execute!(stdout(), LeaveAlternateScreen)?;
+                                execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
 
+                                // 2. Launch game (stdout & stderr isolated to log file)
                                 app.update(Action::LaunchGame).await;
 
+                                // 3. Cleanly restore TUI canvas & re-enter alternate screen
                                 enable_raw_mode()?;
-                                execute!(stdout(), EnterAlternateScreen)?;
+                                execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
                                 terminal.clear()?;
+                                terminal.draw(|f| ui::render_ui(f, &mut app))?;
                             }
                             KeyCode::Char('s') => {
                                 app.update(Action::ScanCurrentFolder).await;
@@ -160,7 +165,7 @@ async fn main() -> Result<()> {
 
     // Cleanup terminal on normal exit
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, cursor::Show)?;
     terminal.show_cursor()?;
 
     println!("TUI Game Station cerrado correctamente.");

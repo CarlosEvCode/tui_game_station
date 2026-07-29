@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use game_core::models::{Game, Runner};
 use std::collections::HashMap;
-use std::process::ExitStatus;
+use std::fs::File;
+use std::path::PathBuf;
+use std::process::{ExitStatus, Stdio};
 use tokio::process::Command;
 
 pub struct GameRunner;
@@ -11,7 +13,6 @@ impl GameRunner {
     pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
         let mut env_vars = HashMap::new();
 
-        // Custom command on game overrides everything
         if let Some(cmd) = &game.custom_command {
             return parse_command_string(cmd, game);
         }
@@ -31,11 +32,8 @@ impl GameRunner {
 
             if let Some(exe) = &r.executable_path {
                 template = template.replace("{executable_path}", exe);
-            } else {
-                // If template requires executable_path and none configured
-                if template.contains("{executable_path}") {
-                    anyhow::bail!("No se ha configurado la ruta del ejecutable/AppImage para el runner '{}'. Presiona [m] para configurarlo.", r.name);
-                }
+            } else if template.contains("{executable_path}") {
+                anyhow::bail!("No se ha configurado la ruta del ejecutable/AppImage para el runner '{}'. Presiona [m] para configurarlo.", r.name);
             }
 
             if let Some(prefix) = &game.wine_prefix {
@@ -45,7 +43,6 @@ impl GameRunner {
             return parse_command_string(&template, game);
         }
 
-        // Direct execution fallback (e.g. native linux game)
         if let Some(path) = &game.file_path {
             return parse_command_string(&format!("\"{}\"", path), game);
         }
@@ -53,7 +50,7 @@ impl GameRunner {
         anyhow::bail!("No suitable runner or executable command found for game: {}", game.title)
     }
 
-    /// Launch game process asynchronously and wait for completion.
+    /// Launch game process asynchronously, isolating stdout/stderr to a log file to avoid TUI terminal corruption.
     pub async fn launch_game(game: &Game, runner: Option<&Runner>) -> Result<ExitStatus> {
         let (exe, args, envs) = Self::build_command_line(game, runner)?;
 
@@ -66,6 +63,28 @@ impl GameRunner {
 
         for (k, v) in envs {
             cmd.env(k, v);
+        }
+
+        // Redirect stdout & stderr to log file to prevent terminal text corruption
+        let log_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("~/.cache"))
+            .join("tui_game_station")
+            .join("logs");
+
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_file_path = log_dir.join("last_game_launch.log");
+
+        if let Ok(file) = File::create(&log_file_path) {
+            if let Ok(err_file) = file.try_clone() {
+                cmd.stdout(Stdio::from(file));
+                cmd.stderr(Stdio::from(err_file));
+            } else {
+                cmd.stdout(Stdio::null());
+                cmd.stderr(Stdio::null());
+            }
+        } else {
+            cmd.stdout(Stdio::null());
+            cmd.stderr(Stdio::null());
         }
 
         let mut child = cmd
