@@ -207,17 +207,39 @@ impl Database {
             )?;
         }
 
-        // Normalise legacy runner display names (e.g. removing "(Standalone)" suffixes)
+        // Normalise legacy runner display names to clean canonical names
         // and delete any duplicate runner entries per platform.
-        self.conn.execute(
-            "UPDATE runners SET name = TRIM(REPLACE(REPLACE(REPLACE(name, '(Standalone)', ''), 'Standalone', ''), '(3DS Emulator)', ''))
-             WHERE name LIKE '%Standalone%' OR name LIKE '%(3DS Emulator)%'",
-            [],
-        )?;
+        let canonical_rules = [
+            ("%azahar%", "Azahar"),
+            ("%citra%", "Citra"),
+            ("%dolphin%", "Dolphin"),
+            ("%duckstation%", "DuckStation"),
+            ("%pcsx2%", "PCSX2"),
+            ("%ppsspp%", "PPSSPP"),
+            ("%cemu%", "Cemu"),
+            ("%ryujinx%", "Ryujinx"),
+            ("%melonds%", "melonDS"),
+            ("%desmume%", "DeSmuME"),
+            ("%mgba%", "mGBA"),
+            ("%snes9x%", "Snes9x"),
+            ("%mupen64plus%", "Mupen64Plus"),
+            ("%mesen%", "Mesen"),
+            ("%sameboy%", "SameBoy"),
+            ("%redream%", "Redream"),
+            ("%vita3k%", "Vita3K"),
+            ("%mame%", "MAME"),
+        ];
+
+        for (pattern, canonical_name) in canonical_rules {
+            self.conn.execute(
+                "UPDATE runners SET name = ?2 WHERE LOWER(name) LIKE ?1",
+                params![pattern, canonical_name],
+            )?;
+        }
 
         self.conn.execute(
             "DELETE FROM runners WHERE id NOT IN (
-                SELECT MIN(id) FROM runners GROUP BY platform_id, name
+                SELECT MIN(id) FROM runners GROUP BY platform_id, LOWER(TRIM(name))
              )",
             [],
         )?;
@@ -284,7 +306,7 @@ impl Database {
              FROM runners r
              JOIN platforms p ON r.platform_id = p.id
              WHERE p.slug NOT IN ('linux', 'steam')
-             GROUP BY r.name
+             GROUP BY LOWER(TRIM(r.name))
              ORDER BY is_cfg DESC, r.name ASC",
         )?;
 
