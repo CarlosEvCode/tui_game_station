@@ -394,15 +394,9 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let filter_text = if app.show_all_platforms {
-        "All"
-    } else {
-        "Active Only"
-    };
-
     let help_text = format!(
-        " [v] View | [w] Media Selector | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
-        filter_text, app.status_msg
+        " [v] View | [w] Media | [m] Runners | [s] Settings | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [Enter] Launch | {}",
+        app.status_msg
     );
 
     let paragraph = Paragraph::new(help_text).block(
