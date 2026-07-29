@@ -115,36 +115,146 @@ impl Database {
     }
 
     fn seed_defaults(&self) -> Result<()> {
-        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM platforms", [], |r| r.get(0))?;
-        if count > 0 {
-            return Ok(());
+        // This is deliberately an upsert rather than a first-run-only seed.  Older
+        // installations receive new systems and corrected extension lists on startup.
+        let platforms = [
+            ("3ds", "Nintendo 3DS", "emulator", ".3ds, .cia, .cci, .cxi"),
+            ("nds", "Nintendo DS", "emulator", ".nds, .ds"),
+            (
+                "snes",
+                "Nintendo Super NES",
+                "emulator",
+                ".sfc, .smc, .zip, .7z",
+            ),
+            (
+                "gba",
+                "Nintendo Game Boy Advance",
+                "emulator",
+                ".gba, .zip, .7z",
+            ),
+            ("n64", "Nintendo 64", "emulator", ".z64, .v64, .n64, .zip"),
+            (
+                "ps1",
+                "Sony PlayStation",
+                "emulator",
+                ".bin, .chd, .pbp, .cue",
+            ),
+            ("ps2", "Sony PlayStation 2", "emulator", ".iso, .chd"),
+            (
+                "psp",
+                "Sony PlayStation Portable",
+                "emulator",
+                ".iso, .cso, .pbp",
+            ),
+            (
+                "gamecube",
+                "Nintendo GameCube",
+                "emulator",
+                ".iso, .gcz, .rvz",
+            ),
+            ("wii", "Nintendo Wii", "emulator", ".iso, .wbfs, .rvz"),
+            // Unpacked Wii U games are identified through code/app.rpx.  The scanner
+            // reads meta/meta.xml for their title and rejects update/DLC title IDs.
+            (
+                "wii_u",
+                "Nintendo Wii U",
+                "emulator",
+                ".wua, .rpx, .wud, .wux",
+            ),
+            ("mame", "Arcade (MAME)", "emulator", ".zip, .7z"),
+            (
+                "dreamcast",
+                "Sega Dreamcast",
+                "emulator",
+                ".chd, .gdi, .cdi",
+            ),
+            (
+                "switch",
+                "Nintendo Switch",
+                "emulator",
+                ".nsp, .xci, .nca, .nso",
+            ),
+            ("nes", "Nintendo NES", "emulator", ".nes, .zip, .7z"),
+            ("vita", "Sony PlayStation Vita", "emulator", ".vpk, .zip"),
+            (
+                "gb",
+                "Nintendo Game Boy (Color)",
+                "emulator",
+                ".gb, .gbc, .zip, .7z",
+            ),
+            ("windows", "Windows Games", "wine", ".exe, .bat"),
+            ("linux", "Linux Native", "native", ".sh, .AppImage, .bin"),
+            ("steam", "Steam Games", "steam", ""),
+        ];
+
+        for (slug, name, platform_type, extensions) in platforms {
+            self.conn.execute(
+                "INSERT INTO platforms (slug, name, platform_type, extensions) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(slug) DO UPDATE SET name = excluded.name, platform_type = excluded.platform_type, extensions = excluded.extensions",
+                params![slug, name, platform_type, extensions],
+            )?;
         }
 
-        self.conn.execute_batch(
-            "
-            INSERT INTO platforms (slug, name, platform_type, extensions) VALUES
-            ('3ds', 'Nintendo 3DS', 'emulator', '.3ds, .cia, .cci, .cxi'),
-            ('nds', 'Nintendo DS', 'emulator', '.nds'),
-            ('snes', 'Nintendo Super NES', 'emulator', '.snes, .smc, .sfc'),
-            ('gba', 'Nintendo Game Boy Advance', 'emulator', '.gba'),
-            ('n64', 'Nintendo 64', 'emulator', '.n64, .z64, .v64'),
-            ('ps1', 'Sony PlayStation', 'emulator', '.iso, .cue, .bin, .chd, .pbp'),
-            ('ps2', 'Sony PlayStation 2', 'emulator', '.iso, .chd, .bin'),
-            ('psp', 'Sony PlayStation Portable', 'emulator', '.iso, .cso, .chd'),
-            ('switch', 'Nintendo Switch', 'emulator', '.nsp, .xci'),
-            ('windows', 'Windows Games', 'wine', '.exe, .bat'),
-            ('linux', 'Linux Native', 'native', '.sh, .AppImage, .bin'),
-            ('steam', 'Steam Games', 'steam', '');
+        // Preserve a previously configured 3DS runner while normalising the old
+        // display names and launch templates to the current preset convention.
+        self.conn.execute(
+            "UPDATE runners
+             SET name = CASE name
+                    WHEN 'Azahar (3DS Emulator)' THEN 'Azahar'
+                    WHEN 'Citra (3DS Emulator)' THEN 'Citra'
+                    ELSE name END,
+                 command_template = '\"{executable_path}\" \"{rom}\"'
+             WHERE platform_id = (SELECT id FROM platforms WHERE slug = '3ds')
+               AND name IN ('Azahar (3DS Emulator)', 'Citra (3DS Emulator)')",
+            [],
+        )?;
 
-            -- Seed preset runners
-            INSERT INTO runners (platform_id, name, runner_type, download_url, download_filename, command_template)
-            SELECT id, 'Azahar (3DS Emulator)', 'appimage', 'https://github.com/AzaharPlus/AzaharPlus/releases/download/v2126.0-A/azaharplus-2126.0-A-linux.AppImage', 'azahar.AppImage', '{runner} {rom}'
-            FROM platforms WHERE slug = '3ds';
+        // Download links are direct GitHub release assets, not the HTML release page.
+        // This makes the [w] action download the actual file after GitHub redirects.
+        let runners = [
+            ("3ds", "Azahar", "appimage", Some("https://github.com/AzaharPlus/AzaharPlus/releases/download/v2126.0-A/azaharplus-2126.0-A-linux.AppImage"), Some("azahar.AppImage")),
+            ("3ds", "Citra", "system", None, None),
+            ("ps1", "DuckStation", "appimage", Some("https://github.com/stenzek/duckstation/releases/latest/download/DuckStation-x64.AppImage"), Some("DuckStation-x64.AppImage")),
+            ("ps2", "PCSX2", "appimage", Some("https://github.com/PCSX2/pcsx2/releases/latest/download/pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"), Some("pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage")),
+            ("gamecube", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
+            ("wii", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
+            ("wii_u", "Cemu", "appimage", Some("https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage"), Some("Cemu-2.6-x86_64.AppImage")),
+            ("mame", "MAME", "system", None, None),
+            ("psp", "PPSSPP", "appimage", Some("https://github.com/hrydgard/ppsspp/releases/latest/download/PPSSPP-v1.20.4-anylinux-x86_64.AppImage"), Some("PPSSPP-v1.20.4-anylinux-x86_64.AppImage")),
+            ("dreamcast", "Redream", "appimage", None, None),
+            ("switch", "Ryujinx", "appimage", None, None),
+            ("nds", "melonDS", "appimage", Some("https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"), Some("melonDS-1.1-appimage-x86_64.zip")),
+            ("nds", "DeSmuME", "system", None, None),
+            ("gba", "mGBA", "appimage", None, None),
+            ("nes", "Mesen", "appimage", None, None),
+            ("vita", "Vita3K", "appimage", None, None),
+            ("n64", "Mupen64Plus", "system", None, None),
+            ("snes", "Snes9x", "appimage", None, None),
+            ("gb", "SameBoy", "appimage", None, None),
+        ];
 
-            INSERT INTO runners (platform_id, name, runner_type, command_template)
-            SELECT id, 'Citra (3DS Emulator)', 'system', 'citra {rom}'
-            FROM platforms WHERE slug = '3ds';
-            ",
+        for (platform_slug, name, runner_type, download_url, download_filename) in runners {
+            self.conn.execute(
+                "INSERT INTO runners (platform_id, name, runner_type, command_template, download_url, download_filename)
+                 SELECT id, ?2, ?3, '\"{executable_path}\" \"{rom}\"', ?4, ?5 FROM platforms
+                 WHERE slug = ?1 AND NOT EXISTS (
+                    SELECT 1 FROM runners r WHERE r.platform_id = platforms.id AND r.name = ?2
+                 )",
+                params![platform_slug, name, runner_type, download_url, download_filename],
+            )?;
+            self.conn.execute(
+                "UPDATE runners SET runner_type = ?3, command_template = '\"{executable_path}\" \"{rom}\"',
+                 download_url = ?4, download_filename = ?5
+                 WHERE platform_id = (SELECT id FROM platforms WHERE slug = ?1) AND name = ?2",
+                params![platform_slug, name, runner_type, download_url, download_filename],
+            )?;
+        }
+
+        // A previous Azahar preset used an obsolete {runner} placeholder.
+        self.conn.execute(
+            "UPDATE runners SET command_template = '\"{executable_path}\" \"{rom}\"'
+             WHERE command_template LIKE '%{runner}%'",
+            [],
         )?;
 
         Ok(())
@@ -154,7 +264,9 @@ impl Database {
     // App Settings Queries
     // ----------------------------------------------------
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE key = ?1")?;
         let mut rows = stmt.query(params![key])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))
@@ -187,7 +299,12 @@ impl Database {
         }
     }
 
-    pub fn save_scan_folder(&self, platform_id: i64, folder_path: &str, recursive: bool) -> Result<()> {
+    pub fn save_scan_folder(
+        &self,
+        platform_id: i64,
+        folder_path: &str,
+        recursive: bool,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT INTO scan_folders (platform_id, path, recursive, last_scanned_at)
              VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
@@ -212,7 +329,11 @@ impl Database {
             let ptype_str: String = row.get(3)?;
             let ptype = PlatformType::from(ptype_str.as_str());
             let ext_str: String = row.get(4)?;
-            let extensions = ext_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            let extensions = ext_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
 
             Ok(Platform {
                 id: row.get(0)?,
@@ -290,7 +411,12 @@ impl Database {
         Ok(runners.into_iter().find(|r| r.executable_path.is_some()))
     }
 
-    pub fn update_runner_config(&self, runner_id: i64, exe_path: &str, is_configured: bool) -> Result<()> {
+    pub fn update_runner_config(
+        &self,
+        runner_id: i64,
+        exe_path: &str,
+        is_configured: bool,
+    ) -> Result<()> {
         let _ = is_configured;
         self.conn.execute(
             "UPDATE runners SET executable_path = ?1, is_configured = 1 WHERE id = ?2",
@@ -394,7 +520,8 @@ impl Database {
     }
 
     pub fn delete_game(&self, game_id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM games WHERE id = ?1", params![game_id])?;
+        self.conn
+            .execute("DELETE FROM games WHERE id = ?1", params![game_id])?;
         Ok(())
     }
 
@@ -406,5 +533,59 @@ impl Database {
             }
         }
         Ok(deleted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Database;
+
+    #[test]
+    fn seeds_the_full_emulator_registry_and_runner_presets() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_test_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+
+        let platforms = db.get_platforms().unwrap();
+        let wii_u = platforms
+            .iter()
+            .find(|platform| platform.slug == "wii_u")
+            .unwrap();
+        assert!(wii_u.default_extensions.contains(&".rpx".to_string()));
+        assert!(platforms.iter().any(|platform| platform.slug == "gamecube"));
+        assert!(platforms.iter().any(|platform| platform.slug == "mame"));
+
+        let cemu = db
+            .get_runners_for_platform(wii_u.id)
+            .unwrap()
+            .into_iter()
+            .find(|runner| runner.name == "Cemu")
+            .unwrap();
+        assert_eq!(cemu.command_template, "\"{executable_path}\" \"{rom}\"");
+        assert_eq!(
+            cemu.download_url.as_deref(),
+            Some("https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage")
+        );
+
+        let nds = platforms
+            .iter()
+            .find(|platform| platform.slug == "nds")
+            .unwrap();
+        let melonds = db
+            .get_runners_for_platform(nds.id)
+            .unwrap()
+            .into_iter()
+            .find(|runner| runner.name == "melonDS")
+            .unwrap();
+        assert_eq!(
+            melonds.download_filename.as_deref(),
+            Some("melonDS-1.1-appimage-x86_64.zip")
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
     }
 }
