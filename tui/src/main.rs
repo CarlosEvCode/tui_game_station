@@ -75,9 +75,19 @@ async fn main() -> Result<()> {
                             KeyCode::Right => {
                                 app.update(Action::ModalSelectNext).await;
                             }
+                            KeyCode::Char(' ') => {
+                                if let ModalState::ScanFolderForm { .. } = app.modal_state {
+                                    app.update(Action::ModalToggleCheckbox).await;
+                                } else {
+                                    app.update(Action::ModalInputChar(' ')).await;
+                                }
+                            }
                             KeyCode::Enter => match app.modal_state {
                                 ModalState::AddGameStep1Type { .. } => {
                                     app.update(Action::ModalConfirmStep1).await;
+                                }
+                                ModalState::ScanFolderForm { .. } => {
+                                    app.update(Action::StartFolderScan).await;
                                 }
                                 ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::RunnerModalConfirmPlatform).await;
@@ -114,7 +124,11 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char('f') => {
-                                app.update(Action::OpenFilePicker).await;
+                                if let ModalState::ScanFolderForm { .. } = app.modal_state {
+                                    app.update(Action::OpenFolderPicker).await;
+                                } else {
+                                    app.update(Action::OpenFilePicker).await;
+                                }
                             }
                             KeyCode::Char(c) => {
                                 app.update(Action::ModalInputChar(c)).await;

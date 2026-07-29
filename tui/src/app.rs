@@ -47,6 +47,13 @@ pub enum ModalState {
     AddGameStep1Type {
         selected_type_idx: usize,
     },
+    ScanFolderForm {
+        platform_idx: usize,
+        folder_path: String,
+        extensions_input: String,
+        recursive: bool,
+        selected_field: usize,
+    },
     AddGameForm {
         game_type: PlatformType,
         selected_field: usize,
@@ -81,10 +88,11 @@ pub enum Action {
     ScanCurrentFolder,
     ScanSteamGames,
 
-    // File Picker Action
+    // File / Folder Picker Actions
     OpenFilePicker,
+    OpenFolderPicker,
 
-    // Add Game Modal Actions
+    // Add Game & Scan Modal Actions
     OpenAddGameModal,
     CloseModal,
     ModalSelectNext,
@@ -94,7 +102,9 @@ pub enum Action {
     ModalPrevField,
     ModalInputChar(char),
     ModalBackspace,
+    ModalToggleCheckbox,
     SaveModalGame,
+    StartFolderScan,
 
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
@@ -158,7 +168,7 @@ impl App {
             status_msg: if steam_added > 0 {
                 format!("Detectados {} juegos de Steam automáticamente!", steam_added)
             } else {
-                "TUI Game Station listo! [v] Cambiar Vista Grid/Tabla | [m] Configurar/Descargar Emuladores".to_string()
+                "TUI Game Station listo! [v] Cambiar Vista | [m] Configurar Emuladores | [a] Escanear/Agregar ROMs".to_string()
             },
             should_quit: false,
         };
@@ -365,7 +375,16 @@ impl App {
                 }
             }
 
-            // File Picker
+            // File & Folder Pickers
+            Action::OpenFolderPicker => {
+                if let Some(picked) = rfd::FileDialog::new().pick_folder() {
+                    let path_str = picked.to_string_lossy().to_string();
+                    if let ModalState::ScanFolderForm { ref mut folder_path, .. } = self.modal_state {
+                        *folder_path = path_str.clone();
+                        self.status_msg = format!("Carpeta seleccionada: {}", path_str);
+                    }
+                }
+            }
             Action::OpenFilePicker => {
                 if let Some(picked) = rfd::FileDialog::new().pick_file() {
                     let path_str = picked.to_string_lossy().to_string();
@@ -586,7 +605,7 @@ impl App {
                 }
             }
 
-            // Add Game Modal Actions
+            // Add Game / Scan Modal Actions
             Action::OpenAddGameModal => {
                 self.modal_state = ModalState::AddGameStep1Type {
                     selected_type_idx: 0,
@@ -599,6 +618,14 @@ impl App {
                 match self.modal_state {
                     ModalState::AddGameStep1Type { ref mut selected_type_idx } => {
                         *selected_type_idx = (*selected_type_idx + 1) % 4;
+                    }
+                    ModalState::ScanFolderForm { ref mut platform_idx, ref mut extensions_input, .. } => {
+                        let all_platforms = self.db.get_platforms().unwrap_or_default();
+                        if !all_platforms.is_empty() {
+                            *platform_idx = (*platform_idx + 1) % all_platforms.len();
+                            let p = &all_platforms[*platform_idx];
+                            *extensions_input = p.default_extensions.join(", ");
+                        }
                     }
                     ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
                         if !self.platforms.is_empty() {
@@ -629,6 +656,18 @@ impl App {
                             *selected_type_idx = 3;
                         } else {
                             *selected_type_idx -= 1;
+                        }
+                    }
+                    ModalState::ScanFolderForm { ref mut platform_idx, ref mut extensions_input, .. } => {
+                        let all_platforms = self.db.get_platforms().unwrap_or_default();
+                        if !all_platforms.is_empty() {
+                            if *platform_idx == 0 {
+                                *platform_idx = all_platforms.len() - 1;
+                            } else {
+                                *platform_idx -= 1;
+                            }
+                            let p = &all_platforms[*platform_idx];
+                            *extensions_input = p.default_extensions.join(", ");
                         }
                     }
                     ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
@@ -667,50 +706,86 @@ impl App {
             }
             Action::ModalConfirmStep1 => {
                 if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state {
-                    let game_type = match selected_type_idx {
-                        0 => PlatformType::Emulator,
-                        1 => PlatformType::Native,
-                        2 => PlatformType::Wine,
-                        _ => PlatformType::Steam,
-                    };
+                    if selected_type_idx == 0 {
+                        // Scan ROMs Folder Mode
+                        let all_platforms = self.db.get_platforms().unwrap_or_default();
+                        let default_exts = all_platforms.first().map(|p| p.default_extensions.join(", ")).unwrap_or_default();
 
-                    self.modal_state = ModalState::AddGameForm {
-                        game_type,
-                        selected_field: 0,
-                        title: String::new(),
-                        platform_idx: self.selected_platform_idx,
-                        file_path: String::new(),
-                        working_dir: String::new(),
-                        wine_prefix: String::new(),
-                        steam_appid: String::new(),
-                        custom_command: String::new(),
-                    };
+                        self.modal_state = ModalState::ScanFolderForm {
+                            platform_idx: 0,
+                            folder_path: dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home")).join("Juegos").to_string_lossy().to_string(),
+                            extensions_input: default_exts,
+                            recursive: true,
+                            selected_field: 0,
+                        };
+                    } else {
+                        let game_type = match selected_type_idx {
+                            1 => PlatformType::Native,
+                            2 => PlatformType::Wine,
+                            _ => PlatformType::Steam,
+                        };
+
+                        self.modal_state = ModalState::AddGameForm {
+                            game_type,
+                            selected_field: 0,
+                            title: String::new(),
+                            platform_idx: self.selected_platform_idx,
+                            file_path: String::new(),
+                            working_dir: String::new(),
+                            wine_prefix: String::new(),
+                            steam_appid: String::new(),
+                            custom_command: String::new(),
+                        };
+                    }
+                }
+            }
+            Action::ModalToggleCheckbox => {
+                if let ModalState::ScanFolderForm { ref mut recursive, selected_field, .. } = self.modal_state {
+                    if selected_field == 3 {
+                        *recursive = !*recursive;
+                    }
                 }
             }
             Action::ModalNextField => {
-                if let ModalState::AddGameForm { game_type: ref gtype, ref mut selected_field, .. } = self.modal_state {
-                    let total_fields = match gtype {
-                        PlatformType::Emulator => 4,
-                        PlatformType::Native => 5,
-                        PlatformType::Wine => 5,
-                        PlatformType::Steam => 3,
-                    };
-                    *selected_field = (*selected_field + 1) % total_fields;
+                match self.modal_state {
+                    ModalState::AddGameForm { game_type: ref gtype, ref mut selected_field, .. } => {
+                        let total_fields = match gtype {
+                            PlatformType::Emulator => 4,
+                            PlatformType::Native => 5,
+                            PlatformType::Wine => 5,
+                            PlatformType::Steam => 3,
+                        };
+                        *selected_field = (*selected_field + 1) % total_fields;
+                    }
+                    ModalState::ScanFolderForm { ref mut selected_field, .. } => {
+                        *selected_field = (*selected_field + 1) % 5;
+                    }
+                    _ => {}
                 }
             }
             Action::ModalPrevField => {
-                if let ModalState::AddGameForm { game_type: ref gtype, ref mut selected_field, .. } = self.modal_state {
-                    let total_fields = match gtype {
-                        PlatformType::Emulator => 4,
-                        PlatformType::Native => 5,
-                        PlatformType::Wine => 5,
-                        PlatformType::Steam => 3,
-                    };
-                    if *selected_field == 0 {
-                        *selected_field = total_fields - 1;
-                    } else {
-                        *selected_field -= 1;
+                match self.modal_state {
+                    ModalState::AddGameForm { game_type: ref gtype, ref mut selected_field, .. } => {
+                        let total_fields = match gtype {
+                            PlatformType::Emulator => 4,
+                            PlatformType::Native => 5,
+                            PlatformType::Wine => 5,
+                            PlatformType::Steam => 3,
+                        };
+                        if *selected_field == 0 {
+                            *selected_field = total_fields - 1;
+                        } else {
+                            *selected_field -= 1;
+                        }
                     }
+                    ModalState::ScanFolderForm { ref mut selected_field, .. } => {
+                        if *selected_field == 0 {
+                            *selected_field = 4;
+                        } else {
+                            *selected_field -= 1;
+                        }
+                    }
+                    _ => {}
                 }
             }
             Action::ModalInputChar(ch) => {
@@ -755,6 +830,18 @@ impl App {
                             }
                             _ => {}
                         },
+                    }
+                } else if let ModalState::ScanFolderForm {
+                    ref mut folder_path,
+                    ref mut extensions_input,
+                    selected_field,
+                    ..
+                } = self.modal_state
+                {
+                    match selected_field {
+                        1 => folder_path.push(ch),
+                        2 => extensions_input.push(ch),
+                        _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
                     exe_path_input.push(ch);
@@ -804,8 +891,58 @@ impl App {
                     if let Some(s) = target_str {
                         s.pop();
                     }
+                } else if let ModalState::ScanFolderForm {
+                    ref mut folder_path,
+                    ref mut extensions_input,
+                    selected_field,
+                    ..
+                } = self.modal_state
+                {
+                    match selected_field {
+                        1 => { folder_path.pop(); }
+                        2 => { extensions_input.pop(); }
+                        _ => {}
+                    }
                 } else if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, .. } = self.modal_state {
                     exe_path_input.pop();
+                }
+            }
+            Action::StartFolderScan => {
+                if let ModalState::ScanFolderForm {
+                    platform_idx,
+                    ref folder_path,
+                    ref extensions_input,
+                    recursive,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    let all_platforms = self.db.get_platforms().unwrap_or_default();
+                    if let Some(platform) = all_platforms.get(platform_idx) {
+                        let runner = self.db.get_runner_for_platform(platform.id).ok().flatten();
+                        if runner.as_ref().and_then(|r| r.executable_path.as_ref()).is_none() && platform.slug != "linux" && platform.slug != "windows" {
+                            self.status_msg = format!("❌ [Runner Not Configured] Configura o descarga un emulador para '{}' en [m] antes de escanear ROMs.", platform.name);
+                            return;
+                        }
+
+                        let path = PathBuf::from(folder_path.trim());
+                        if !path.exists() {
+                            self.status_msg = format!("❌ [Error] La carpeta no existe: '{}'", folder_path);
+                            return;
+                        }
+
+                        self.status_msg = format!("Escaneando carpeta de ROMs para {}...", platform.name);
+
+                        match Scanner::scan_folder(&self.db, platform, &path, recursive, false) {
+                            Ok(added) => {
+                                self.status_msg = format!("✅ Escaneo completado: {} ROMs importadas/actualizadas.", added);
+                                self.modal_state = ModalState::None;
+                                self.load_platforms();
+                            }
+                            Err(err) => {
+                                self.status_msg = format!("Error durante el escaneo: {}", err);
+                            }
+                        }
+                    }
                 }
             }
             Action::SaveModalGame => {

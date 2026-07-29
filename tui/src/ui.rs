@@ -261,8 +261,6 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     let current_platform = app.platforms.get(app.selected_platform_idx);
 
     // Vertical layout inside the right card pane:
-    // Top: Cover Image box (reduced height proportion)
-    // Bottom: Detailed Game Information Panel (enlarged space)
     let card_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
@@ -348,7 +346,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [v] View (Grid/Table) | [m] Runners | [a] Add Game | [f] File Picker | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View (Grid/Table) | [m] Runners | [a] Add Game / Scan ROMs | [f] Folder Picker | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 
@@ -394,10 +392,135 @@ fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgr
 
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &App) {
-    let popup_area = centered_rect(75, 70, frame.area());
+    let popup_area = centered_rect(75, 75, frame.area());
     frame.render_widget(Clear, popup_area);
 
     match app.modal_state {
+        ModalState::AddGameStep1Type { selected_type_idx } => {
+            let options = vec![
+                "📁 Scan ROMs Folder (Automated ROMs / Games Directory Scanner)",
+                "[NAT] Linux Native Game (Binary, Script, AppImage)",
+                "[WIN] Windows Game (Wine / Proton .exe)",
+                "[STM] Steam Game (Launch via Steam AppID)",
+            ];
+
+            let items: Vec<ListItem> = options
+                .iter()
+                .enumerate()
+                .map(|(idx, opt)| {
+                    let is_selected = idx == selected_type_idx;
+                    let style = if is_selected {
+                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    ListItem::new(format!("  {} ", opt)).style(style)
+                })
+                .collect();
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Add Games - Step 1: Select Import Method ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Select | [Enter] Next | [Esc] Cancel")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::ScanFolderForm {
+            platform_idx,
+            ref folder_path,
+            ref extensions_input,
+            recursive,
+            selected_field,
+        } => {
+            let all_platforms = app.db.get_platforms().unwrap_or_default();
+            let platform = all_platforms.get(platform_idx);
+            let platform_name = platform.map(|p| p.name.as_str()).unwrap_or("Unknown");
+
+            let runner_info = platform.and_then(|p| app.db.get_runner_for_platform(p.id).ok().flatten());
+            let is_runner_ready = runner_info.as_ref().and_then(|r| r.executable_path.as_ref()).is_some() || platform.map(|p| p.slug.as_str()) == Some("linux") || platform.map(|p| p.slug.as_str()) == Some("windows");
+
+            let field_style = |idx: usize| {
+                if idx == selected_field {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                }
+            };
+
+            let mut lines = Vec::new();
+            lines.push(Line::from(vec![
+                Span::styled("1. Target Platform: < ", field_style(0)),
+                Span::styled(platform_name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(" > (Use Left/Right to change)", field_style(0)),
+            ]));
+
+            let runner_status = if is_runner_ready {
+                Span::styled("   Status: [Runner Ready]", Style::default().fg(Color::Green))
+            } else {
+                Span::styled("   Status: [Runner Not Configured - Configure in [m]]", Style::default().fg(Color::Red))
+            };
+            lines.push(Line::from(runner_status));
+            lines.push(Line::from(""));
+
+            lines.push(Line::from(vec![
+                Span::styled("2. Folder Path: ", field_style(1)),
+                Span::raw(if folder_path.is_empty() { "< Press [f] to select folder >" } else { folder_path }),
+            ]));
+            lines.push(Line::from(""));
+
+            lines.push(Line::from(vec![
+                Span::styled("3. File Extensions: ", field_style(2)),
+                Span::raw(extensions_input),
+            ]));
+            lines.push(Line::from(""));
+
+            let rec_check = if recursive { "[X] Yes" } else { "[ ] No" };
+            lines.push(Line::from(vec![
+                Span::styled("4. Scan Subfolders Recursively: ", field_style(3)),
+                Span::styled(rec_check, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw(" (Press [Space] to toggle)"),
+            ]));
+            lines.push(Line::from(""));
+
+            lines.push(Line::from(vec![
+                Span::styled("[ START SCANNING ROMS ]", field_style(4)),
+            ]));
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        format!(" 📁 Scan ROMs Folder for {} ", platform_name),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(p, chunks[0]);
+
+            let help = Paragraph::new(" [f] Folder Picker | [Space] Toggle Subfolders | [Enter] Start Scan | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
         ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
             let all_platforms = app.db.get_platforms().unwrap_or_default();
             let active_ids: Vec<i64> = app.platforms.iter().map(|p| p.id).collect();
@@ -546,49 +669,6 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             let help = Paragraph::new(" [w] Download | [x] Delete | [f] File Picker | [Enter] Save | [Esc] Back")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(help, chunks[1]);
-        }
-        ModalState::AddGameStep1Type { selected_type_idx } => {
-            let options = vec![
-                "[EMU] Emulator (SNES, PS1, PS2, GBA, N64, 3DS...)",
-                "[NAT] Linux Native (Executable, Script, AppImage)",
-                "[WIN] Windows Games (Wine / Proton .exe)",
-                "[STM] Steam Games (Launch via Steam AppID)",
-            ];
-
-            let items: Vec<ListItem> = options
-                .iter()
-                .enumerate()
-                .map(|(idx, opt)| {
-                    let is_selected = idx == selected_type_idx;
-                    let style = if is_selected {
-                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
-                    ListItem::new(format!("  {} ", opt)).style(style)
-                })
-                .collect();
-
-            let list = List::new(items).block(
-                Block::default()
-                    .title(Span::styled(
-                        " Add New Game - Step 1: Select Type ",
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                    ))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
-            );
-
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(6), Constraint::Length(2)])
-                .split(popup_area);
-
-            frame.render_widget(list, chunks[0]);
-
-            let help = Paragraph::new(" [Up/Down] Select | [Enter] Next | [Esc] Cancel")
-                .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::AddGameForm {
