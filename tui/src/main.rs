@@ -198,6 +198,12 @@ async fn main() -> Result<()> {
                             KeyCode::Char('f') => {
                                 if let ModalState::ScanFolderForm { .. } = app.modal_state {
                                     app.update(Action::OpenFolderPicker).await;
+                                } else if let ModalState::AddGameForm { selected_field, game_type, .. } = &app.modal_state {
+                                    match game_type {
+                                        PlatformType::Native if *selected_field == 2 => app.update(Action::OpenFolderPicker).await,
+                                        PlatformType::Wine if *selected_field == 2 || *selected_field == 3 => app.update(Action::OpenFolderPicker).await,
+                                        _ => app.update(Action::OpenFilePicker).await,
+                                    }
                                 } else if let ModalState::EditGameForm { selected_field, game_type, .. } = &app.modal_state {
                                     match game_type {
                                         PlatformType::Native if *selected_field == 2 => app.update(Action::OpenFolderPicker).await,

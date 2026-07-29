@@ -626,13 +626,45 @@ impl App {
             Action::OpenFolderPicker => {
                 if let Some(picked) = rfd::FileDialog::new().pick_folder() {
                     let path_str = picked.to_string_lossy().to_string();
-                    if let ModalState::ScanFolderForm {
-                        ref mut folder_path,
-                        ..
-                    } = self.modal_state
-                    {
-                        *folder_path = path_str.clone();
-                        self.status_msg = format!("Folder selected: {}", path_str);
+                    match self.modal_state {
+                        ModalState::ScanFolderForm {
+                            ref mut folder_path,
+                            ..
+                        } => {
+                            *folder_path = path_str.clone();
+                            self.status_msg = format!("Folder selected: {}", path_str);
+                        }
+                        ModalState::AddGameForm {
+                            ref mut working_dir,
+                            ref mut wine_prefix,
+                            selected_field,
+                            game_type: ref gtype,
+                            ..
+                        }
+                        | ModalState::EditGameForm {
+                            ref mut working_dir,
+                            ref mut wine_prefix,
+                            selected_field,
+                            game_type: ref gtype,
+                            ..
+                        } => {
+                            match gtype {
+                                PlatformType::Native if selected_field == 2 => {
+                                    *working_dir = path_str.clone();
+                                    self.status_msg = format!("Working directory set: {}", path_str);
+                                }
+                                PlatformType::Wine if selected_field == 2 => {
+                                    *wine_prefix = path_str.clone();
+                                    self.status_msg = format!("WINEPREFIX set: {}", path_str);
+                                }
+                                PlatformType::Wine if selected_field == 3 => {
+                                    *working_dir = path_str.clone();
+                                    self.status_msg = format!("Working directory set: {}", path_str);
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -673,17 +705,32 @@ impl App {
                             match gtype {
                                 PlatformType::Emulator if selected_field == 2 => {
                                     *file_path = path_str.clone();
+                                    self.status_msg = format!("ROM file selected: {}", path_str);
                                 }
-                                PlatformType::Native | PlatformType::Wine
-                                    if selected_field == 1 =>
-                                {
+                                PlatformType::Native | PlatformType::Wine if selected_field == 1 => {
                                     *file_path = path_str.clone();
+                                    self.status_msg = format!("Executable file selected: {}", path_str);
                                 }
-                                _ => {
-                                    *file_path = path_str.clone();
-                                }
+                                _ => {}
                             }
-                            self.status_msg = format!("File selected: {}", path_str);
+                        }
+                        ModalState::EditGameForm {
+                            ref mut file_path,
+                            selected_field,
+                            game_type: ref gtype,
+                            ..
+                        } => {
+                            match gtype {
+                                PlatformType::Emulator if selected_field == 1 => {
+                                    *file_path = path_str.clone();
+                                    self.status_msg = format!("ROM file selected: {}", path_str);
+                                }
+                                PlatformType::Native | PlatformType::Wine if selected_field == 1 => {
+                                    *file_path = path_str.clone();
+                                    self.status_msg = format!("Executable file selected: {}", path_str);
+                                }
+                                _ => {}
+                            }
                         }
                         _ => {}
                     }
