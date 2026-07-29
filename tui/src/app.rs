@@ -304,26 +304,7 @@ impl App {
         let title = game.title.clone();
         let appid = game.steam_appid;
 
-        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
-        let covers_dir = media_dir.join("covers");
-        let local_cover = vec![
-            covers_dir.join(format!("{}.jpg", game_id)),
-            covers_dir.join(format!("{}.png", game_id)),
-            covers_dir.join(format!("{}.webp", game_id)),
-        ]
-        .into_iter()
-        .find(|p| p.exists());
-
-        if let Some(path) = local_cover {
-            if let Some(protocol) = self.cover_manager.load_protocol_from_file(&path) {
-                self.image_protocols.insert(game_id, protocol);
-                return;
-            }
-        }
-
-        if self.image_protocols.contains_key(&game_id)
-            || self.pending_cover_requests.contains(&game_id)
-        {
+        if self.pending_cover_requests.contains(&game_id) {
             return;
         }
 
@@ -338,7 +319,19 @@ impl App {
         let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
 
         tokio::spawn(async move {
-            let cover_path = if let Some(id) = appid {
+            let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+            let covers_dir = media_dir.join("covers");
+            let local_cover = vec![
+                covers_dir.join(format!("{}.jpg", game_id)),
+                covers_dir.join(format!("{}.png", game_id)),
+                covers_dir.join(format!("{}.webp", game_id)),
+            ]
+            .into_iter()
+            .find(|p| p.exists());
+
+            let cover_path = if let Some(path) = local_cover {
+                Some(path)
+            } else if let Some(id) = appid {
                 SteamCoverResolver::resolve_cover(id).await
             } else {
                 let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
