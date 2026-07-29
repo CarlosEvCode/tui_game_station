@@ -2179,28 +2179,28 @@ impl App {
                         return;
                     }
 
+                    let all_db_platforms = self.db.get_platforms().unwrap_or_default();
                     let platform_id = match game_type {
                         PlatformType::Emulator => {
                             if platform_idx < self.platforms.len() {
                                 self.platforms[platform_idx].id
-                            } else {
+                            } else if !self.platforms.is_empty() {
                                 self.platforms[0].id
+                            } else {
+                                1
                             }
                         }
-                        PlatformType::Native => self
-                            .platforms
+                        PlatformType::Native => all_db_platforms
                             .iter()
                             .find(|p| p.slug == "linux")
                             .map(|p| p.id)
                             .unwrap_or(1),
-                        PlatformType::Wine => self
-                            .platforms
+                        PlatformType::Wine => all_db_platforms
                             .iter()
                             .find(|p| p.slug == "windows")
                             .map(|p| p.id)
                             .unwrap_or(1),
-                        PlatformType::Steam => self
-                            .platforms
+                        PlatformType::Steam => all_db_platforms
                             .iter()
                             .find(|p| p.slug == "steam")
                             .map(|p| p.id)
@@ -2264,6 +2264,10 @@ impl App {
                             self.status_msg = format!("Game '{}' saved successfully.", title);
                             self.modal_state = ModalState::None;
                             self.load_platforms();
+                            if let Some(pos) = self.platforms.iter().position(|p| p.id == platform_id) {
+                                self.selected_platform_idx = pos;
+                                self.load_games_for_selected_platform();
+                            }
                         }
                         Err(err) => {
                             self.status_msg = format!("Error saving game: {}", err);

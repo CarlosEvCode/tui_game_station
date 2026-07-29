@@ -476,7 +476,7 @@ impl Database {
             let game_count = self.get_game_count_for_platform(p.id)?;
             let runner = self.get_runner_for_platform(p.id)?;
 
-            if game_count > 0 || runner.is_some() || p.slug == "steam" || p.slug == "linux" {
+            if game_count > 0 || runner.is_some() {
                 active.push(p);
             }
         }
