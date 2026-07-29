@@ -278,12 +278,24 @@ impl Database {
                 params![platform_slug, name, runner_type, download_url, download_filename],
             )?;
             self.conn.execute(
-                "UPDATE runners SET runner_type = ?3, command_template = '\"{executable_path}\" \"{rom}\"',
-                 download_url = ?4, download_filename = ?5
-                 WHERE name = ?2",
+                "UPDATE runners SET download_url = ?4, download_filename = ?5 WHERE platform_id = (SELECT id FROM platforms WHERE slug = ?1) AND name = ?2",
                 params![platform_slug, name, runner_type, download_url, download_filename],
             )?;
         }
+
+        // Auto-migrate any games mis-assigned to SNES/emulator platforms due to legacy platform_id lookups
+        self.conn.execute(
+            "UPDATE games SET platform_id = (SELECT id FROM platforms WHERE slug = 'windows') WHERE game_type = 'wine'",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE games SET platform_id = (SELECT id FROM platforms WHERE slug = 'linux') WHERE game_type = 'native'",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE games SET platform_id = (SELECT id FROM platforms WHERE slug = 'steam') WHERE game_type = 'steam'",
+            [],
+        )?;
 
         // A previous Azahar preset used an obsolete {runner} placeholder.
         self.conn.execute(
@@ -463,6 +475,33 @@ impl Database {
             platforms.push(r?);
         }
         Ok(platforms)
+    }
+
+    pub fn get_platform_by_slug(&self, slug: &str) -> Result<Option<Platform>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, slug, name, platform_type, extensions FROM platforms WHERE slug = ?1",
+        )?;
+        let mut rows = stmt.query(params![slug])?;
+        if let Some(row) = rows.next()? {
+            let ptype_str: String = row.get(3)?;
+            let ptype = PlatformType::from(ptype_str.as_str());
+            let ext_str: String = row.get(4)?;
+            let extensions = ext_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            Ok(Some(Platform {
+                id: row.get(0)?,
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                platform_type: ptype,
+                default_extensions: extensions,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn get_active_platforms(&self, show_all: bool) -> Result<Vec<Platform>> {

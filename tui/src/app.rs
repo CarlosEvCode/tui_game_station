@@ -1012,7 +1012,6 @@ impl App {
                         self.status_msg = "Error: Game title cannot be empty.".to_string();
                         return;
                     }
-
                     if let Some(pos) = self.games.iter().position(|g| g.id == game_id) {
                         let mut game = self.games[pos].clone();
                         game.title = title.trim().to_string();
@@ -1021,6 +1020,18 @@ impl App {
                         game.custom_command = if custom_command.trim().is_empty() { None } else { Some(custom_command.trim().to_string()) };
                         game.wine_prefix = if wine_prefix.trim().is_empty() { None } else { Some(wine_prefix.trim().to_string()) };
                         game.steam_appid = steam_appid.trim().parse::<i64>().ok();
+
+                        let target_slug = match game.game_type.as_str() {
+                            "wine" => Some("windows"),
+                            "native" => Some("linux"),
+                            "steam" => Some("steam"),
+                            _ => None,
+                        };
+                        if let Some(slug) = target_slug {
+                            if let Ok(Some(target_p)) = self.db.get_platform_by_slug(slug) {
+                                game.platform_id = target_p.id;
+                            }
+                        }
 
                         if self.db.update_game(&game).is_ok() {
                             self.status_msg = format!("[OK] Updated details for '{}'!", game.title);
