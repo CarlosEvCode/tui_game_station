@@ -142,9 +142,17 @@ async fn main() -> Result<()> {
                                 ModalState::AppSettings { .. } => {
                                     app.update(Action::SaveAppSettings).await;
                                 }
-                                ModalState::VisualMediaSelector { active_tab, .. } => {
+                                ModalState::VisualMediaSelector {
+                                    active_tab,
+                                    ref candidates,
+                                    ..
+                                } => {
                                     if active_tab == 0 {
-                                        app.update(Action::SelectVisualMediaCandidate).await;
+                                        if candidates.is_empty() {
+                                            app.update(Action::SearchVisualMedia).await;
+                                        } else {
+                                            app.update(Action::SelectVisualMediaCandidate).await;
+                                        }
                                     } else {
                                         app.update(Action::ApplyVisualMediaSelection).await;
                                     }

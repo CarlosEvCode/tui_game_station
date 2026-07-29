@@ -1288,6 +1288,17 @@ impl App {
                 } = self.modal_state
                 {
                     api_key_input.push(ch);
+                } else if let ModalState::VisualMediaSelector {
+                    active_tab: 0,
+                    ref mut search_query,
+                    ref mut candidates,
+                    ref mut selected_candidate_idx,
+                    ..
+                } = self.modal_state
+                {
+                    search_query.push(ch);
+                    candidates.clear();
+                    *selected_candidate_idx = 0;
                 }
             }
             Action::ModalBackspace => {
@@ -1365,6 +1376,17 @@ impl App {
                 } = self.modal_state
                 {
                     api_key_input.pop();
+                } else if let ModalState::VisualMediaSelector {
+                    active_tab: 0,
+                    ref mut search_query,
+                    ref mut candidates,
+                    ref mut selected_candidate_idx,
+                    ..
+                } = self.modal_state
+                {
+                    search_query.pop();
+                    candidates.clear();
+                    *selected_candidate_idx = 0;
                 }
             }
             Action::StartFolderScan => {

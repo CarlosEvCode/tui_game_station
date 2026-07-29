@@ -820,10 +820,26 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             match active_tab {
                 0 => {
+                    let cand_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Length(3), Constraint::Min(5)])
+                        .split(list_area);
+
+                    let search_p = Paragraph::new(format!(" {}", search_query)).block(
+                        Block::default()
+                            .title(Span::styled(
+                                " Search Query (Type name & press [s] or [Enter] to Search) ",
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Yellow)),
+                    );
+                    frame.render_widget(search_p, cand_chunks[0]);
+
                     let items: Vec<ListItem> = if is_searching {
                         vec![ListItem::new(" [ Searching SteamGridDB... ]").style(Style::default().fg(Color::Yellow))]
                     } else if candidates.is_empty() {
-                        vec![ListItem::new(format!(" No SteamGridDB candidates found for '{}'. Try editing search query.", search_query)).style(Style::default().fg(Color::Red))]
+                        vec![ListItem::new(" No candidates found. Type a custom name above and press [s] / [Enter] to Search.").style(Style::default().fg(Color::Red))]
                     } else {
                         candidates
                             .iter()
@@ -843,13 +859,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     let list = List::new(items).block(
                         Block::default()
                             .title(Span::styled(
-                                format!(" Candidates for '{}' ", game_title),
+                                format!(" Candidates for '{}' ({}) ", game_title, candidates.len()),
                                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
                             .border_style(Style::default().fg(Color::Cyan)),
                     );
-                    frame.render_widget(list, list_area);
+                    frame.render_widget(list, cand_chunks[1]);
                 }
                 1 => {
                     let items: Vec<ListItem> = if covers.is_empty() {
@@ -972,7 +988,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             }
 
             let help_str = match active_tab {
-                0 => " [Up/Down] Select Candidate | [Enter] Load Candidate Media | [Tab] Switch Tab | [Esc] Close",
+                0 => " [Type Query] Edit Name | [s] Search SteamGridDB | [Up/Down] Select Candidate | [Enter] Load Candidate Media | [Esc] Close",
                 _ => " [Up/Down] Preview Image | [Enter] Apply Image | [Tab] Switch Tab | [Esc] Close",
             };
             let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
