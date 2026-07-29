@@ -692,6 +692,7 @@ impl App {
                         }
                         ModalState::AddGameForm {
                             ref mut file_path,
+                            ref mut working_dir,
                             ref mut title,
                             selected_field,
                             game_type: ref gtype,
@@ -713,6 +714,9 @@ impl App {
                                 }
                                 PlatformType::Native | PlatformType::Wine if selected_field == 1 => {
                                     *file_path = path_str.clone();
+                                    if let Some(parent) = picked.parent() {
+                                        *working_dir = parent.to_string_lossy().to_string();
+                                    }
                                     self.status_msg = format!("Executable file selected: {}", path_str);
                                 }
                                 _ => {}
@@ -720,6 +724,7 @@ impl App {
                         }
                         ModalState::EditGameForm {
                             ref mut file_path,
+                            ref mut working_dir,
                             selected_field,
                             game_type: ref gtype,
                             ..
@@ -731,6 +736,9 @@ impl App {
                                 }
                                 PlatformType::Native | PlatformType::Wine if selected_field == 1 => {
                                     *file_path = path_str.clone();
+                                    if let Some(parent) = picked.parent() {
+                                        *working_dir = parent.to_string_lossy().to_string();
+                                    }
                                     self.status_msg = format!("Executable file selected: {}", path_str);
                                 }
                                 _ => {}
@@ -1432,14 +1440,28 @@ impl App {
                         },
                         PlatformType::Native => match selected_field {
                             0 => title.push(ch),
-                            1 => file_path.push(ch),
+                            1 => {
+                                file_path.push(ch);
+                                if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                    if !parent.as_os_str().is_empty() {
+                                        *working_dir = parent.to_string_lossy().to_string();
+                                    }
+                                }
+                            }
                             2 => working_dir.push(ch),
                             3 => custom_command.push(ch),
                             _ => {}
                         },
                         PlatformType::Wine => match selected_field {
                             0 => title.push(ch),
-                            1 => file_path.push(ch),
+                            1 => {
+                                file_path.push(ch);
+                                if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                    if !parent.as_os_str().is_empty() {
+                                        *working_dir = parent.to_string_lossy().to_string();
+                                    }
+                                }
+                            }
                             2 => wine_prefix.push(ch),
                             3 => working_dir.push(ch),
                             4 => custom_command.push(ch),
@@ -1520,38 +1542,52 @@ impl App {
                     ..
                 } = self.modal_state
                 {
-                    let target_str = match gtype {
+                    match gtype {
                         PlatformType::Emulator => match selected_field {
-                            0 => Some(title),
-                            2 => Some(file_path),
-                            3 => Some(custom_command),
-                            _ => None,
+                            0 => { title.pop(); }
+                            2 => { file_path.pop(); }
+                            3 => { custom_command.pop(); }
+                            _ => {}
                         },
                         PlatformType::Native => match selected_field {
-                            0 => Some(title),
-                            1 => Some(file_path),
-                            2 => Some(working_dir),
-                            3 => Some(custom_command),
-                            _ => None,
+                            0 => { title.pop(); }
+                            1 => {
+                                file_path.pop();
+                                if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                    if !parent.as_os_str().is_empty() {
+                                        *working_dir = parent.to_string_lossy().to_string();
+                                    } else {
+                                        working_dir.clear();
+                                    }
+                                }
+                            }
+                            2 => { working_dir.pop(); }
+                            3 => { custom_command.pop(); }
+                            _ => {}
                         },
                         PlatformType::Wine => match selected_field {
-                            0 => Some(title),
-                            1 => Some(file_path),
-                            2 => Some(wine_prefix),
-                            3 => Some(working_dir),
-                            4 => Some(custom_command),
-                            _ => None,
+                            0 => { title.pop(); }
+                            1 => {
+                                file_path.pop();
+                                if let Some(parent) = std::path::Path::new(file_path).parent() {
+                                    if !parent.as_os_str().is_empty() {
+                                        *working_dir = parent.to_string_lossy().to_string();
+                                    } else {
+                                        working_dir.clear();
+                                    }
+                                }
+                            }
+                            2 => { wine_prefix.pop(); }
+                            3 => { working_dir.pop(); }
+                            4 => { custom_command.pop(); }
+                            _ => {}
                         },
                         PlatformType::Steam => match selected_field {
-                            0 => Some(title),
-                            1 => Some(steam_appid),
-                            2 => Some(custom_command),
-                            _ => None,
+                            0 => { title.pop(); }
+                            1 => { steam_appid.pop(); }
+                            2 => { custom_command.pop(); }
+                            _ => {}
                         },
-                    };
-
-                    if let Some(s) = target_str {
-                        s.pop();
                     }
                 } else if let ModalState::ScanFolderForm {
                     ref mut folder_path,
