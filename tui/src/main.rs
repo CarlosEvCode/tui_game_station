@@ -89,6 +89,13 @@ async fn main() -> Result<()> {
                             KeyCode::Backspace => {
                                 app.update(Action::ModalBackspace).await;
                             }
+                            KeyCode::Char('d') => {
+                                if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
+                                    app.update(Action::ResetRunnerConfig).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('d')).await;
+                                }
+                            }
                             KeyCode::Char('f') => {
                                 app.update(Action::OpenFilePicker).await;
                             }

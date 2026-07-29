@@ -70,6 +70,7 @@ pub enum Action {
     OpenManageRunnersModal,
     RunnerModalConfirmPlatform,
     SaveRunnerConfig,
+    ResetRunnerConfig,
 
     Quit,
     SetStatus(String),
@@ -346,6 +347,27 @@ impl App {
                             }
                             Err(err) => {
                                 self.status_msg = format!("Error guardando runner: {}", err);
+                            }
+                        }
+                    }
+                }
+            }
+            Action::ResetRunnerConfig => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref runners,
+                    selected_runner_idx,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(runner) = runners.get(selected_runner_idx) {
+                        match self.db.reset_runner_config(runner.id) {
+                            Ok(_) => {
+                                self.status_msg = format!("Runner '{}' desactivado correctamente.", runner.name);
+                                self.modal_state = ModalState::None;
+                                self.load_platforms();
+                            }
+                            Err(err) => {
+                                self.status_msg = format!("Error desactivando runner: {}", err);
                             }
                         }
                     }

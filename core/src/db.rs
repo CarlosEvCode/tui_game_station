@@ -134,9 +134,7 @@ impl Database {
             ",
         )?;
 
-        // Auto-migration for existing DB files
         let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN is_configured BOOLEAN DEFAULT 0", []);
-
         Ok(())
     }
 
@@ -173,7 +171,6 @@ impl Database {
             )?;
         }
 
-        // Seed preset runners per platform
         let default_runners = vec![
             ("3ds", "Azahar (AppImage / Binary)", "appimage", "\"{executable_path}\" \"{rom}\""),
             ("3ds", "Citra (AppImage / Binary)", "appimage", "\"{executable_path}\" \"{rom}\""),
@@ -217,7 +214,6 @@ impl Database {
         self.get_active_platforms(true)
     }
 
-    /// Return platforms filtered by active status (has games OR user configured runner)
     pub fn get_active_platforms(&self, show_all: bool) -> Result<Vec<Platform>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, slug, name, platform_type, extensions FROM platforms ORDER BY name ASC",
@@ -251,7 +247,6 @@ impl Database {
             if show_all {
                 list.push(platform);
             } else {
-                // Check if platform has games in DB
                 let game_count: i64 = self.conn.query_row(
                     "SELECT COUNT(*) FROM games WHERE platform_id = ?1",
                     params![platform.id],
@@ -263,7 +258,6 @@ impl Database {
                     continue;
                 }
 
-                // Check if any runner is explicitly configured for this platform
                 let configured_runner_count: i64 = self.conn.query_row(
                     "SELECT COUNT(*) FROM runners WHERE platform_id = ?1 AND is_configured = 1",
                     params![platform.id],
@@ -275,7 +269,6 @@ impl Database {
                     continue;
                 }
 
-                // Always include Native Linux and Windows Wine platforms for manual game additions
                 if platform.slug == "linux" || platform.slug == "windows" {
                     list.push(platform);
                 }
@@ -321,7 +314,6 @@ impl Database {
         )?;
 
         if is_default {
-            // Unset previous defaults for this platform
             self.conn.execute(
                 "UPDATE runners SET is_default = 0 WHERE platform_id = ?1",
                 params![runner_platform_id],
@@ -333,6 +325,14 @@ impl Database {
             params![executable_path, is_default, runner_id],
         )?;
 
+        Ok(())
+    }
+
+    pub fn reset_runner_config(&self, runner_id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET executable_path = NULL, is_configured = 0 WHERE id = ?1",
+            params![runner_id],
+        )?;
         Ok(())
     }
 

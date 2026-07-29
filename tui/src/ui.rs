@@ -181,7 +181,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [m] Emuladores/Runners | [a] Agregar | [f] Seleccionar Archivo | [p] Plataformas ({}) | [Enter] Jugar | [q] Salir | Info: {}",
+        " [m] Configurar Emuladores/Runners | [a] Agregar | [f] Archivo GUI | [p] ({}) | [Enter] Jugar | [q] Salir | Info: {}",
         filter_text, app.status_msg
     );
 
@@ -196,30 +196,43 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &App) {
-    let popup_area = centered_rect(70, 70, frame.area());
+    let popup_area = centered_rect(75, 75, frame.area());
     frame.render_widget(Clear, popup_area);
 
     match app.modal_state {
         ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
             let all_platforms = app.db.get_platforms().unwrap_or_default();
+            let active_ids: Vec<i64> = app.platforms.iter().map(|p| p.id).collect();
+
             let items: Vec<ListItem> = all_platforms
                 .iter()
                 .enumerate()
                 .map(|(idx, p)| {
                     let is_selected = idx == selected_platform_idx;
+                    let is_active = active_ids.contains(&p.id);
+
+                    let status_badge = if is_active {
+                        " [✓ ACTIVA / CONFIGURADA]"
+                    } else {
+                        " [ Sin Configurar ]"
+                    };
+
                     let style = if is_selected {
                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else if is_active {
+                        Style::default().fg(Color::Green)
                     } else {
-                        Style::default().fg(Color::White)
+                        Style::default().fg(Color::DarkGray)
                     };
-                    ListItem::new(format!("  {} ({}) ", p.name, p.slug)).style(style)
+
+                    ListItem::new(format!("  {} ({}){}", p.name, p.slug, status_badge)).style(style)
                 })
                 .collect();
 
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " ⚙️ Configurar Emulador - Paso 1: Selecciona Plataforma ",
+                        " ⚙️ Configurar Emuladores/Runners - Selecciona Plataforma a Configurar/Editar ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -233,7 +246,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [↑/↓] Seleccionar Plataforma | [Enter] Siguiente | [Esc] Cancelar")
+            let help = Paragraph::new(" [↑/↓] Seleccionar Plataforma | [Enter] Editar / Configurar Runner | [Esc] Volver")
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
@@ -249,7 +262,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                 Span::styled(&platform.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("1. Emulador / Runner (←/→ para cambiar):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("1. Seleccionar Emulador / Runner (Usar ←/→ para alternar):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
 
             for (idx, r) in runners.iter().enumerate() {
                 let is_sel = idx == selected_runner_idx;
@@ -259,14 +272,21 @@ fn render_modal(frame: &mut Frame, app: &App) {
                 } else {
                     Style::default().fg(Color::Gray)
                 };
+
+                let configured_info = if let Some(exe) = &r.executable_path {
+                    format!(" (Configurado: {})", exe)
+                } else {
+                    String::new()
+                };
+
                 lines.push(Line::from(vec![
                     Span::styled(mark, style),
-                    Span::styled(&r.name, style),
+                    Span::styled(format!("{}{}", r.name, configured_info), style),
                 ]));
             }
 
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("2. Ruta al Executable / .AppImage:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled("2. Ruta al Ejecutable / .AppImage:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
             lines.push(Line::from(vec![
                 Span::raw("   "),
                 Span::styled(
@@ -275,12 +295,16 @@ fn render_modal(frame: &mut Frame, app: &App) {
                 ),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("[ GUARDAR RUNNER Y ACTIVAR PLATAFORMA ]", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(vec![
+                Span::styled("[ GUARDAR Y ACTIVAR ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("  "),
+                Span::styled("[ Presiona 'd' para DESACTIVAR runner ]", Style::default().fg(Color::Red)),
+            ]));
 
             let p = Paragraph::new(lines).block(
                 Block::default()
                     .title(Span::styled(
-                        format!(" ⚙️ Asignar Ejecutable / AppImage a {} ", platform.name),
+                        format!(" ⚙️ Editar Configuración de Runner para {} ", platform.name),
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -294,7 +318,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [f] Selector GUI de Sistema | [←/→] Cambiar Runner | [Enter] Guardar | [Esc] Cancelar")
+            let help = Paragraph::new(" [f] Selector GUI | [←/→] Cambiar Runner | [Enter] Guardar | [d] Desactivar | [Esc] Cancelar")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
