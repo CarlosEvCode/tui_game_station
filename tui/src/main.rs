@@ -185,6 +185,9 @@ async fn main() -> Result<()> {
                                 app.update(Action::ToggleShowAllPlatforms).await;
                             }
                             KeyCode::Char('r') => {
+                                app.update(Action::QuickRescanPlatform).await;
+                            }
+                            KeyCode::Char('x') => {
                                 app.update(Action::ScanSteamGames).await;
                             }
                             _ => {}

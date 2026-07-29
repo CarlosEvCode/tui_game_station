@@ -109,6 +109,7 @@ pub enum Action {
     ModalToggleCheckbox,
     SaveModalGame,
     StartFolderScan,
+    QuickRescanPlatform,
 
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
@@ -768,9 +769,12 @@ impl App {
                     let emulator_platforms = self.get_configured_emulator_platforms();
                     if let Some(p) = emulator_platforms.get(selected_platform_idx) {
                         let default_exts = p.default_extensions.join(", ");
+                        let saved_folder = self.db.get_scan_folder_for_platform(p.id).ok().flatten()
+                            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home")).join("Juegos").to_string_lossy().to_string());
+
                         self.modal_state = ModalState::ScanFolderForm {
                             platform: p.clone(),
-                            folder_path: dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home")).join("Juegos").to_string_lossy().to_string(),
+                            folder_path: saved_folder,
                             extensions_input: default_exts,
                             recursive: true,
                             selected_field: 0,
@@ -960,17 +964,42 @@ impl App {
                         return;
                     }
 
+                    let _ = self.db.save_scan_folder(platform.id, folder_path.trim(), recursive);
                     self.status_msg = format!("Scanning ROMs folder for {}...", platform.name);
 
                     match Scanner::scan_folder(&self.db, &platform, &path, recursive, false) {
                         Ok(added) => {
-                            self.status_msg = format!("[OK] Scan completed: {} ROMs imported/updated.", added);
+                            self.status_msg = format!("[OK] Scan completed: {} ROMs imported/updated from '{}'.", added, folder_path);
                             self.modal_state = ModalState::None;
                             self.load_platforms();
                         }
                         Err(err) => {
                             self.status_msg = format!("Error during scan: {}", err);
                         }
+                    }
+                }
+            }
+            Action::QuickRescanPlatform => {
+                if self.modal_state == ModalState::None && !self.platforms.is_empty() {
+                    let platform = self.platforms[self.selected_platform_idx].clone();
+                    if let Ok(Some(saved_path)) = self.db.get_scan_folder_for_platform(platform.id) {
+                        let path = PathBuf::from(&saved_path);
+                        if path.exists() {
+                            self.status_msg = format!("Quick re-scanning '{}' saved folder...", platform.name);
+                            match Scanner::scan_folder(&self.db, &platform, &path, true, false) {
+                                Ok(added) => {
+                                    self.status_msg = format!("[OK] Quick re-scan finished: {} ROMs updated from '{}'.", added, saved_path);
+                                    self.load_platforms();
+                                }
+                                Err(err) => {
+                                    self.status_msg = format!("Error during quick re-scan: {}", err);
+                                }
+                            }
+                        } else {
+                            self.status_msg = format!("[Error] Saved folder not found: '{}'", saved_path);
+                        }
+                    } else {
+                        self.status_msg = format!("No saved ROM folder for '{}'. Press [a] to scan a folder.", platform.name);
                     }
                 }
             }

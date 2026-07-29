@@ -104,252 +104,136 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
-
-            CREATE TABLE IF NOT EXISTS local_dat_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                platform_slug TEXT NOT NULL,
-                name TEXT NOT NULL,
-                crc32 TEXT,
-                md5 TEXT,
-                sha1 TEXT,
-                serial TEXT,
-                developer TEXT,
-                publisher TEXT,
-                release_year INTEGER
-            );
-
-            CREATE TABLE IF NOT EXISTS game_media (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-                media_type TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                source TEXT NOT NULL,
-                url TEXT,
-                UNIQUE(game_id, media_type)
-            );
-
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
             ",
         )?;
-
-        let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN is_configured BOOLEAN DEFAULT 0", []);
-        let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN download_url TEXT", []);
-        let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN download_filename TEXT", []);
         Ok(())
     }
 
     fn seed_defaults(&self) -> Result<()> {
-        let platforms = vec![
-            ("3ds", "Nintendo 3DS", "emulator", ".3ds,.cia,.cci"),
-            ("snes", "Nintendo Super NES", "emulator", ".sfc,.smc,.zip,.7z"),
-            ("nes", "Nintendo NES", "emulator", ".nes,.unf,.zip,.7z"),
-            ("gba", "Nintendo Game Boy Advance", "emulator", ".gba,.zip,.7z"),
-            ("gb", "Nintendo Game Boy / Color", "emulator", ".gb,.gbc,.zip,.7z"),
-            ("n64", "Nintendo 64", "emulator", ".z64,.v64,.n64,.zip"),
-            ("gamecube", "Nintendo GameCube", "emulator", ".iso,.gcz,.rvz,.ciso"),
-            ("wii", "Nintendo Wii", "emulator", ".iso,.wbfs,.rvz"),
-            ("wii_u", "Nintendo Wii U", "emulator", ".wud,.wux,.rpx,.wua"),
-            ("ds", "Nintendo DS", "emulator", ".nds,.ds"),
-            ("switch", "Nintendo Switch", "emulator", ".nsp,.xci,.nca,.nso"),
-            ("ps1", "Sony PlayStation", "emulator", ".bin,.chd,.pbp,.cue,.iso,.img"),
-            ("ps2", "Sony PlayStation 2", "emulator", ".iso,.chd,.cso"),
-            ("psp", "Sony PlayStation Portable", "emulator", ".iso,.cso,.pbp"),
-            ("vita", "Sony PlayStation Vita", "emulator", ".vpk,.zip"),
-            ("dreamcast", "Sega Dreamcast", "emulator", ".chd,.gdi,.cdi"),
-            ("mame", "Arcade / MAME", "emulator", ".zip,.7z"),
-            ("linux", "Linux Native Games", "native", ".sh,.x86_64,.bin,.appimage,.desktop"),
-            ("windows", "Windows Games (Wine/Proton)", "wine", ".exe,.bat,.lnk"),
-            ("steam", "Steam Games", "steam", ""),
-        ];
-
-        for (slug, name, ptype, exts) in platforms {
-            self.conn.execute(
-                "INSERT INTO platforms (slug, name, platform_type, extensions)
-                 VALUES (?1, ?2, ?3, ?4)
-                 ON CONFLICT(slug) DO UPDATE SET extensions = ?4",
-                params![slug, name, ptype, exts],
-            )?;
+        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM platforms", [], |r| r.get(0))?;
+        if count > 0 {
+            return Ok(());
         }
 
-        let default_runners = vec![
-            (
-                "3ds",
-                "Azahar (AppImage / Binary)",
-                "appimage",
-                "\"{executable_path}\" \"{rom}\"",
-                Some("https://github.com/AzaharPlus/AzaharPlus/releases/latest/download/azaharplus-2126.0-A-linux.AppImage"),
-                Some("Azahar.AppImage"),
-            ),
-            (
-                "3ds",
-                "Citra (AppImage / Binary)",
-                "appimage",
-                "\"{executable_path}\" \"{rom}\"",
-                None,
-                None,
-            ),
-            (
-                "snes",
-                "Snes9x (Libretro)",
-                "libretro",
-                "retroarch -L /usr/lib/libretro/snes9x_libretro.so \"{rom}\"",
-                None,
-                None,
-            ),
-            (
-                "ps1",
-                "DuckStation (Standalone)",
-                "standalone_emulator",
-                "duckstation-qt \"{rom}\"",
-                None,
-                None,
-            ),
-            (
-                "ps2",
-                "PCSX2 (Standalone)",
-                "standalone_emulator",
-                "pcsx2-qt \"{rom}\"",
-                None,
-                None,
-            ),
-            (
-                "gamecube",
-                "Dolphin (Standalone)",
-                "standalone_emulator",
-                "dolphin-emu -e \"{rom}\"",
-                None,
-                None,
-            ),
-            (
-                "wii",
-                "Dolphin (Standalone)",
-                "standalone_emulator",
-                "dolphin-emu -e \"{rom}\"",
-                None,
-                None,
-            ),
-            (
-                "gba",
-                "mGBA (Libretro)",
-                "libretro",
-                "retroarch -L /usr/lib/libretro/mgba_libretro.so \"{rom}\"",
-                None,
-                None,
-            ),
-            ("linux", "Native Binary", "native", "\"{file_path}\"", None, None),
-            ("windows", "Wine System", "wine", "wine \"{file_path}\"", None, None),
-            ("steam", "Steam Launcher", "steam", "steam steam://rungameid/{steam_appid}", None, None),
-        ];
+        self.conn.execute_batch(
+            "
+            INSERT INTO platforms (slug, name, platform_type, extensions) VALUES
+            ('3ds', 'Nintendo 3DS', 'emulator', '.3ds, .cia, .cci, .cxi'),
+            ('nds', 'Nintendo DS', 'emulator', '.nds'),
+            ('snes', 'Nintendo Super NES', 'emulator', '.snes, .smc, .sfc'),
+            ('gba', 'Nintendo Game Boy Advance', 'emulator', '.gba'),
+            ('n64', 'Nintendo 64', 'emulator', '.n64, .z64, .v64'),
+            ('ps1', 'Sony PlayStation', 'emulator', '.iso, .cue, .bin, .chd, .pbp'),
+            ('ps2', 'Sony PlayStation 2', 'emulator', '.iso, .chd, .bin'),
+            ('psp', 'Sony PlayStation Portable', 'emulator', '.iso, .cso, .chd'),
+            ('switch', 'Nintendo Switch', 'emulator', '.nsp, .xci'),
+            ('windows', 'Windows Games', 'wine', '.exe, .bat'),
+            ('linux', 'Linux Native', 'native', '.sh, .AppImage, .bin'),
+            ('steam', 'Steam Games', 'steam', '');
 
-        for (p_slug, r_name, r_type, cmd, d_url, d_name) in default_runners {
-            let platform_id: Option<i64> = self.conn
-                .query_row("SELECT id FROM platforms WHERE slug = ?1", params![p_slug], |r| r.get(0))
-                .ok();
+            -- Seed preset runners
+            INSERT INTO runners (platform_id, name, runner_type, download_url, download_filename, command_template)
+            SELECT id, 'Azahar (3DS Emulator)', 'appimage', 'https://github.com/AzaharPlus/AzaharPlus/releases/download/v2126.0-A/azaharplus-2126.0-A-linux.AppImage', 'azahar.AppImage', '{runner} {rom}'
+            FROM platforms WHERE slug = '3ds';
 
-            if let Some(pid) = platform_id {
-                let count: i64 = self.conn.query_row(
-                    "SELECT COUNT(*) FROM runners WHERE platform_id = ?1 AND name = ?2",
-                    params![pid, r_name],
-                    |r| r.get(0),
-                )?;
-
-                if count == 0 {
-                    self.conn.execute(
-                        "INSERT INTO runners (platform_id, name, runner_type, command_template, download_url, download_filename, is_configured, is_default)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 1)",
-                        params![pid, r_name, r_type, cmd, d_url, d_name],
-                    )?;
-                } else {
-                    // Update download URL & filename for existing runners
-                    self.conn.execute(
-                        "UPDATE runners SET download_url = ?1, download_filename = ?2 WHERE platform_id = ?3 AND name = ?4",
-                        params![d_url, d_name, pid, r_name],
-                    )?;
-                }
-            }
-        }
+            INSERT INTO runners (platform_id, name, runner_type, command_template)
+            SELECT id, 'Citra (3DS Emulator)', 'system', 'citra {rom}'
+            FROM platforms WHERE slug = '3ds';
+            ",
+        )?;
 
         Ok(())
     }
 
-    pub fn get_platforms(&self) -> Result<Vec<Platform>> {
-        self.get_active_platforms(true)
+    // ----------------------------------------------------
+    // Scan Folders Persistence
+    // ----------------------------------------------------
+    pub fn get_scan_folder_for_platform(&self, platform_id: i64) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path FROM scan_folders WHERE platform_id = ?1 ORDER BY last_scanned_at DESC LIMIT 1"
+        )?;
+        let mut rows = stmt.query(params![platform_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
     }
 
-    pub fn get_active_platforms(&self, show_all: bool) -> Result<Vec<Platform>> {
+    pub fn save_scan_folder(&self, platform_id: i64, folder_path: &str, recursive: bool) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO scan_folders (platform_id, path, recursive, last_scanned_at)
+             VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+             ON CONFLICT(path) DO UPDATE SET
+                platform_id = excluded.platform_id,
+                recursive = excluded.recursive,
+                last_scanned_at = CURRENT_TIMESTAMP",
+            params![platform_id, folder_path, recursive],
+        )?;
+        Ok(())
+    }
+
+    // ----------------------------------------------------
+    // Platforms & Runners Queries
+    // ----------------------------------------------------
+    pub fn get_platforms(&self) -> Result<Vec<Platform>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, slug, name, platform_type, extensions FROM platforms ORDER BY name ASC",
+            "SELECT id, slug, name, platform_type, extensions, created_at FROM platforms ORDER BY name ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
-            let id: i64 = row.get(0)?;
-            let slug: String = row.get(1)?;
-            let name: String = row.get(2)?;
             let ptype_str: String = row.get(3)?;
-            let exts_str: String = row.get(4)?;
-
-            let default_extensions = exts_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let ptype = PlatformType::from(ptype_str.as_str());
+            let ext_str: String = row.get(4)?;
+            let extensions = ext_str.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
 
             Ok(Platform {
-                id,
-                slug,
-                name,
-                platform_type: PlatformType::from(ptype_str.as_str()),
-                default_extensions,
+                id: row.get(0)?,
+                slug: row.get(1)?,
+                name: row.get(2)?,
+                platform_type: ptype,
+                default_extensions: extensions,
             })
         })?;
 
-        let mut list = Vec::new();
+        let mut platforms = Vec::new();
         for r in rows {
-            let platform = r?;
-            if show_all {
-                list.push(platform);
-            } else {
-                let game_count: i64 = self.conn.query_row(
-                    "SELECT COUNT(*) FROM games WHERE platform_id = ?1",
-                    params![platform.id],
-                    |r| r.get(0),
-                ).unwrap_or(0);
+            platforms.push(r?);
+        }
+        Ok(platforms)
+    }
 
-                if game_count > 0 {
-                    list.push(platform);
-                    continue;
-                }
+    pub fn get_active_platforms(&self, show_all: bool) -> Result<Vec<Platform>> {
+        let all = self.get_platforms()?;
+        if show_all {
+            return Ok(all);
+        }
 
-                let configured_runner_count: i64 = self.conn.query_row(
-                    "SELECT COUNT(*) FROM runners WHERE platform_id = ?1 AND is_configured = 1",
-                    params![platform.id],
-                    |r| r.get(0),
-                ).unwrap_or(0);
+        let mut active = Vec::new();
+        for p in all {
+            let game_count = self.get_game_count_for_platform(p.id)?;
+            let runner = self.get_runner_for_platform(p.id)?;
 
-                if configured_runner_count > 0 {
-                    list.push(platform);
-                    continue;
-                }
-
-                if platform.slug == "linux" || platform.slug == "windows" {
-                    list.push(platform);
-                }
+            if game_count > 0 || runner.is_some() || p.slug == "steam" || p.slug == "linux" {
+                active.push(p);
             }
         }
 
-        Ok(list)
+        Ok(active)
+    }
+
+    pub fn get_game_count_for_platform(&self, platform_id: i64) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM games WHERE platform_id = ?1",
+            params![platform_id],
+            |r| r.get(0),
+        )?;
+        Ok(count as usize)
     }
 
     pub fn get_runners_for_platform(&self, platform_id: i64) -> Result<Vec<Runner>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default
-             FROM runners
-             WHERE platform_id = ?1
-             ORDER BY is_default DESC, name ASC",
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default FROM runners WHERE platform_id = ?1",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -374,25 +258,17 @@ impl Database {
         Ok(list)
     }
 
-    pub fn update_runner_config(&self, runner_id: i64, executable_path: &str, is_default: bool) -> Result<()> {
-        let runner_platform_id: i64 = self.conn.query_row(
-            "SELECT platform_id FROM runners WHERE id = ?1",
-            params![runner_id],
-            |r| r.get(0),
-        )?;
+    pub fn get_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
+        let runners = self.get_runners_for_platform(platform_id)?;
+        Ok(runners.into_iter().find(|r| r.executable_path.is_some()))
+    }
 
-        if is_default {
-            self.conn.execute(
-                "UPDATE runners SET is_default = 0 WHERE platform_id = ?1",
-                params![runner_platform_id],
-            )?;
-        }
-
+    pub fn update_runner_config(&self, runner_id: i64, exe_path: &str, is_configured: bool) -> Result<()> {
+        let _ = is_configured;
         self.conn.execute(
-            "UPDATE runners SET executable_path = ?1, is_configured = 1, is_default = ?2 WHERE id = ?3",
-            params![executable_path, is_default, runner_id],
+            "UPDATE runners SET executable_path = ?1, is_configured = 1 WHERE id = ?2",
+            params![exe_path, runner_id],
         )?;
-
         Ok(())
     }
 
@@ -404,16 +280,12 @@ impl Database {
         Ok(())
     }
 
+    // ----------------------------------------------------
+    // Games Queries
+    // ----------------------------------------------------
     pub fn get_games_for_platform(&self, platform_id: i64) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command,
-                    env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size,
-                    file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher,
-                    description, genre, rating, favorite, play_count, play_time_seconds, last_played_at,
-                    created_at, updated_at
-             FROM games
-             WHERE platform_id = ?1
-             ORDER BY favorite DESC, title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at FROM games WHERE platform_id = ?1 ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -452,22 +324,24 @@ impl Database {
             })
         })?;
 
-        let mut list = Vec::new();
-        for r in rows {
-            list.push(r?);
+        let mut games = Vec::new();
+        for g in rows {
+            games.push(g?);
         }
-        Ok(list)
+        Ok(games)
     }
 
     pub fn insert_game(&self, game: &Game) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO games (platform_id, title, sort_title, game_type, file_path, working_dir,
-                                custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
-                                file_name, file_extension, file_size, file_hash_crc32, file_hash_md5,
-                                file_hash_sha1, serial, release_year, developer, publisher, description,
-                                genre, rating, favorite)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
-             ON CONFLICT(file_path) DO UPDATE SET title = ?2, file_hash_crc32 = ?15, file_hash_md5 = ?16",
+            "INSERT INTO games (
+                platform_id, title, sort_title, game_type, file_path, working_dir,
+                custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
+                file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            ON CONFLICT(file_path) DO UPDATE SET
+                title = excluded.title,
+                file_size = excluded.file_size,
+                updated_at = CURRENT_TIMESTAMP",
             params![
                 game.platform_id,
                 game.title,
@@ -486,48 +360,9 @@ impl Database {
                 game.file_hash_crc32,
                 game.file_hash_md5,
                 game.file_hash_sha1,
-                game.serial,
-                game.release_year,
-                game.developer,
-                game.publisher,
-                game.description,
-                game.genre,
-                game.rating,
-                game.favorite,
             ],
         )?;
 
         Ok(self.conn.last_insert_rowid())
-    }
-
-    pub fn get_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default
-             FROM runners
-             WHERE platform_id = ?1
-             ORDER BY is_default DESC, is_configured DESC, id ASC
-             LIMIT 1",
-        )?;
-
-        let mut rows = stmt.query_map(params![platform_id], |row| {
-            Ok(Runner {
-                id: row.get(0)?,
-                platform_id: row.get(1)?,
-                name: row.get(2)?,
-                runner_type: row.get(3)?,
-                executable_path: row.get(4)?,
-                command_template: row.get(5)?,
-                default_env: row.get(6)?,
-                download_url: row.get(7)?,
-                download_filename: row.get(8)?,
-                is_default: row.get(9)?,
-            })
-        })?;
-
-        if let Some(r) = rows.next() {
-            Ok(Some(r?))
-        } else {
-            Ok(None)
-        }
     }
 }

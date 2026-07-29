@@ -346,7 +346,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [v] View (Grid/Table) | [m] Runners | [a] Add Game / Scan ROMs | [f] Folder Picker | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View | [m] Runners | [a] Add Game/Scan | [r] Rescan Saved Folder | [f] Folder Picker | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 
