@@ -265,10 +265,18 @@ impl App {
 
         tokio::spawn(async move {
             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
-            let local_cover = media_dir.join("covers").join(format!("{}.jpg", game_id));
+            let covers_dir = media_dir.join("covers");
 
-            let cover_path = if local_cover.exists() {
-                Some(local_cover)
+            let local_cover = vec![
+                covers_dir.join(format!("{}.jpg", game_id)),
+                covers_dir.join(format!("{}.png", game_id)),
+                covers_dir.join(format!("{}.webp", game_id)),
+            ]
+            .into_iter()
+            .find(|p| p.exists());
+
+            let cover_path = if let Some(path) = local_cover {
+                Some(path)
             } else if let Some(id) = appid {
                 SteamCoverResolver::resolve_cover(id).await
             } else {

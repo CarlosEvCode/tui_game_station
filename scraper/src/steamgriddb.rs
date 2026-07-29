@@ -87,10 +87,10 @@ impl SteamGridDBClient {
     /// Get images of type: "grids" (cover), "heroes" (banner), or "icons" (icon)
     pub async fn get_images(&self, sgdb_game_id: i64, image_type: &str) -> Result<Vec<SteamGridImageItem>> {
         let params = match image_type {
-            "grids" => "?dimensions=600x900&styles=alternate,material&limit=20",
-            "heroes" => "?limit=20",
-            "icons" => "?limit=20",
-            _ => "?limit=20",
+            "grids" => "?limit=30",
+            "heroes" => "?limit=30",
+            "icons" => "?limit=30",
+            _ => "?limit=30",
         };
 
         let url = format!("{}/{}/game/{}{}", BASE_URL, image_type, sgdb_game_id, params);

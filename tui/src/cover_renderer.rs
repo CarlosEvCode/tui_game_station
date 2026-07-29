@@ -22,7 +22,12 @@ impl CoverManager {
             return None;
         }
 
-        let dyn_img: DynamicImage = ImageReader::open(path).ok()?.decode().ok()?;
+        let dyn_img: DynamicImage = ImageReader::open(path)
+            .ok()?
+            .with_guessed_format()
+            .ok()?
+            .decode()
+            .ok()?;
         Some(self.picker.new_resize_protocol(dyn_img))
     }
 }
