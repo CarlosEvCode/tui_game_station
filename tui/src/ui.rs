@@ -775,17 +775,24 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             selected_candidate_idx,
             ref covers,
             selected_cover_idx,
+            chosen_cover_idx,
             ref banners,
             selected_banner_idx,
+            chosen_banner_idx,
             ref icons,
             selected_icon_idx,
+            chosen_icon_idx,
             ..
         } => {
+            let c_mark = if chosen_cover_idx.is_some() { "✓" } else { "-" };
+            let b_mark = if chosen_banner_idx.is_some() { "✓" } else { "-" };
+            let i_mark = if chosen_icon_idx.is_some() { "✓" } else { "-" };
+
             let tab_titles = vec![
                 format!("1. Candidates ({})", candidates.len()),
-                format!("2. Covers ({})", covers.len()),
-                format!("3. Banners ({})", banners.len()),
-                format!("4. Icons ({})", icons.len()),
+                format!("2. Covers ({}) [{}]", covers.len(), c_mark),
+                format!("3. Banners ({}) [{}]", banners.len(), b_mark),
+                format!("4. Icons ({}) [{}]", icons.len(), i_mark),
             ];
 
             let tab_spans: Vec<Span> = tab_titles
@@ -876,12 +883,17 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .enumerate()
                             .map(|(idx, c)| {
                                 let is_selected = idx == selected_cover_idx;
+                                let is_chosen = chosen_cover_idx == Some(idx);
+                                let check_str = if is_chosen { "[X] " } else { "[ ] " };
+
                                 let style = if is_selected {
                                     Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else if is_chosen {
+                                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
-                                ListItem::new(format!("  Cover #{} - ID: {}", idx + 1, c.id)).style(style)
+                                ListItem::new(format!("  {}Cover #{} - ID: {}", check_str, idx + 1, c.id)).style(style)
                             })
                             .collect()
                     };
@@ -906,12 +918,17 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .enumerate()
                             .map(|(idx, b)| {
                                 let is_selected = idx == selected_banner_idx;
+                                let is_chosen = chosen_banner_idx == Some(idx);
+                                let check_str = if is_chosen { "[X] " } else { "[ ] " };
+
                                 let style = if is_selected {
                                     Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else if is_chosen {
+                                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
-                                ListItem::new(format!("  Banner #{} - ID: {}", idx + 1, b.id)).style(style)
+                                ListItem::new(format!("  {}Banner #{} - ID: {}", check_str, idx + 1, b.id)).style(style)
                             })
                             .collect()
                     };
@@ -936,12 +953,17 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .enumerate()
                             .map(|(idx, ic)| {
                                 let is_selected = idx == selected_icon_idx;
+                                let is_chosen = chosen_icon_idx == Some(idx);
+                                let check_str = if is_chosen { "[X] " } else { "[ ] " };
+
                                 let style = if is_selected {
                                     Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else if is_chosen {
+                                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
-                                ListItem::new(format!("  Icon #{} - ID: {}", idx + 1, ic.id)).style(style)
+                                ListItem::new(format!("  {}Icon #{} - ID: {}", check_str, idx + 1, ic.id)).style(style)
                             })
                             .collect()
                     };
@@ -988,8 +1010,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             }
 
             let help_str = match active_tab {
-                0 => " [Type Query] Edit Name | [s] Search SteamGridDB | [Up/Down] Select Candidate | [Enter] Load Candidate Media | [Esc] Close",
-                _ => " [Up/Down] Preview Image | [Enter] Apply Image | [Tab] Switch Tab | [Esc] Close",
+                0 => " [Type Query] Edit Name | [s] Search | [Up/Down] Candidate | [Enter] Load Candidate Media | [Esc] Close",
+                _ => " [Space] Toggle Checkmark | [Enter] Apply All Selected Media & Update Title | [Tab] Switch Tab | [Esc] Close",
             };
             let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[2]);

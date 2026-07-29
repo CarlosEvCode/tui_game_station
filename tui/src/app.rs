@@ -103,12 +103,16 @@ pub enum ModalState {
         candidates: Vec<scraper::steamgriddb::SteamGridSearchResult>,
         selected_candidate_idx: usize,
         selected_candidate_id: Option<i64>,
+        selected_candidate_name: Option<String>,
         covers: Vec<scraper::steamgriddb::SteamGridImageItem>,
         selected_cover_idx: usize,
+        chosen_cover_idx: Option<usize>,
         banners: Vec<scraper::steamgriddb::SteamGridImageItem>,
         selected_banner_idx: usize,
+        chosen_banner_idx: Option<usize>,
         icons: Vec<scraper::steamgriddb::SteamGridImageItem>,
         selected_icon_idx: usize,
+        chosen_icon_idx: Option<usize>,
     },
     ManageRunnersStep1Platform {
         selected_runner_idx: usize,
@@ -1285,6 +1289,41 @@ impl App {
                     if selected_field == 2 {
                         *recursive = !*recursive;
                     }
+                } else if let ModalState::VisualMediaSelector {
+                    active_tab,
+                    selected_cover_idx,
+                    ref mut chosen_cover_idx,
+                    selected_banner_idx,
+                    ref mut chosen_banner_idx,
+                    selected_icon_idx,
+                    ref mut chosen_icon_idx,
+                    ..
+                } = self.modal_state
+                {
+                    match active_tab {
+                        1 => {
+                            *chosen_cover_idx = if *chosen_cover_idx == Some(selected_cover_idx) {
+                                None
+                            } else {
+                                Some(selected_cover_idx)
+                            };
+                        }
+                        2 => {
+                            *chosen_banner_idx = if *chosen_banner_idx == Some(selected_banner_idx) {
+                                None
+                            } else {
+                                Some(selected_banner_idx)
+                            };
+                        }
+                        3 => {
+                            *chosen_icon_idx = if *chosen_icon_idx == Some(selected_icon_idx) {
+                                None
+                            } else {
+                                Some(selected_icon_idx)
+                            };
+                        }
+                        _ => {}
+                    }
                 }
             }
             Action::ModalNextField => match self.modal_state {
@@ -1872,12 +1911,16 @@ impl App {
                         candidates: Vec::new(),
                         selected_candidate_idx: 0,
                         selected_candidate_id: None,
+                        selected_candidate_name: None,
                         covers: Vec::new(),
                         selected_cover_idx: 0,
+                        chosen_cover_idx: None,
                         banners: Vec::new(),
                         selected_banner_idx: 0,
+                        chosen_banner_idx: None,
                         icons: Vec::new(),
                         selected_icon_idx: 0,
+                        chosen_icon_idx: None,
                     };
                     self.status_msg = format!("Searching SteamGridDB for '{}'...", query);
 
@@ -1940,25 +1983,33 @@ impl App {
                         let new_banners = client.get_images(sgdb_id, "heroes").await.unwrap_or_default();
                         let new_icons = client.get_images(sgdb_id, "icons").await.unwrap_or_default();
 
-                        let c_count = new_covers.len();
-                        let b_count = new_banners.len();
-                        let i_count = new_icons.len();
+                        let has_covers = !new_covers.is_empty();
+                        let has_banners = !new_banners.is_empty();
+                        let has_icons = !new_icons.is_empty();
 
                         if let ModalState::VisualMediaSelector {
                             ref mut selected_candidate_id,
+                            ref mut selected_candidate_name,
                             ref mut covers,
+                            ref mut chosen_cover_idx,
                             ref mut banners,
+                            ref mut chosen_banner_idx,
                             ref mut icons,
+                            ref mut chosen_icon_idx,
                             ref mut active_tab,
                             ..
                         } = self.modal_state
                         {
                             *selected_candidate_id = Some(sgdb_id);
+                            *selected_candidate_name = Some(cand_name.clone());
                             *covers = new_covers;
+                            *chosen_cover_idx = if has_covers { Some(0) } else { None };
                             *banners = new_banners;
+                            *chosen_banner_idx = if has_banners { Some(0) } else { None };
                             *icons = new_icons;
+                            *chosen_icon_idx = if has_icons { Some(0) } else { None };
                             *active_tab = 1; // Switch to Covers tab
-                            self.status_msg = format!("[OK] Candidate '{}' selected. {} covers, {} banners, {} icons loaded.", cand_name, c_count, b_count, i_count);
+                            self.status_msg = format!("[OK] Selected candidate '{}'. Cover, Banner & Icon pre-selected. Press [Enter] to apply all.", cand_name);
                         }
                         self.update_visual_media_preview();
                     }
@@ -1979,100 +2030,134 @@ impl App {
             Action::ApplyVisualMediaSelection => {
                 if let ModalState::VisualMediaSelector {
                     game_id,
-                    active_tab,
+                    ref selected_candidate_name,
                     ref covers,
-                    selected_cover_idx,
+                    chosen_cover_idx,
                     ref banners,
-                    selected_banner_idx,
+                    chosen_banner_idx,
                     ref icons,
-                    selected_icon_idx,
+                    chosen_icon_idx,
                     ..
                 } = self.modal_state.clone()
                 {
-                    let key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
-                    let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                    let api_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
                     let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
 
-                    match active_tab {
-                        1 => {
-                            if let Some(c) = covers.get(selected_cover_idx) {
-                                let dest = media_dir.join("covers").join(format!("{}.jpg", game_id));
-                                let tx = self.cover_tx.clone();
-                                let manager = self.cover_manager.clone();
-                                let url = c.url.clone();
-                                tokio::spawn(async move {
-                                    if client.download_file_to_path(&url, &dest).await.is_ok() {
-                                        let db_path = dirs::data_dir()
-                                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-                                            .join("tui_game_station")
-                                            .join("game_station.db");
-                                        if let Ok(db) = Database::open(&db_path) {
-                                            let _ = db.record_media_status(game_id, "cover", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
-                                        }
-                                        if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                            let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
-                                        }
+                    let mut updated_media = Vec::new();
+
+                    // 1. Cover
+                    if let Some(c_idx) = chosen_cover_idx {
+                        if let Some(c) = covers.get(c_idx) {
+                            let dest = media_dir.join("covers").join(format!("{}.jpg", game_id));
+                            let tx = self.cover_tx.clone();
+                            let manager = self.cover_manager.clone();
+                            let url = c.url.clone();
+                            let key = api_key.clone();
+                            tokio::spawn(async move {
+                                let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                                if client.download_file_to_path(&url, &dest).await.is_ok() {
+                                    let db_path = dirs::data_dir()
+                                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                                        .join("tui_game_station")
+                                        .join("game_station.db");
+                                    if let Ok(db) = Database::open(&db_path) {
+                                        let _ = db.record_media_status(game_id, "cover", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                     }
-                                });
-                                self.media_protocols.remove(&(game_id, "cover".to_string()));
-                                self.pending_cover_requests.remove(&game_id);
-                                self.modal_state = ModalState::None;
-                                self.status_msg = "[OK] Custom Cover updated!".to_string();
+                                    if let Some(protocol) = manager.load_protocol_from_file(&dest) {
+                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
+                                    }
+                                }
+                            });
+                            self.media_protocols.remove(&(game_id, "cover".to_string()));
+                            self.pending_cover_requests.remove(&game_id);
+                            updated_media.push("Cover");
+                        }
+                    }
+
+                    // 2. Banner
+                    if let Some(b_idx) = chosen_banner_idx {
+                        if let Some(b) = banners.get(b_idx) {
+                            let dest = media_dir.join("banners").join(format!("{}.jpg", game_id));
+                            let tx = self.cover_tx.clone();
+                            let manager = self.cover_manager.clone();
+                            let url = b.url.clone();
+                            let key = api_key.clone();
+                            tokio::spawn(async move {
+                                let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                                if client.download_file_to_path(&url, &dest).await.is_ok() {
+                                    let db_path = dirs::data_dir()
+                                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                                        .join("tui_game_station")
+                                        .join("game_station.db");
+                                    if let Ok(db) = Database::open(&db_path) {
+                                        let _ = db.record_media_status(game_id, "banner", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
+                                    }
+                                    if let Some(protocol) = manager.load_protocol_from_file(&dest) {
+                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "banner".to_string(), protocol }).await;
+                                    }
+                                }
+                            });
+                            self.media_protocols.remove(&(game_id, "banner".to_string()));
+                            self.pending_cover_requests.remove(&game_id);
+                            updated_media.push("Banner");
+                        }
+                    }
+
+                    // 3. Icon
+                    if let Some(i_idx) = chosen_icon_idx {
+                        if let Some(i) = icons.get(i_idx) {
+                            let dest = media_dir.join("icons").join(format!("{}.png", game_id));
+                            let tx = self.cover_tx.clone();
+                            let manager = self.cover_manager.clone();
+                            let url = i.url.clone();
+                            let key = api_key.clone();
+                            tokio::spawn(async move {
+                                let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                                if client.download_file_to_path(&url, &dest).await.is_ok() {
+                                    let db_path = dirs::data_dir()
+                                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                                        .join("tui_game_station")
+                                        .join("game_station.db");
+                                    if let Ok(db) = Database::open(&db_path) {
+                                        let _ = db.record_media_status(game_id, "icon", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
+                                    }
+                                    if let Some(protocol) = manager.load_protocol_from_file(&dest) {
+                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "icon".to_string(), protocol }).await;
+                                    }
+                                }
+                            });
+                            self.media_protocols.remove(&(game_id, "icon".to_string()));
+                            self.pending_cover_requests.remove(&game_id);
+                            updated_media.push("Icon");
+                        }
+                    }
+
+                    // 4. Update Game Title
+                    let mut title_msg = String::new();
+                    if let Some(ref new_title) = selected_candidate_name {
+                        if let Some(pos) = self.games.iter().position(|g| g.id == game_id) {
+                            let mut game = self.games[pos].clone();
+                            game.title = new_title.clone();
+                            if self.db.update_game(&game).is_ok() {
+                                title_msg = format!(" & updated title to '{}'", new_title);
+                                let sel = self.selected_game_idx;
+                                self.load_platforms();
+                                if sel < self.games.len() {
+                                    self.selected_game_idx = sel;
+                                }
                             }
                         }
-                        2 => {
-                            if let Some(b) = banners.get(selected_banner_idx) {
-                                let dest = media_dir.join("banners").join(format!("{}.jpg", game_id));
-                                let tx = self.cover_tx.clone();
-                                let manager = self.cover_manager.clone();
-                                let url = b.url.clone();
-                                tokio::spawn(async move {
-                                    if client.download_file_to_path(&url, &dest).await.is_ok() {
-                                        let db_path = dirs::data_dir()
-                                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-                                            .join("tui_game_station")
-                                            .join("game_station.db");
-                                        if let Ok(db) = Database::open(&db_path) {
-                                            let _ = db.record_media_status(game_id, "banner", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
-                                        }
-                                        if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                            let _ = tx.send(LoadedCoverEvent { game_id, media_type: "banner".to_string(), protocol }).await;
-                                        }
-                                    }
-                                });
-                                self.media_protocols.remove(&(game_id, "banner".to_string()));
-                                self.pending_cover_requests.remove(&game_id);
-                                self.modal_state = ModalState::None;
-                                self.status_msg = "[OK] Custom Banner updated!".to_string();
-                            }
-                        }
-                        3 => {
-                            if let Some(i) = icons.get(selected_icon_idx) {
-                                let dest = media_dir.join("icons").join(format!("{}.png", game_id));
-                                let tx = self.cover_tx.clone();
-                                let manager = self.cover_manager.clone();
-                                let url = i.url.clone();
-                                tokio::spawn(async move {
-                                    if client.download_file_to_path(&url, &dest).await.is_ok() {
-                                        let db_path = dirs::data_dir()
-                                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-                                            .join("tui_game_station")
-                                            .join("game_station.db");
-                                        if let Ok(db) = Database::open(&db_path) {
-                                            let _ = db.record_media_status(game_id, "icon", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
-                                        }
-                                        if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                            let _ = tx.send(LoadedCoverEvent { game_id, media_type: "icon".to_string(), protocol }).await;
-                                        }
-                                    }
-                                });
-                                self.media_protocols.remove(&(game_id, "icon".to_string()));
-                                self.pending_cover_requests.remove(&game_id);
-                                self.modal_state = ModalState::None;
-                                self.status_msg = "[OK] Custom Icon updated!".to_string();
-                            }
-                        }
-                        _ => {}
+                    }
+
+                    self.modal_state = ModalState::None;
+                    if updated_media.is_empty() {
+                        self.status_msg = format!("[OK] Updated title to '{}'!", selected_candidate_name.clone().unwrap_or_default());
+                    } else {
+                        self.status_msg = format!(
+                            "[OK] Applied media ({}){}!",
+                            updated_media.join(", "),
+                            title_msg
+                        );
                     }
                 }
             }

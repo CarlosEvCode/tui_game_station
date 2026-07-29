@@ -123,6 +123,12 @@ async fn main() -> Result<()> {
                             KeyCode::Char(' ') => {
                                 if let ModalState::ScanFolderForm { .. } = app.modal_state {
                                     app.update(Action::ModalToggleCheckbox).await;
+                                } else if let ModalState::VisualMediaSelector { active_tab, .. } = app.modal_state {
+                                    if active_tab > 0 {
+                                        app.update(Action::ModalToggleCheckbox).await;
+                                    } else {
+                                        app.update(Action::ModalInputChar(' ')).await;
+                                    }
                                 } else {
                                     app.update(Action::ModalInputChar(' ')).await;
                                 }
