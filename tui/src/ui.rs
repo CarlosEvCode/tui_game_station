@@ -323,29 +323,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
         let image_widget = StatefulImage::new(None);
         frame.render_stateful_widget(image_widget, inner_cover_area, protocol);
     } else {
-        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
-        let covers_dir = media_dir.join("covers");
-        let local_cover = vec![
-            covers_dir.join(format!("{}.jpg", game_id)),
-            covers_dir.join(format!("{}.png", game_id)),
-            covers_dir.join(format!("{}.webp", game_id)),
-        ]
-        .into_iter()
-        .find(|p| p.exists());
-
-        if let Some(path) = local_cover {
-            if let Some(protocol) = app.cover_manager.load_protocol_from_file(&path) {
-                app.image_protocols.insert(game_id, protocol);
-                if let Some(proto) = app.image_protocols.get_mut(&game_id) {
-                    let image_widget = StatefulImage::new(None);
-                    frame.render_stateful_widget(image_widget, inner_cover_area, proto);
-                }
-            } else {
-                render_cover_placeholder(frame, app, game_id, inner_cover_area);
-            }
-        } else {
-            render_cover_placeholder(frame, app, game_id, inner_cover_area);
-        }
+        render_cover_placeholder(frame, app, game_id, inner_cover_area);
     }
 
     // 2. Render Game Details Panel
