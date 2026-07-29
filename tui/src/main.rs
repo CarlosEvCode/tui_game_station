@@ -187,6 +187,9 @@ async fn main() -> Result<()> {
                             KeyCode::Char('r') => {
                                 app.update(Action::QuickRescanPlatform).await;
                             }
+                            KeyCode::Char('g') => {
+                                app.update(Action::FetchGameMedia).await;
+                            }
                             KeyCode::Char(' ') => {
                                 app.update(Action::ToggleSelectGame).await;
                             }

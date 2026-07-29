@@ -371,7 +371,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [v] View | [m] Runners | [a] Add/Scan | [r] Rescan | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View | [m] Runners | [a] Add/Scan | [r] Rescan | [g] Fetch Media | [Space] Select | [Del/x] Delete | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 

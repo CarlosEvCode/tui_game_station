@@ -112,6 +112,7 @@ pub enum Action {
     QuickRescanPlatform,
     ToggleSelectGame,
     DeleteSelectedGames,
+    FetchGameMedia,
 
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
@@ -247,24 +248,40 @@ impl App {
 
         let game = &self.games[self.selected_game_idx];
         let game_id = game.id;
+        let title = game.title.clone();
+        let appid = game.steam_appid;
 
         if self.image_protocols.contains_key(&game_id) || self.pending_cover_requests.contains(&game_id) {
             return;
         }
 
-        if let Some(appid) = game.steam_appid {
-            self.pending_cover_requests.insert(game_id);
-            let tx = self.cover_tx.clone();
+        self.pending_cover_requests.insert(game_id);
+        let tx = self.cover_tx.clone();
 
-            tokio::spawn(async move {
-                if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
-                    let mut manager = CoverManager::new();
-                    if let Some(protocol) = manager.load_protocol_from_file(&path) {
-                        let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
-                    }
+        tokio::spawn(async move {
+            let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+            let local_cover = media_dir.join("covers").join(format!("{}.jpg", game_id));
+
+            let cover_path = if local_cover.exists() {
+                Some(local_cover)
+            } else if let Some(id) = appid {
+                SteamCoverResolver::resolve_cover(id).await
+            } else {
+                let client = scraper::steamgriddb::SteamGridDBClient::new(None);
+                if let Ok(res) = client.download_all_media_for_game(game_id, &title).await {
+                    res.cover_path
+                } else {
+                    None
                 }
-            });
-        }
+            };
+
+            if let Some(path) = cover_path {
+                let mut manager = CoverManager::new();
+                if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                    let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
+                }
+            }
+        });
     }
 
     pub async fn check_download_events(&mut self) {
@@ -1037,6 +1054,42 @@ impl App {
                             self.load_platforms();
                         }
                     }
+                }
+            }
+            Action::FetchGameMedia => {
+                if self.modal_state == ModalState::None && !self.games.is_empty() {
+                    let target_games: Vec<Game> = if !self.selected_game_ids.is_empty() {
+                        self.games.iter().filter(|g| self.selected_game_ids.contains(&g.id)).cloned().collect()
+                    } else if self.selected_game_idx < self.games.len() {
+                        vec![self.games[self.selected_game_idx].clone()]
+                    } else {
+                        Vec::new()
+                    };
+
+                    if target_games.is_empty() {
+                        return;
+                    }
+
+                    self.status_msg = format!("Fetching SteamGridDB media (Cover, Banner, Icon) for {} game(s)...", target_games.len());
+                    let tx = self.cover_tx.clone();
+
+                    tokio::spawn(async move {
+                        let client = scraper::steamgriddb::SteamGridDBClient::new(None);
+                        let mut success_count = 0;
+
+                        for game in target_games {
+                            if let Ok(res) = client.download_all_media_for_game(game.id, &game.title).await {
+                                if let Some(path) = res.cover_path {
+                                    let mut manager = CoverManager::new();
+                                    if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                                        let _ = tx.send(LoadedCoverEvent { game_id: game.id, protocol }).await;
+                                    }
+                                }
+                                success_count += 1;
+                            }
+                        }
+                        let _ = success_count;
+                    });
                 }
             }
             Action::SaveModalGame => {
