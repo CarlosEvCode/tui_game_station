@@ -44,10 +44,12 @@ pub struct Runner {
     pub id: i64,
     pub platform_id: Option<i64>,
     pub name: String,
-    pub runner_type: String, // 'libretro', 'standalone_emulator', 'wine', 'proton', 'native', 'steam'
+    pub runner_type: String,
     pub executable_path: Option<String>,
     pub command_template: String,
     pub default_env: Option<String>,
+    pub download_url: Option<String>,
+    pub download_filename: Option<String>,
     pub is_default: bool,
 }
 
@@ -66,7 +68,7 @@ pub struct Game {
     pub platform_id: i64,
     pub title: String,
     pub sort_title: Option<String>,
-    pub game_type: String, // 'emulator', 'native', 'wine', 'steam'
+    pub game_type: String,
     
     pub file_path: Option<String>,
     pub working_dir: Option<String>,
@@ -103,7 +105,7 @@ pub struct Game {
 pub struct GameMedia {
     pub id: i64,
     pub game_id: i64,
-    pub media_type: String, // 'cover', 'grid', 'hero', 'logo', 'banner'
+    pub media_type: String,
     pub file_path: String,
     pub source: String,
     pub url: Option<String>,

@@ -1,3 +1,5 @@
+pub mod downloader;
+
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -47,14 +49,12 @@ impl MediaScraper {
         }
     }
 
-    /// Search game artwork on SteamGridDB by title
     pub async fn fetch_game_covers(&self, game_title: &str) -> Result<Vec<SteamGridDBImage>> {
         let api_key = match &self.api_key {
             Some(key) if !key.is_empty() => key,
             _ => anyhow::bail!("SteamGridDB API key is not configured"),
         };
 
-        // 1. Search game ID on SGDB
         let search_url = format!(
             "https://www.steamgriddb.com/api/v2/search/autocomplete/{}",
             urlencoding::encode(game_title)
@@ -82,7 +82,6 @@ impl MediaScraper {
             None => anyhow::bail!("No game found on SteamGridDB for query: {}", game_title),
         };
 
-        // 2. Fetch grids/covers for game ID
         let grids_url = format!("https://www.steamgriddb.com/api/v2/grids/game/{}", sgdb_game_id);
         let grids_res = self
             .client
@@ -95,7 +94,6 @@ impl MediaScraper {
         Ok(parsed.data)
     }
 
-    /// Download artwork image to local cache folder and return local filepath
     pub async fn download_image(&self, url: &str, filename: &str) -> Result<PathBuf> {
         let target_path = self.cache_dir.join(filename);
         if target_path.exists() {

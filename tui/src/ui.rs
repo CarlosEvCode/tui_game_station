@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState},
+    widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Row, Table, TableState},
     Frame,
 };
 
@@ -25,6 +25,12 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
 
     if app.modal_state != ModalState::None {
         render_modal(frame, app);
+    }
+
+    if let Some(ref progress) = app.download_progress {
+        if !progress.is_finished {
+            render_download_gauge(frame, progress);
+        }
     }
 }
 
@@ -181,7 +187,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [m] Configurar Emuladores/Runners | [a] Agregar | [f] Archivo GUI | [p] ({}) | [Enter] Jugar | [q] Salir | Info: {}",
+        " [m] Configurar/Descargar Emuladores | [a] Agregar | [f] Archivo GUI | [p] ({}) | [Enter] Jugar | Info: {}",
         filter_text, app.status_msg
     );
 
@@ -192,6 +198,37 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     );
 
     frame.render_widget(paragraph, area);
+}
+
+/// Render download progress gauge popup overlay
+fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgressState) {
+    let popup_area = centered_rect(60, 20, frame.area());
+    frame.render_widget(Clear, popup_area);
+
+    let downloaded_mb = progress.downloaded_bytes as f64 / (1024.0 * 1024.0);
+    let total_mb = progress.total_bytes as f64 / (1024.0 * 1024.0);
+    let label = format!("{:.1}% ({:.1} MB / {:.1} MB)", progress.percentage, downloaded_mb, total_mb);
+
+    let gauge = Gauge::default()
+        .block(
+            Block::default()
+                .title(Span::styled(
+                    format!(" ⬇️ Descargando {} ", progress.runner_name),
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green)),
+        )
+        .gauge_style(
+            Style::default()
+                .fg(Color::Green)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .percent(progress.percentage as u16)
+        .label(label);
+
+    frame.render_widget(gauge, popup_area);
 }
 
 /// Render centered pop-up modal overlay dialog
@@ -232,7 +269,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " ⚙️ Configurar Emuladores/Runners - Selecciona Plataforma a Configurar/Editar ",
+                        " ⚙️ Configurar/Descargar Emuladores - Paso 1: Selecciona Plataforma ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -264,6 +301,9 @@ fn render_modal(frame: &mut Frame, app: &App) {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled("1. Seleccionar Emulador / Runner (Usar ←/→ para alternar):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
 
+            let mut current_runner_has_download = false;
+            let mut is_downloaded = false;
+
             for (idx, r) in runners.iter().enumerate() {
                 let is_sel = idx == selected_runner_idx;
                 let mark = if is_sel { " -> [X] " } else { "    [ ] " };
@@ -279,6 +319,17 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     String::new()
                 };
 
+                if is_sel {
+                    if r.download_url.is_some() {
+                        current_runner_has_download = true;
+                    }
+                    if let Some(exe) = &r.executable_path {
+                        if std::path::Path::new(exe).exists() {
+                            is_downloaded = true;
+                        }
+                    }
+                }
+
                 lines.push(Line::from(vec![
                     Span::styled(mark, style),
                     Span::styled(format!("{}{}", r.name, configured_info), style),
@@ -290,21 +341,35 @@ fn render_modal(frame: &mut Frame, app: &App) {
             lines.push(Line::from(vec![
                 Span::raw("   "),
                 Span::styled(
-                    if exe_path_input.is_empty() { "< Presiona [f] para elegir o escribe la ruta >" } else { exe_path_input },
+                    if exe_path_input.is_empty() { "< Presiona [f] para elegir o [w] para descargar oficial >" } else { exe_path_input },
                     Style::default().fg(Color::White).bg(Color::DarkGray),
                 ),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(vec![
-                Span::styled("[ GUARDAR Y ACTIVAR ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+
+            let mut actions_line = vec![
+                Span::styled("[ GUARDAR RUNNER ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::raw("  "),
-                Span::styled("[ Presiona 'd' para DESACTIVAR runner ]", Style::default().fg(Color::Red)),
-            ]));
+            ];
+
+            if current_runner_has_download {
+                actions_line.push(Span::styled("[w] ⬇️ Descargar AppImage Oficial", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)));
+                actions_line.push(Span::raw("  "));
+            }
+
+            if is_downloaded {
+                actions_line.push(Span::styled("[x] 🗑️ Borrar del Disco", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)));
+                actions_line.push(Span::raw("  "));
+            }
+
+            actions_line.push(Span::styled("[d] Desactivar", Style::default().fg(Color::Red)));
+
+            lines.push(Line::from(actions_line));
 
             let p = Paragraph::new(lines).block(
                 Block::default()
                     .title(Span::styled(
-                        format!(" ⚙️ Editar Configuración de Runner para {} ", platform.name),
+                        format!(" ⚙️ Editar / Descargar Runner para {} ", platform.name),
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -318,7 +383,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [f] Selector GUI | [←/→] Cambiar Runner | [Enter] Guardar | [d] Desactivar | [Esc] Cancelar")
+            let help = Paragraph::new(" [w] Descargar AppImage | [x] Borrar del Disco | [f] Selector GUI | [Enter] Guardar | [Esc] Volver")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

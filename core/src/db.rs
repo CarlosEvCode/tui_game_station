@@ -57,6 +57,8 @@ impl Database {
                 executable_path TEXT,
                 command_template TEXT NOT NULL,
                 default_env TEXT,
+                download_url TEXT,
+                download_filename TEXT,
                 is_configured BOOLEAN DEFAULT 0,
                 is_default BOOLEAN DEFAULT 0
             );
@@ -135,6 +137,8 @@ impl Database {
         )?;
 
         let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN is_configured BOOLEAN DEFAULT 0", []);
+        let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN download_url TEXT", []);
+        let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN download_filename TEXT", []);
         Ok(())
     }
 
@@ -172,20 +176,76 @@ impl Database {
         }
 
         let default_runners = vec![
-            ("3ds", "Azahar (AppImage / Binary)", "appimage", "\"{executable_path}\" \"{rom}\""),
-            ("3ds", "Citra (AppImage / Binary)", "appimage", "\"{executable_path}\" \"{rom}\""),
-            ("snes", "Snes9x (Libretro)", "libretro", "retroarch -L /usr/lib/libretro/snes9x_libretro.so \"{rom}\""),
-            ("ps1", "DuckStation (Standalone)", "standalone_emulator", "duckstation-qt \"{rom}\""),
-            ("ps2", "PCSX2 (Standalone)", "standalone_emulator", "pcsx2-qt \"{rom}\""),
-            ("gamecube", "Dolphin (Standalone)", "standalone_emulator", "dolphin-emu -e \"{rom}\""),
-            ("wii", "Dolphin (Standalone)", "standalone_emulator", "dolphin-emu -e \"{rom}\""),
-            ("gba", "mGBA (Libretro)", "libretro", "retroarch -L /usr/lib/libretro/mgba_libretro.so \"{rom}\""),
-            ("linux", "Native Binary", "native", "\"{file_path}\""),
-            ("windows", "Wine System", "wine", "wine \"{file_path}\""),
-            ("steam", "Steam Launcher", "steam", "steam steam://rungameid/{steam_appid}"),
+            (
+                "3ds",
+                "Azahar (AppImage / Binary)",
+                "appimage",
+                "\"{executable_path}\" \"{rom}\"",
+                Some("https://github.com/AzaharPlus/AzaharPlus/releases/latest/download/azaharplus-2126.0-A-linux.AppImage"),
+                Some("Azahar.AppImage"),
+            ),
+            (
+                "3ds",
+                "Citra (AppImage / Binary)",
+                "appimage",
+                "\"{executable_path}\" \"{rom}\"",
+                None,
+                None,
+            ),
+            (
+                "snes",
+                "Snes9x (Libretro)",
+                "libretro",
+                "retroarch -L /usr/lib/libretro/snes9x_libretro.so \"{rom}\"",
+                None,
+                None,
+            ),
+            (
+                "ps1",
+                "DuckStation (Standalone)",
+                "standalone_emulator",
+                "duckstation-qt \"{rom}\"",
+                None,
+                None,
+            ),
+            (
+                "ps2",
+                "PCSX2 (Standalone)",
+                "standalone_emulator",
+                "pcsx2-qt \"{rom}\"",
+                None,
+                None,
+            ),
+            (
+                "gamecube",
+                "Dolphin (Standalone)",
+                "standalone_emulator",
+                "dolphin-emu -e \"{rom}\"",
+                None,
+                None,
+            ),
+            (
+                "wii",
+                "Dolphin (Standalone)",
+                "standalone_emulator",
+                "dolphin-emu -e \"{rom}\"",
+                None,
+                None,
+            ),
+            (
+                "gba",
+                "mGBA (Libretro)",
+                "libretro",
+                "retroarch -L /usr/lib/libretro/mgba_libretro.so \"{rom}\"",
+                None,
+                None,
+            ),
+            ("linux", "Native Binary", "native", "\"{file_path}\"", None, None),
+            ("windows", "Wine System", "wine", "wine \"{file_path}\"", None, None),
+            ("steam", "Steam Launcher", "steam", "steam steam://rungameid/{steam_appid}", None, None),
         ];
 
-        for (p_slug, r_name, r_type, cmd) in default_runners {
+        for (p_slug, r_name, r_type, cmd, d_url, d_name) in default_runners {
             let platform_id: Option<i64> = self.conn
                 .query_row("SELECT id FROM platforms WHERE slug = ?1", params![p_slug], |r| r.get(0))
                 .ok();
@@ -199,9 +259,15 @@ impl Database {
 
                 if count == 0 {
                     self.conn.execute(
-                        "INSERT INTO runners (platform_id, name, runner_type, command_template, is_configured, is_default)
-                         VALUES (?1, ?2, ?3, ?4, 0, 1)",
-                        params![pid, r_name, r_type, cmd],
+                        "INSERT INTO runners (platform_id, name, runner_type, command_template, download_url, download_filename, is_configured, is_default)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 1)",
+                        params![pid, r_name, r_type, cmd, d_url, d_name],
+                    )?;
+                } else {
+                    // Update download URL & filename for existing runners
+                    self.conn.execute(
+                        "UPDATE runners SET download_url = ?1, download_filename = ?2 WHERE platform_id = ?3 AND name = ?4",
+                        params![d_url, d_name, pid, r_name],
                     )?;
                 }
             }
@@ -280,7 +346,7 @@ impl Database {
 
     pub fn get_runners_for_platform(&self, platform_id: i64) -> Result<Vec<Runner>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, is_default
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default
              FROM runners
              WHERE platform_id = ?1
              ORDER BY is_default DESC, name ASC",
@@ -295,7 +361,9 @@ impl Database {
                 executable_path: row.get(4)?,
                 command_template: row.get(5)?,
                 default_env: row.get(6)?,
-                is_default: row.get(7)?,
+                download_url: row.get(7)?,
+                download_filename: row.get(8)?,
+                is_default: row.get(9)?,
             })
         })?;
 
@@ -434,7 +502,7 @@ impl Database {
 
     pub fn get_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, is_default
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default
              FROM runners
              WHERE platform_id = ?1
              ORDER BY is_default DESC, is_configured DESC, id ASC
@@ -450,7 +518,9 @@ impl Database {
                 executable_path: row.get(4)?,
                 command_template: row.get(5)?,
                 default_env: row.get(6)?,
-                is_default: row.get(7)?,
+                download_url: row.get(7)?,
+                download_filename: row.get(8)?,
+                is_default: row.get(9)?,
             })
         })?;
 

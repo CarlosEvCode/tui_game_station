@@ -31,6 +31,7 @@ async fn main() -> Result<()> {
 
     // Main event loop
     loop {
+        app.check_download_events().await;
         terminal.draw(|f| ui::render_ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(50))? {
@@ -95,6 +96,20 @@ async fn main() -> Result<()> {
                                     app.update(Action::ResetRunnerConfig).await;
                                 } else {
                                     app.update(Action::ModalInputChar('d')).await;
+                                }
+                            }
+                            KeyCode::Char('w') => {
+                                if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
+                                    app.update(Action::StartRunnerDownload).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('w')).await;
+                                }
+                            }
+                            KeyCode::Char('x') => {
+                                if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
+                                    app.update(Action::DeleteRunnerDownload).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('x')).await;
                                 }
                             }
                             KeyCode::Char('f') => {

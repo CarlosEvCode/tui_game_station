@@ -4,12 +4,25 @@ use game_core::models::{Game, Platform, PlatformType, Runner};
 use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
 use runner::GameRunner;
+use scraper::downloader::{DownloadEvent, RunnerDownloader};
 use std::path::{Path, PathBuf};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
     Platforms,
     Games,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadProgressState {
+    pub runner_id: i64,
+    pub runner_name: String,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub percentage: f64,
+    pub is_finished: bool,
+    pub error_msg: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +84,9 @@ pub enum Action {
     RunnerModalConfirmPlatform,
     SaveRunnerConfig,
     ResetRunnerConfig,
+    StartRunnerDownload,
+    UpdateDownloadProgress(DownloadEvent),
+    DeleteRunnerDownload,
 
     Quit,
     SetStatus(String),
@@ -84,6 +100,8 @@ pub struct App {
     pub selected_game_idx: usize,
     pub focused_pane: FocusedPane,
     pub modal_state: ModalState,
+    pub download_progress: Option<DownloadProgressState>,
+    pub download_rx: Option<mpsc::Receiver<DownloadEvent>>,
     pub show_all_platforms: bool,
     pub status_msg: String,
     pub should_quit: bool,
@@ -106,11 +124,13 @@ impl App {
             selected_game_idx: 0,
             focused_pane: FocusedPane::Platforms,
             modal_state: ModalState::None,
+            download_progress: None,
+            download_rx: None,
             show_all_platforms,
             status_msg: if steam_added > 0 {
                 format!("Detectados {} juegos de Steam automáticamente!", steam_added)
             } else {
-                "TUI Game Station listo! [m] Configurar Emuladores/Runners | [a] Agregar | [f] Seleccionar Archivo".to_string()
+                "TUI Game Station listo! [m] Configurar/Descargar Emuladores | [a] Agregar Juego".to_string()
             },
             should_quit: false,
         };
@@ -143,6 +163,18 @@ impl App {
         } else {
             self.games.clear();
             self.selected_game_idx = 0;
+        }
+    }
+
+    pub async fn check_download_events(&mut self) {
+        let mut events = Vec::new();
+        if let Some(ref mut rx) = self.download_rx {
+            while let Ok(evt) = rx.try_recv() {
+                events.push(evt);
+            }
+        }
+        for evt in events {
+            self.update(Action::UpdateDownloadProgress(evt)).await;
         }
     }
 
@@ -369,6 +401,111 @@ impl App {
                             Err(err) => {
                                 self.status_msg = format!("Error desactivando runner: {}", err);
                             }
+                        }
+                    }
+                }
+            }
+            Action::DeleteRunnerDownload => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref runners,
+                    selected_runner_idx,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(runner) = runners.get(selected_runner_idx) {
+                        if let Some(exe_path) = &runner.executable_path {
+                            let path = PathBuf::from(exe_path);
+                            if path.exists() {
+                                let _ = std::fs::remove_file(&path);
+                            }
+                            let _ = self.db.reset_runner_config(runner.id);
+                            self.status_msg = format!("🗑️ Archivo de runner '{}' eliminado del disco y desactivado.", runner.name);
+                            self.modal_state = ModalState::None;
+                            self.load_platforms();
+                        }
+                    }
+                }
+            }
+            Action::StartRunnerDownload => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref platform,
+                    ref runners,
+                    selected_runner_idx,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(runner) = runners.get(selected_runner_idx) {
+                        let download_url = match &runner.download_url {
+                            Some(url) if !url.is_empty() => url.clone(),
+                            _ => {
+                                self.status_msg = format!("❌ No hay URL de descarga oficial configurada para '{}'.", runner.name);
+                                return;
+                            }
+                        };
+
+                        let download_filename = runner
+                            .download_filename
+                            .clone()
+                            .unwrap_or_else(|| format!("{}.AppImage", platform.slug));
+
+                        let target_dir = match RunnerDownloader::get_runner_dir(&platform.slug) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                self.status_msg = format!("Error creando carpeta de descarga: {}", e);
+                                return;
+                            }
+                        };
+
+                        let dest_path = target_dir.join(&download_filename);
+                        let dest_path_str = dest_path.to_string_lossy().to_string();
+
+                        self.download_progress = Some(DownloadProgressState {
+                            runner_id: runner.id,
+                            runner_name: runner.name.clone(),
+                            downloaded_bytes: 0,
+                            total_bytes: 0,
+                            percentage: 0.0,
+                            is_finished: false,
+                            error_msg: None,
+                        });
+
+                        self.status_msg = format!("Iniciando descarga de {}...", runner.name);
+
+                        let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
+                        self.download_rx = Some(rx);
+
+                        let r_id = runner.id;
+                        let db_path = dirs::data_dir()
+                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                            .join("tui_game_station")
+                            .join("game_station.db");
+
+                        tokio::spawn(async move {
+                            let _ = RunnerDownloader::download_with_progress(&download_url, &dest_path, tx).await;
+
+                            if let Ok(db) = Database::open(&db_path) {
+                                let _ = db.update_runner_config(r_id, &dest_path_str, true);
+                            }
+                        });
+                    }
+                }
+            }
+            Action::UpdateDownloadProgress(event) => {
+                if let Some(ref mut progress) = self.download_progress {
+                    progress.downloaded_bytes = event.downloaded;
+                    progress.total_bytes = event.total;
+                    progress.percentage = event.percentage;
+                    progress.is_finished = event.finished;
+                    progress.error_msg = event.error.clone();
+
+                    if event.finished {
+                        if let Some(err) = event.error {
+                            self.status_msg = format!("❌ Error en la descarga: {}", err);
+                        } else {
+                            self.status_msg = format!("✅ Descarga de '{}' completada e instalada!", progress.runner_name);
+                            self.modal_state = ModalState::None;
+                            self.download_rx = None;
+                            self.load_platforms();
                         }
                     }
                 }
