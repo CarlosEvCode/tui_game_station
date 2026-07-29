@@ -888,6 +888,21 @@ impl App {
                                 self.selected_game_idx = sel;
                             }
                             self.trigger_async_cover_fetch();
+
+                            if let ModalState::ManageRunnersStep2Config {
+                                ref mut runner_info,
+                                ref mut exe_path_input,
+                            } = self.modal_state
+                            {
+                                if runner_info.name == name {
+                                    if let Ok(unique_runners) = self.db.get_unique_runners() {
+                                        if let Some(updated) = unique_runners.into_iter().find(|r| r.name == name) {
+                                            *exe_path_input = updated.executable_path.clone().unwrap_or_default();
+                                            *runner_info = updated;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
