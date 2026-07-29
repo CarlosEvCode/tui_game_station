@@ -1,4 +1,5 @@
 pub mod downloader;
+pub mod steam_cover;
 
 use anyhow::{Context, Result};
 use reqwest::Client;

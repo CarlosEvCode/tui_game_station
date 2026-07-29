@@ -5,6 +5,8 @@ use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
 use runner::GameRunner;
 use scraper::downloader::{DownloadEvent, RunnerDownloader};
+use scraper::steam_cover::SteamCoverResolver;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
@@ -12,6 +14,12 @@ use tokio::sync::mpsc;
 pub enum FocusedPane {
     Platforms,
     Games,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    Table,
+    Grid,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +67,7 @@ pub enum Action {
     NextGame,
     PrevGame,
     TogglePane,
+    ToggleViewMode,
     ToggleShowAllPlatforms,
     LaunchGame,
     ScanCurrentFolder,
@@ -99,9 +108,11 @@ pub struct App {
     pub games: Vec<Game>,
     pub selected_game_idx: usize,
     pub focused_pane: FocusedPane,
+    pub view_mode: ViewMode,
     pub modal_state: ModalState,
     pub download_progress: Option<DownloadProgressState>,
     pub download_rx: Option<mpsc::Receiver<DownloadEvent>>,
+    pub cover_cache: HashMap<i64, PathBuf>,
     pub show_all_platforms: bool,
     pub status_msg: String,
     pub should_quit: bool,
@@ -123,14 +134,16 @@ impl App {
             games: Vec::new(),
             selected_game_idx: 0,
             focused_pane: FocusedPane::Platforms,
+            view_mode: ViewMode::Grid,
             modal_state: ModalState::None,
             download_progress: None,
             download_rx: None,
+            cover_cache: HashMap::new(),
             show_all_platforms,
             status_msg: if steam_added > 0 {
                 format!("Detectados {} juegos de Steam automáticamente!", steam_added)
             } else {
-                "TUI Game Station listo! [m] Configurar/Descargar Emuladores | [a] Agregar Juego".to_string()
+                "TUI Game Station listo! [v] Cambiar Vista Grid/Tabla | [m] Configurar/Descargar Emuladores".to_string()
             },
             should_quit: false,
         };
@@ -176,6 +189,18 @@ impl App {
         for evt in events {
             self.update(Action::UpdateDownloadProgress(evt)).await;
         }
+
+        // Auto-resolve cover for currently selected game if missing
+        if !self.games.is_empty() && self.selected_game_idx < self.games.len() {
+            let game = &self.games[self.selected_game_idx];
+            if !self.cover_cache.contains_key(&game.id) {
+                if let Some(appid) = game.steam_appid {
+                    if let Some(path) = SteamCoverResolver::resolve_cover(appid).await {
+                        self.cover_cache.insert(game.id, path);
+                    }
+                }
+            }
+        }
     }
 
     pub async fn update(&mut self, action: Action) {
@@ -194,6 +219,16 @@ impl App {
                         FocusedPane::Games => FocusedPane::Platforms,
                     };
                 }
+            }
+            Action::ToggleViewMode => {
+                self.view_mode = match self.view_mode {
+                    ViewMode::Table => ViewMode::Grid,
+                    ViewMode::Grid => ViewMode::Table,
+                };
+                self.status_msg = match self.view_mode {
+                    ViewMode::Grid => "Vista cambiada a TARJETAS / CARDS con Covers.".to_string(),
+                    ViewMode::Table => "Vista cambiada a TABLA detallada.".to_string(),
+                };
             }
             Action::ToggleShowAllPlatforms => {
                 self.show_all_platforms = !self.show_all_platforms;
@@ -394,12 +429,12 @@ impl App {
                     if let Some(runner) = runners.get(selected_runner_idx) {
                         match self.db.reset_runner_config(runner.id) {
                             Ok(_) => {
-                                self.status_msg = format!("Runner '{}' desactivado correctamente.", runner.name);
+                                self.status_msg = format!("Runner '{}' deactivated successfully.", runner.name);
                                 self.modal_state = ModalState::None;
                                 self.load_platforms();
                             }
                             Err(err) => {
-                                self.status_msg = format!("Error desactivando runner: {}", err);
+                                self.status_msg = format!("Error deactivating runner: {}", err);
                             }
                         }
                     }
@@ -747,7 +782,7 @@ impl App {
                 } = self.modal_state.clone()
                 {
                     if title.trim().is_empty() {
-                        self.status_msg = "El título del juego no puede estar vacío.".to_string();
+                        self.status_msg = "Game title cannot be empty.".to_string();
                         return;
                     }
 
@@ -808,12 +843,12 @@ impl App {
 
                     match self.db.insert_game(&game) {
                         Ok(_) => {
-                            self.status_msg = format!("Juego '{}' guardado correctamente.", title);
+                            self.status_msg = format!("Game '{}' saved successfully.", title);
                             self.modal_state = ModalState::None;
                             self.load_platforms();
                         }
                         Err(err) => {
-                            self.status_msg = format!("Error al guardar juego: {}", err);
+                            self.status_msg = format!("Error saving game: {}", err);
                         }
                     }
                 }

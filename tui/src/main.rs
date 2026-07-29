@@ -1,4 +1,5 @@
 mod app;
+mod cover_renderer;
 mod panic_hook;
 mod ui;
 
@@ -156,6 +157,9 @@ async fn main() -> Result<()> {
                                 execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
                                 terminal.clear()?;
                                 terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                            }
+                            KeyCode::Char('v') => {
+                                app.update(Action::ToggleViewMode).await;
                             }
                             KeyCode::Char('s') => {
                                 app.update(Action::ScanCurrentFolder).await;

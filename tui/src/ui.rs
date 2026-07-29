@@ -6,7 +6,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, FocusedPane, ModalState};
+use crate::app::{App, FocusedPane, ModalState, ViewMode};
+use crate::cover_renderer;
 use game_core::models::PlatformType;
 
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
@@ -60,11 +61,15 @@ fn render_header(frame: &mut Frame, area: Rect) {
 fn render_main_content(frame: &mut Frame, app: &mut App, area: Rect) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(32), Constraint::Percentage(68)])
+        .constraints([Constraint::Percentage(28), Constraint::Percentage(72)])
         .split(area);
 
     render_platforms_list(frame, app, main_chunks[0]);
-    render_games_table(frame, app, main_chunks[1]);
+
+    match app.view_mode {
+        ViewMode::Table => render_games_table(frame, app, main_chunks[1]),
+        ViewMode::Grid => render_games_grid(frame, app, main_chunks[1]),
+    }
 }
 
 fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
@@ -149,7 +154,7 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Games - {} ({}) ", p.name, app.games.len())
+        format!(" Games Table - {} ({}) [v] Switch View ", p.name, app.games.len())
     } else {
         " Games (0) ".to_string()
     };
@@ -179,6 +184,151 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
+/// Render Lutris-style Cards / Grid View with Cover previews
+fn render_games_grid(frame: &mut Frame, app: &App, area: Rect) {
+    let border_color = if app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None {
+        Color::Yellow
+    } else {
+        Color::Gray
+    };
+
+    let grid_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(area);
+
+    // Left Column: List of Game Cards
+    let items: Vec<ListItem> = app
+        .games
+        .iter()
+        .enumerate()
+        .map(|(idx, g)| {
+            let is_selected = idx == app.selected_game_idx;
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let appid_info = g.steam_appid.map(|id| format!(" (AppID: {})", id)).unwrap_or_default();
+            let content = format!(" [{}] {}{}", g.game_type.to_uppercase(), g.title, appid_info);
+
+            ListItem::new(content).style(style)
+        })
+        .collect();
+
+    let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
+        format!(" Cards View - {} ({}) [v] Switch View ", p.name, app.games.len())
+    } else {
+        " Cards View (0) ".to_string()
+    };
+
+    let list_widget = List::new(items).block(
+        Block::default()
+            .title(Span::styled(title, Style::default().add_modifier(Modifier::BOLD)))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color)),
+    );
+
+    let mut state = ListState::default();
+    if !app.games.is_empty() {
+        state.select(Some(app.selected_game_idx));
+    }
+
+    frame.render_stateful_widget(list_widget, grid_chunks[0], &mut state);
+
+    // Right Column: Selected Game Cover Card & Metadata
+    render_game_cover_card(frame, app, grid_chunks[1]);
+}
+
+fn render_game_cover_card(frame: &mut Frame, app: &App, area: Rect) {
+    if app.games.is_empty() || app.selected_game_idx >= app.games.len() {
+        let empty_p = Paragraph::new("No game selected").block(
+            Block::default()
+                .title(" Cover & Details ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Gray)),
+        );
+        frame.render_widget(empty_p, area);
+        return;
+    }
+
+    let game = &app.games[app.selected_game_idx];
+
+    let card_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(8), Constraint::Length(6)])
+        .split(area);
+
+    // Render Cover Image using ANSI half-blocks
+    let cover_block = Block::default()
+        .title(Span::styled(
+            format!(" Cover - {} ", game.title),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let inner_area = cover_block.inner(card_chunks[0]);
+    frame.render_widget(cover_block, card_chunks[0]);
+
+    if let Some(cover_path) = app.cover_cache.get(&game.id) {
+        let width = inner_area.width as u32;
+        let height = inner_area.height as u32;
+
+        if let Some(lines) = cover_renderer::load_and_render_cover_ansi(cover_path, width, height) {
+            let img_p = Paragraph::new(lines);
+            frame.render_widget(img_p, inner_area);
+        } else {
+            let placeholder = Paragraph::new("  [Cover Image Loading / Format Error]")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(placeholder, inner_area);
+        }
+    } else {
+        let placeholder = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled("  [ Fetching Cover Image from Steam CDN / Grid... ]", Style::default().fg(Color::Yellow))),
+        ]);
+        frame.render_widget(placeholder, inner_area);
+    }
+
+    // Render Game Details Block
+    let mut details_lines = Vec::new();
+    details_lines.push(Line::from(vec![
+        Span::styled("Title: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(&game.title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+    ]));
+
+    if let Some(appid) = game.steam_appid {
+        details_lines.push(Line::from(vec![
+            Span::styled("Steam AppID: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(appid.to_string(), Style::default().fg(Color::Cyan)),
+        ]));
+    }
+
+    let size_str = game
+        .file_size
+        .map(|s| format!("{:.1} GB", s as f64 / (1024.0 * 1024.0 * 1024.0)))
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    details_lines.push(Line::from(vec![
+        Span::styled("Size on Disk: ", Style::default().fg(Color::DarkGray)),
+        Span::raw(size_str),
+    ]));
+
+    let details_p = Paragraph::new(details_lines).block(
+        Block::default()
+            .title(" Details ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Gray)),
+    );
+
+    frame.render_widget(details_p, card_chunks[1]);
+}
+
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let filter_text = if app.show_all_platforms {
         "All"
@@ -187,7 +337,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let help_text = format!(
-        " [m] Runners/Emulators | [a] Add Game | [f] File Picker | [p] Filter ({}) | [Enter] Launch | {}",
+        " [v] View (Grid/Table) | [m] Runners | [a] Add Game | [f] File Picker | [p] Filter ({}) | [Enter] Launch | {}",
         filter_text, app.status_msg
     );
 
