@@ -272,6 +272,85 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_unique_runners(&self) -> Result<Vec<crate::models::UniqueRunnerInfo>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT r.name, r.runner_type,
+                    MAX(r.executable_path) as exe_path,
+                    MAX(r.download_url) as dl_url,
+                    MAX(r.download_filename) as dl_fn,
+                    GROUP_CONCAT(p.slug, ',') as slugs,
+                    MAX(r.is_configured) as is_cfg
+             FROM runners r
+             JOIN platforms p ON r.platform_id = p.id
+             WHERE p.slug NOT IN ('linux', 'steam')
+             GROUP BY r.name
+             ORDER BY is_cfg DESC, r.name ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let name: String = row.get(0)?;
+            let runner_type: String = row.get(1)?;
+            let executable_path: Option<String> = row.get(2)?;
+            let download_url: Option<String> = row.get(3)?;
+            let download_filename: Option<String> = row.get(4)?;
+            let slugs_str: String = row.get(5)?;
+            let is_cfg: bool = row.get(6)?;
+
+            let slugs: Vec<&str> = slugs_str.split(',').collect();
+            let initials = match name.as_str() {
+                "Dolphin" => "GC, Wii".to_string(),
+                "PCSX2" => "PS2".to_string(),
+                "DuckStation" => "PS1".to_string(),
+                "PPSSPP" => "PSP".to_string(),
+                "Azahar" | "Citra" => "3DS".to_string(),
+                "Cemu" => "Wii U".to_string(),
+                "Ryujinx" => "Switch".to_string(),
+                "melonDS" | "DeSmuME" => "NDS".to_string(),
+                "mGBA" => "GBA".to_string(),
+                "Snes9x" => "SNES".to_string(),
+                "Mupen64Plus" => "N64".to_string(),
+                "Mesen" => "NES".to_string(),
+                "SameBoy" => "GB, GBC".to_string(),
+                "Redream" => "DC".to_string(),
+                "Vita3K" => "PS Vita".to_string(),
+                "MAME" => "Arcade".to_string(),
+                _ => slugs.iter().map(|s| s.to_uppercase()).collect::<Vec<_>>().join(", "),
+            };
+
+            Ok(crate::models::UniqueRunnerInfo {
+                name,
+                console_initials: initials,
+                executable_path,
+                download_url,
+                download_filename,
+                runner_type,
+                is_configured: is_cfg,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    pub fn update_runner_by_name(&self, runner_name: &str, exe_path: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET executable_path = ?2, is_configured = 1 WHERE name = ?1",
+            params![runner_name, exe_path],
+        )?;
+        Ok(())
+    }
+
+    pub fn reset_runner_by_name(&self, runner_name: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET executable_path = NULL, is_configured = 0 WHERE name = ?1",
+            params![runner_name],
+        )?;
+        Ok(())
+    }
+
     // ----------------------------------------------------
     // App Settings Queries
     // ----------------------------------------------------

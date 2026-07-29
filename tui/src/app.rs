@@ -1,6 +1,6 @@
 use anyhow::Result;
 use game_core::db::Database;
-use game_core::models::{Game, Platform, PlatformType, Runner};
+use game_core::models::{Game, Platform, PlatformType};
 use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
 use ratatui_image::protocol::StatefulProtocol;
@@ -100,12 +100,10 @@ pub enum ModalState {
         selected_icon_idx: usize,
     },
     ManageRunnersStep1Platform {
-        selected_platform_idx: usize,
+        selected_runner_idx: usize,
     },
     ManageRunnersStep2Config {
-        platform: Platform,
-        runners: Vec<Runner>,
-        selected_runner_idx: usize,
+        runner_info: game_core::models::UniqueRunnerInfo,
         exe_path_input: String,
     },
 }
@@ -682,35 +680,27 @@ impl App {
             // Runner Manager Actions
             Action::OpenManageRunnersModal => {
                 self.modal_state = ModalState::ManageRunnersStep1Platform {
-                    selected_platform_idx: 0,
+                    selected_runner_idx: 0,
                 };
             }
             Action::RunnerModalConfirmPlatform => {
                 if let ModalState::ManageRunnersStep1Platform {
-                    selected_platform_idx,
+                    selected_runner_idx,
                 } = self.modal_state
                 {
-                    let runner_platforms = self.get_runner_platforms();
-                    if let Some(p) = runner_platforms.get(selected_platform_idx) {
-                        let runners = self.db.get_runners_for_platform(p.id).unwrap_or_default();
-                        let default_exe = runners
-                            .first()
-                            .and_then(|r| r.executable_path.clone())
-                            .unwrap_or_default();
-
+                    let unique_runners = self.db.get_unique_runners().unwrap_or_default();
+                    if let Some(r) = unique_runners.get(selected_runner_idx) {
+                        let exe_path = r.executable_path.clone().unwrap_or_default();
                         self.modal_state = ModalState::ManageRunnersStep2Config {
-                            platform: p.clone(),
-                            runners,
-                            selected_runner_idx: 0,
-                            exe_path_input: default_exe,
+                            runner_info: r.clone(),
+                            exe_path_input: exe_path,
                         };
                     }
                 }
             }
             Action::SaveRunnerConfig => {
                 if let ModalState::ManageRunnersStep2Config {
-                    ref runners,
-                    selected_runner_idx,
+                    ref runner_info,
                     ref exe_path_input,
                     ..
                 } = self.modal_state.clone()
@@ -727,159 +717,151 @@ impl App {
                         return;
                     }
 
-                    if let Some(runner) = runners.get(selected_runner_idx) {
-                        match self.db.update_runner_config(runner.id, trimmed_path, true) {
-                            Ok(_) => {
-                                self.status_msg = format!(
-                                    "Runner '{}' configured successfully. Platform activated!",
-                                    runner.name
-                                );
-                                self.modal_state = ModalState::None;
-                                self.load_platforms();
-                            }
-                            Err(err) => {
-                                self.status_msg = format!("Error saving runner: {}", err);
-                            }
+                    match self.db.update_runner_by_name(&runner_info.name, trimmed_path) {
+                        Ok(_) => {
+                            self.status_msg = format!(
+                                "[OK] Emulator '{}' ({}) configured successfully!",
+                                runner_info.name, runner_info.console_initials
+                            );
+                            self.modal_state = ModalState::None;
+                            self.load_platforms();
+                        }
+                        Err(err) => {
+                            self.status_msg = format!("Error saving runner: {}", err);
                         }
                     }
                 }
             }
             Action::ResetRunnerConfig => {
                 if let ModalState::ManageRunnersStep2Config {
-                    ref runners,
-                    selected_runner_idx,
+                    ref runner_info,
                     ..
                 } = self.modal_state.clone()
                 {
-                    if let Some(runner) = runners.get(selected_runner_idx) {
-                        match self.db.reset_runner_config(runner.id) {
-                            Ok(_) => {
-                                self.status_msg =
-                                    format!("Runner '{}' deactivated successfully.", runner.name);
-                                self.modal_state = ModalState::None;
-                                self.load_platforms();
-                            }
-                            Err(err) => {
-                                self.status_msg = format!("Error deactivating runner: {}", err);
-                            }
+                    match self.db.reset_runner_by_name(&runner_info.name) {
+                        Ok(_) => {
+                            self.status_msg = format!(
+                                "Emulator '{}' ({}) deactivated successfully.",
+                                runner_info.name, runner_info.console_initials
+                            );
+                            self.modal_state = ModalState::None;
+                            self.load_platforms();
+                        }
+                        Err(err) => {
+                            self.status_msg = format!("Error deactivating runner: {}", err);
                         }
                     }
                 }
             }
             Action::DeleteRunnerDownload => {
                 if let ModalState::ManageRunnersStep2Config {
-                    ref runners,
-                    selected_runner_idx,
+                    ref runner_info,
                     ..
                 } = self.modal_state.clone()
                 {
-                    if let Some(runner) = runners.get(selected_runner_idx) {
-                        if let Some(exe_path) = &runner.executable_path {
-                            let path = PathBuf::from(exe_path);
-                            if path.exists() {
-                                let _ = std::fs::remove_file(&path);
-                            }
-                            let _ = self.db.reset_runner_config(runner.id);
-                            self.status_msg = format!("[Deleted] Runner '{}' executable deleted from disk and deactivated.", runner.name);
-                            self.modal_state = ModalState::None;
-                            self.load_platforms();
+                    if let Some(exe_path) = &runner_info.executable_path {
+                        let path = PathBuf::from(exe_path);
+                        if path.exists() {
+                            let _ = std::fs::remove_file(&path);
                         }
+                        let _ = self.db.reset_runner_by_name(&runner_info.name);
+                        self.status_msg = format!(
+                            "[Deleted] Emulator '{}' executable deleted from disk and deactivated.",
+                            runner_info.name
+                        );
+                        self.modal_state = ModalState::None;
+                        self.load_platforms();
                     }
                 }
             }
             Action::StartRunnerDownload => {
                 if let ModalState::ManageRunnersStep2Config {
-                    ref platform,
-                    ref runners,
-                    selected_runner_idx,
+                    ref runner_info,
                     ..
                 } = self.modal_state.clone()
                 {
-                    if let Some(runner) = runners.get(selected_runner_idx) {
-                        let download_url = match &runner.download_url {
-                            Some(url) if !url.is_empty() => url.clone(),
-                            _ => {
-                                self.status_msg = format!(
-                                    "[Error] No official download URL configured for '{}'.",
-                                    runner.name
-                                );
-                                return;
-                            }
-                        };
+                    let download_url = match &runner_info.download_url {
+                        Some(url) if !url.is_empty() => url.clone(),
+                        _ => {
+                            self.status_msg = format!(
+                                "[Error] No official download URL configured for '{}'.",
+                                runner_info.name
+                            );
+                            return;
+                        }
+                    };
 
-                        let download_filename = runner
-                            .download_filename
-                            .clone()
-                            .unwrap_or_else(|| format!("{}.AppImage", platform.slug));
+                    let download_filename = runner_info
+                        .download_filename
+                        .clone()
+                        .unwrap_or_else(|| format!("{}.AppImage", runner_info.name.to_lowercase()));
 
-                        let target_dir = match RunnerDownloader::get_runner_dir(&platform.slug) {
-                            Ok(d) => d,
-                            Err(e) => {
-                                self.status_msg =
-                                    format!("Error creating download directory: {}", e);
-                                return;
-                            }
-                        };
+                    let target_dir = match RunnerDownloader::get_runner_dir("emulators") {
+                        Ok(d) => d,
+                        Err(e) => {
+                            self.status_msg =
+                                format!("Error creating download directory: {}", e);
+                            return;
+                        }
+                    };
 
-                        let dest_path = target_dir.join(&download_filename);
-                        let is_melonds_archive = runner.name == "melonDS"
-                            && download_filename
-                                .eq_ignore_ascii_case("melonDS-1.1-appimage-x86_64.zip");
-                        let executable_path = if is_melonds_archive {
-                            target_dir.join("melonDS-x86_64.AppImage")
+                    let dest_path = target_dir.join(&download_filename);
+                    let is_melonds_archive = runner_info.name == "melonDS"
+                        && download_filename
+                            .eq_ignore_ascii_case("melonDS-1.1-appimage-x86_64.zip");
+                    let executable_path = if is_melonds_archive {
+                        target_dir.join("melonDS-x86_64.AppImage")
+                    } else {
+                        dest_path.clone()
+                    };
+                    let executable_path_str = executable_path.to_string_lossy().to_string();
+
+                    self.download_progress = Some(DownloadProgressState {
+                        runner_id: 0,
+                        runner_name: runner_info.name.clone(),
+                        downloaded_bytes: 0,
+                        total_bytes: 0,
+                        percentage: 0.0,
+                        is_finished: false,
+                        error_msg: None,
+                    });
+
+                    self.status_msg = format!("Downloading {}...", runner_info.name);
+
+                    let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
+                    self.download_rx = Some(rx);
+
+                    let runner_name = runner_info.name.clone();
+                    let db_path = dirs::data_dir()
+                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                        .join("tui_game_station")
+                        .join("game_station.db");
+
+                    tokio::spawn(async move {
+                        let result = if is_melonds_archive {
+                            RunnerDownloader::download_zip_appimage_with_progress(
+                                &download_url,
+                                &dest_path,
+                                &executable_path,
+                                "melonDS-x86_64.AppImage",
+                                tx,
+                            )
+                            .await
                         } else {
-                            dest_path.clone()
+                            RunnerDownloader::download_with_progress(
+                                &download_url,
+                                &dest_path,
+                                tx,
+                            )
+                            .await
                         };
-                        let executable_path_str = executable_path.to_string_lossy().to_string();
 
-                        self.download_progress = Some(DownloadProgressState {
-                            runner_id: runner.id,
-                            runner_name: runner.name.clone(),
-                            downloaded_bytes: 0,
-                            total_bytes: 0,
-                            percentage: 0.0,
-                            is_finished: false,
-                            error_msg: None,
-                        });
-
-                        self.status_msg = format!("Downloading {}...", runner.name);
-
-                        let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
-                        self.download_rx = Some(rx);
-
-                        let r_id = runner.id;
-                        let db_path = dirs::data_dir()
-                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-                            .join("tui_game_station")
-                            .join("game_station.db");
-
-                        tokio::spawn(async move {
-                            let result = if is_melonds_archive {
-                                RunnerDownloader::download_zip_appimage_with_progress(
-                                    &download_url,
-                                    &dest_path,
-                                    &executable_path,
-                                    "melonDS-x86_64.AppImage",
-                                    tx,
-                                )
-                                .await
-                            } else {
-                                RunnerDownloader::download_with_progress(
-                                    &download_url,
-                                    &dest_path,
-                                    tx,
-                                )
-                                .await
-                            };
-
-                            if result.is_ok() {
-                                if let Ok(db) = Database::open(&db_path) {
-                                    let _ =
-                                        db.update_runner_config(r_id, &executable_path_str, true);
-                                }
+                        if result.is_ok() {
+                            if let Ok(db) = Database::open(&db_path) {
+                                let _ = db.update_runner_by_name(&runner_name, &executable_path_str);
                             }
-                        });
-                    }
+                        }
+                    });
                 }
             }
             Action::UpdateDownloadProgress(event) => {
@@ -922,7 +904,7 @@ impl App {
             }
             Action::ModalSelectNext => {
                 let total_configured_emulators = self.get_configured_emulator_platforms().len();
-                let total_runner_platforms = self.get_runner_platforms().len();
+                let total_unique_runners = self.db.get_unique_runners().map(|r| r.len()).unwrap_or(0);
 
                 match self.modal_state {
                     ModalState::AddGameStep1Type {
@@ -948,26 +930,14 @@ impl App {
                         }
                     }
                     ModalState::ManageRunnersStep1Platform {
-                        ref mut selected_platform_idx,
-                    } => {
-                        if total_runner_platforms > 0 {
-                            *selected_platform_idx =
-                                (*selected_platform_idx + 1) % total_runner_platforms;
-                        }
-                    }
-                    ModalState::ManageRunnersStep2Config {
-                        ref runners,
                         ref mut selected_runner_idx,
-                        ref mut exe_path_input,
-                        ..
                     } => {
-                        if !runners.is_empty() {
-                            *selected_runner_idx = (*selected_runner_idx + 1) % runners.len();
-                            if let Some(r) = runners.get(*selected_runner_idx) {
-                                *exe_path_input = r.executable_path.clone().unwrap_or_default();
-                            }
+                        if total_unique_runners > 0 {
+                            *selected_runner_idx =
+                                (*selected_runner_idx + 1) % total_unique_runners;
                         }
                     }
+                    ModalState::ManageRunnersStep2Config { .. } => {}
                     ModalState::VisualMediaSelector {
                         active_tab,
                         ref candidates,
@@ -1008,7 +978,7 @@ impl App {
             }
             Action::ModalSelectPrev => {
                 let total_configured_emulators = self.get_configured_emulator_platforms().len();
-                let total_runner_platforms = self.get_runner_platforms().len();
+                let total_unique_runners = self.db.get_unique_runners().map(|r| r.len()).unwrap_or(0);
 
                 match self.modal_state {
                     ModalState::AddGameStep1Type {
@@ -1045,33 +1015,17 @@ impl App {
                         }
                     }
                     ModalState::ManageRunnersStep1Platform {
-                        ref mut selected_platform_idx,
-                    } => {
-                        if total_runner_platforms > 0 {
-                            if *selected_platform_idx == 0 {
-                                *selected_platform_idx = total_runner_platforms - 1;
-                            } else {
-                                *selected_platform_idx -= 1;
-                            }
-                        }
-                    }
-                    ModalState::ManageRunnersStep2Config {
-                        ref runners,
                         ref mut selected_runner_idx,
-                        ref mut exe_path_input,
-                        ..
                     } => {
-                        if !runners.is_empty() {
+                        if total_unique_runners > 0 {
                             if *selected_runner_idx == 0 {
-                                *selected_runner_idx = runners.len() - 1;
+                                *selected_runner_idx = total_unique_runners - 1;
                             } else {
                                 *selected_runner_idx -= 1;
                             }
-                            if let Some(r) = runners.get(*selected_runner_idx) {
-                                *exe_path_input = r.executable_path.clone().unwrap_or_default();
-                            }
                         }
                     }
+                    ModalState::ManageRunnersStep2Config { .. } => {}
                     ModalState::VisualMediaSelector {
                         active_tab,
                         ref candidates,

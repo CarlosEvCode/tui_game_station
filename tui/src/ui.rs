@@ -937,18 +937,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[2]);
         }
-        ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
-            let runner_platforms = app.get_runner_platforms();
-            let active_ids: Vec<i64> = app.platforms.iter().map(|p| p.id).collect();
+        ModalState::ManageRunnersStep1Platform { selected_runner_idx } => {
+            let unique_runners = app.db.get_unique_runners().unwrap_or_default();
 
-            let items: Vec<ListItem> = runner_platforms
+            let items: Vec<ListItem> = unique_runners
                 .iter()
                 .enumerate()
-                .map(|(idx, p)| {
-                    let is_selected = idx == selected_platform_idx;
-                    let is_active = active_ids.contains(&p.id);
-
-                    let status_badge = if is_active {
+                .map(|(idx, r)| {
+                    let is_selected = idx == selected_runner_idx;
+                    let status_badge = if r.is_configured {
                         " [Active / Configured]"
                     } else {
                         " [Unconfigured]"
@@ -956,20 +953,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
                     let style = if is_selected {
                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
-                    } else if is_active {
+                    } else if r.is_configured {
                         Style::default().fg(Color::Green)
                     } else {
                         Style::default().fg(Color::DarkGray)
                     };
 
-                    ListItem::new(format!("  {} ({}){}", p.name, p.slug, status_badge)).style(style)
+                    ListItem::new(format!("  {} ({}){}", r.name, r.console_initials, status_badge)).style(style)
                 })
                 .collect();
 
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " Runner Management - Select Platform ",
+                        " Emulator / Runner Management - Select Emulator ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -983,61 +980,27 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Configure Runner | [Esc] Back")
+            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Configure Emulator | [Esc] Back")
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::ManageRunnersStep2Config {
-            ref platform,
-            ref runners,
-            selected_runner_idx,
+            ref runner_info,
             ref exe_path_input,
         } => {
             let mut lines = Vec::new();
             lines.push(Line::from(vec![
-                Span::styled("Target Platform: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&platform.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("Target Emulator: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{} ({})", runner_info.name, runner_info.console_initials),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("1. Available Runners (Use Left/Right to switch):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-
-            let mut current_runner_has_download = false;
-            let mut is_downloaded = false;
-
-            for (idx, r) in runners.iter().enumerate() {
-                let is_sel = idx == selected_runner_idx;
-                let mark = if is_sel { " -> [x] " } else { "    [ ] " };
-                let style = if is_sel {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-
-                let configured_info = if let Some(exe) = &r.executable_path {
-                    format!(" (Path: {})", exe)
-                } else {
-                    String::new()
-                };
-
-                if is_sel {
-                    if r.download_url.is_some() {
-                        current_runner_has_download = true;
-                    }
-                    if let Some(exe) = &r.executable_path {
-                        if std::path::Path::new(exe).exists() {
-                            is_downloaded = true;
-                        }
-                    }
-                }
-
-                lines.push(Line::from(vec![
-                    Span::styled(mark, style),
-                    Span::styled(format!("{}{}", r.name, configured_info), style),
-                ]));
-            }
-
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("2. Executable / .AppImage Path:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            lines.push(Line::from(Span::styled(
+                "1. Executable / .AppImage Path:",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )));
             lines.push(Line::from(vec![
                 Span::raw("   "),
                 Span::styled(
@@ -1052,10 +1015,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 Span::raw("  "),
             ];
 
-            if current_runner_has_download {
+            if runner_info.download_url.is_some() {
                 actions_line.push(Span::styled("[w] Download AppImage", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)));
                 actions_line.push(Span::raw("  "));
             }
+
+            let is_downloaded = runner_info
+                .executable_path
+                .as_ref()
+                .map(|p| std::path::Path::new(p).exists())
+                .unwrap_or(false);
 
             if is_downloaded {
                 actions_line.push(Span::styled("[x] Delete from Disk", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)));
@@ -1069,7 +1038,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let p = Paragraph::new(lines).block(
                 Block::default()
                     .title(Span::styled(
-                        format!(" Runner Options: {} ", platform.name),
+                        format!(" Emulator Options: {} ({}) ", runner_info.name, runner_info.console_initials),
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)

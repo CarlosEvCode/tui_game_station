@@ -53,6 +53,17 @@ pub struct Runner {
     pub is_default: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniqueRunnerInfo {
+    pub name: String,
+    pub console_initials: String,
+    pub executable_path: Option<String>,
+    pub download_url: Option<String>,
+    pub download_filename: Option<String>,
+    pub runner_type: String,
+    pub is_configured: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanFolder {
     pub id: i64,
