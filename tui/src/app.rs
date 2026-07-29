@@ -1113,6 +1113,11 @@ impl App {
                         return;
                     }
 
+                    for g in &target_games {
+                        self.image_protocols.remove(&g.id);
+                        self.pending_cover_requests.remove(&g.id);
+                    }
+
                     let total_games = target_games.len();
                     self.download_progress = Some(DownloadProgressState {
                         runner_id: 0,
