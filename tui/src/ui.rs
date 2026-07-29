@@ -874,6 +874,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref game_title,
             ref search_query,
             active_tab,
+            focused_section,
+            cursor_pos,
             is_searching,
             ref candidates,
             selected_candidate_idx,
@@ -904,7 +906,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .enumerate()
                 .map(|(idx, title)| {
                     if idx == active_tab {
-                        Span::styled(format!(" [ {} ] ", title), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
+                        let style = if focused_section == 0 {
+                            Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        };
+                        Span::styled(format!(" [ {} ] ", title), style)
                     } else {
                         Span::styled(format!("   {}   ", title), Style::default().fg(Color::Gray))
                     }
@@ -916,8 +923,17 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .constraints([Constraint::Length(2), Constraint::Min(8), Constraint::Length(2)])
                 .split(popup_area);
 
-            let tabs_line = Line::from(tab_spans);
-            frame.render_widget(Paragraph::new(tabs_line), modal_chunks[0]);
+            let tabs_title = if focused_section == 0 {
+                " [FOCUS: TABS - Use Left/Right to Switch] "
+            } else {
+                " Tabs "
+            };
+            let tabs_p = Paragraph::new(Line::from(tab_spans)).block(
+                Block::default()
+                    .title(Span::styled(tabs_title, Style::default().fg(if focused_section == 0 { Color::Yellow } else { Color::DarkGray }).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::NONE)
+            );
+            frame.render_widget(tabs_p, modal_chunks[0]);
 
             let (list_area, preview_area) = if active_tab > 0 {
                 let side_chunks = Layout::default()
@@ -936,29 +952,59 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         .constraints([Constraint::Length(3), Constraint::Min(5)])
                         .split(list_area);
 
-                    let search_p = Paragraph::new(format!(" {}", search_query)).block(
+                    let search_border_style = if focused_section == 1 {
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+
+                    let search_title = if focused_section == 1 {
+                        " Search Query [ACTIVE FOCUS] (Type & Press Left/Right: Cursor, Enter: Search, Down: Results) "
+                    } else {
+                        " Search Query (Press Up/Down to Focus) "
+                    };
+
+                    let query_line = if focused_section == 1 {
+                        let cpos = cursor_pos.min(search_query.len());
+                        let (before, after) = search_query.split_at(cpos);
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::raw(before),
+                            Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                            Span::raw(after),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::raw(" "),
+                            Span::raw(search_query),
+                        ])
+                    };
+
+                    let search_p = Paragraph::new(query_line).block(
                         Block::default()
                             .title(Span::styled(
-                                " Search Query (Type name & press [s] or [Enter] to Search) ",
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                                search_title,
+                                Style::default().fg(if focused_section == 1 { Color::Yellow } else { Color::DarkGray }).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
-                            .border_style(Style::default().fg(Color::Yellow)),
+                            .border_style(search_border_style),
                     );
                     frame.render_widget(search_p, cand_chunks[0]);
 
                     let items: Vec<ListItem> = if is_searching {
                         vec![ListItem::new(" [ Searching SteamGridDB... ]").style(Style::default().fg(Color::Yellow))]
                     } else if candidates.is_empty() {
-                        vec![ListItem::new(" No candidates found. Type a custom name above and press [s] / [Enter] to Search.").style(Style::default().fg(Color::Red))]
+                        vec![ListItem::new(" No candidates found. Type a custom name above and press [Enter] / [s] to Search.").style(Style::default().fg(Color::Red))]
                     } else {
                         candidates
                             .iter()
                             .enumerate()
                             .map(|(idx, cand)| {
-                                let is_selected = idx == selected_candidate_idx;
+                                let is_selected = idx == selected_candidate_idx && focused_section == 2;
                                 let style = if is_selected {
                                     Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                                } else if idx == selected_candidate_idx {
+                                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
@@ -967,14 +1013,26 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .collect()
                     };
 
+                    let list_border_style = if focused_section == 2 {
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+
+                    let list_title = if focused_section == 2 {
+                        format!(" Candidates for '{}' ({}) [ACTIVE FOCUS] ", game_title, candidates.len())
+                    } else {
+                        format!(" Candidates for '{}' ({}) ", game_title, candidates.len())
+                    };
+
                     let list = List::new(items).block(
                         Block::default()
                             .title(Span::styled(
-                                format!(" Candidates for '{}' ({}) ", game_title, candidates.len()),
-                                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                                list_title,
+                                Style::default().fg(if focused_section == 2 { Color::Cyan } else { Color::DarkGray }).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
-                            .border_style(Style::default().fg(Color::Cyan)),
+                            .border_style(list_border_style),
                     );
                     frame.render_widget(list, cand_chunks[1]);
                 }
@@ -986,7 +1044,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .iter()
                             .enumerate()
                             .map(|(idx, c)| {
-                                let is_selected = idx == selected_cover_idx;
+                                let is_selected = idx == selected_cover_idx && focused_section == 2;
                                 let is_chosen = chosen_cover_idx == Some(idx);
                                 let check_str = if is_chosen { "[X] " } else { "[ ] " };
 
@@ -1009,7 +1067,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
-                            .border_style(Style::default().fg(Color::Green)),
+                            .border_style(Style::default().fg(if focused_section == 2 { Color::Green } else { Color::DarkGray })),
                     );
                     frame.render_widget(list, list_area);
                 }
@@ -1021,7 +1079,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .iter()
                             .enumerate()
                             .map(|(idx, b)| {
-                                let is_selected = idx == selected_banner_idx;
+                                let is_selected = idx == selected_banner_idx && focused_section == 2;
                                 let is_chosen = chosen_banner_idx == Some(idx);
                                 let check_str = if is_chosen { "[X] " } else { "[ ] " };
 
@@ -1044,7 +1102,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
-                            .border_style(Style::default().fg(Color::Green)),
+                            .border_style(Style::default().fg(if focused_section == 2 { Color::Green } else { Color::DarkGray })),
                     );
                     frame.render_widget(list, list_area);
                 }
@@ -1056,7 +1114,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .iter()
                             .enumerate()
                             .map(|(idx, ic)| {
-                                let is_selected = idx == selected_icon_idx;
+                                let is_selected = idx == selected_icon_idx && focused_section == 2;
                                 let is_chosen = chosen_icon_idx == Some(idx);
                                 let check_str = if is_chosen { "[X] " } else { "[ ] " };
 
@@ -1079,7 +1137,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
-                            .border_style(Style::default().fg(Color::Green)),
+                            .border_style(Style::default().fg(if focused_section == 2 { Color::Green } else { Color::DarkGray })),
                     );
                     frame.render_widget(list, list_area);
                 }
@@ -1113,9 +1171,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             }
 
-            let help_str = match active_tab {
-                0 => " [Type Query] Edit Name | [s] Search | [Up/Down] Candidate | [Enter] Load Candidate Media | [Esc] Close",
-                _ => " [Space] Toggle Checkmark | [Enter] Apply All Selected Media & Update Title | [Tab] Switch Tab | [Esc] Close",
+            let help_str = match (focused_section, active_tab) {
+                (0, _) => " [FOCUS: TABS] [Left/Right] Switch Tab | [Down] Focus Query/List | [Esc] Close",
+                (1, 0) => " [FOCUS: SEARCH QUERY] [Left/Right] Move Cursor | [Typing] Edit Text | [Enter] Search | [Up/Down] Change Section",
+                _ => " [FOCUS: LIST] [Up/Down] Navigate Items | [Enter] Select/Apply Item | [Up] Back to Query | [Esc] Close",
             };
             let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[2]);

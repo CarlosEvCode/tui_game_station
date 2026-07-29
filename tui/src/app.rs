@@ -99,6 +99,8 @@ pub enum ModalState {
         game_title: String,
         search_query: String,
         active_tab: usize, // 0: Candidates, 1: Covers, 2: Banners, 3: Icons
+        focused_section: usize, // 0: Tabs, 1: Search Query, 2: Candidates / Results List
+        cursor_pos: usize, // Cursor position in search_query
         is_searching: bool,
         candidates: Vec<scraper::steamgriddb::SteamGridSearchResult>,
         selected_candidate_idx: usize,
@@ -200,6 +202,11 @@ pub enum Action {
     SearchVisualMedia,
     SelectVisualMediaCandidate,
     SwitchVisualMediaTab,
+    SwitchVisualMediaTabPrev,
+    VisualMediaNavUp,
+    VisualMediaNavDown,
+    VisualMediaNavLeft,
+    VisualMediaNavRight,
     SetVisualMediaTab(usize),
     ApplyVisualMediaSelection,
 
@@ -1926,13 +1933,17 @@ impl App {
                     api_key_input.push(ch);
                 } else if let ModalState::VisualMediaSelector {
                     active_tab: 0,
+                    focused_section: 1,
                     ref mut search_query,
+                    ref mut cursor_pos,
                     ref mut candidates,
                     ref mut selected_candidate_idx,
                     ..
                 } = self.modal_state
                 {
-                    search_query.push(ch);
+                    let pos = (*cursor_pos).min(search_query.len());
+                    search_query.insert(pos, ch);
+                    *cursor_pos = pos + 1;
                     candidates.clear();
                     *selected_candidate_idx = 0;
                 } else if let ModalState::EditCustomArgsInput { ref mut input, .. } = self.modal_state {
@@ -2044,15 +2055,21 @@ impl App {
                     api_key_input.pop();
                 } else if let ModalState::VisualMediaSelector {
                     active_tab: 0,
+                    focused_section: 1,
                     ref mut search_query,
+                    ref mut cursor_pos,
                     ref mut candidates,
                     ref mut selected_candidate_idx,
                     ..
                 } = self.modal_state
                 {
-                    search_query.pop();
-                    candidates.clear();
-                    *selected_candidate_idx = 0;
+                    if *cursor_pos > 0 && !search_query.is_empty() {
+                        let pos = (*cursor_pos - 1).min(search_query.len() - 1);
+                        search_query.remove(pos);
+                        *cursor_pos = pos;
+                        candidates.clear();
+                        *selected_candidate_idx = 0;
+                    }
                 } else if let ModalState::EditCustomArgsInput { ref mut input, .. } = self.modal_state {
                     input.pop();
                 }
@@ -2378,6 +2395,8 @@ impl App {
                         game_title: title,
                         search_query: query.clone(),
                         active_tab: 0,
+                        focused_section: 1,
+                        cursor_pos: query.len(),
                         is_searching: true,
                         candidates: Vec::new(),
                         selected_candidate_idx: 0,
@@ -2489,6 +2508,130 @@ impl App {
             Action::SwitchVisualMediaTab => {
                 if let ModalState::VisualMediaSelector { ref mut active_tab, .. } = self.modal_state {
                     *active_tab = (*active_tab + 1) % 4;
+                }
+                self.update_visual_media_preview();
+            }
+            Action::SwitchVisualMediaTabPrev => {
+                if let ModalState::VisualMediaSelector { ref mut active_tab, .. } = self.modal_state {
+                    *active_tab = (*active_tab + 3) % 4;
+                }
+                self.update_visual_media_preview();
+            }
+            Action::VisualMediaNavUp => {
+                if let ModalState::VisualMediaSelector {
+                    ref mut focused_section,
+                    active_tab,
+                    ref mut selected_candidate_idx,
+                    ref mut selected_cover_idx,
+                    ref mut selected_banner_idx,
+                    ref mut selected_icon_idx,
+                    ..
+                } = self.modal_state {
+                    match *focused_section {
+                        1 => *focused_section = 0,
+                        2 => {
+                            let curr_idx = match active_tab {
+                                0 => *selected_candidate_idx,
+                                1 => *selected_cover_idx,
+                                2 => *selected_banner_idx,
+                                _ => *selected_icon_idx,
+                            };
+                            if curr_idx == 0 {
+                                *focused_section = if active_tab == 0 { 1 } else { 0 };
+                            } else {
+                                match active_tab {
+                                    0 => *selected_candidate_idx = selected_candidate_idx.saturating_sub(1),
+                                    1 => *selected_cover_idx = selected_cover_idx.saturating_sub(1),
+                                    2 => *selected_banner_idx = selected_banner_idx.saturating_sub(1),
+                                    _ => *selected_icon_idx = selected_icon_idx.saturating_sub(1),
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                self.update_visual_media_preview();
+            }
+            Action::VisualMediaNavDown => {
+                if let ModalState::VisualMediaSelector {
+                    ref mut focused_section,
+                    active_tab,
+                    ref mut selected_candidate_idx,
+                    ref candidates,
+                    ref mut selected_cover_idx,
+                    ref covers,
+                    ref mut selected_banner_idx,
+                    ref banners,
+                    ref mut selected_icon_idx,
+                    ref icons,
+                    ..
+                } = self.modal_state {
+                    match *focused_section {
+                        0 => *focused_section = if active_tab == 0 { 1 } else { 2 },
+                        1 => *focused_section = 2,
+                        2 => match active_tab {
+                            0 => if !candidates.is_empty() { *selected_candidate_idx = (*selected_candidate_idx + 1) % candidates.len(); },
+                            1 => if !covers.is_empty() { *selected_cover_idx = (*selected_cover_idx + 1) % covers.len(); },
+                            2 => if !banners.is_empty() { *selected_banner_idx = (*selected_banner_idx + 1) % banners.len(); },
+                            _ => if !icons.is_empty() { *selected_icon_idx = (*selected_icon_idx + 1) % icons.len(); },
+                        },
+                        _ => {}
+                    }
+                }
+                self.update_visual_media_preview();
+            }
+            Action::VisualMediaNavLeft => {
+                if let ModalState::VisualMediaSelector {
+                    focused_section,
+                    ref mut active_tab,
+                    ref mut cursor_pos,
+                    ref mut selected_candidate_idx,
+                    ref mut selected_cover_idx,
+                    ref mut selected_banner_idx,
+                    ref mut selected_icon_idx,
+                    ..
+                } = self.modal_state {
+                    match focused_section {
+                        0 => *active_tab = (*active_tab + 3) % 4,
+                        1 => *cursor_pos = cursor_pos.saturating_sub(1),
+                        2 => match *active_tab {
+                            0 => *selected_candidate_idx = selected_candidate_idx.saturating_sub(1),
+                            1 => *selected_cover_idx = selected_cover_idx.saturating_sub(1),
+                            2 => *selected_banner_idx = selected_banner_idx.saturating_sub(1),
+                            _ => *selected_icon_idx = selected_icon_idx.saturating_sub(1),
+                        },
+                        _ => {}
+                    }
+                }
+                self.update_visual_media_preview();
+            }
+            Action::VisualMediaNavRight => {
+                if let ModalState::VisualMediaSelector {
+                    focused_section,
+                    ref mut active_tab,
+                    ref search_query,
+                    ref mut cursor_pos,
+                    ref mut selected_candidate_idx,
+                    ref candidates,
+                    ref mut selected_cover_idx,
+                    ref covers,
+                    ref mut selected_banner_idx,
+                    ref banners,
+                    ref mut selected_icon_idx,
+                    ref icons,
+                    ..
+                } = self.modal_state {
+                    match focused_section {
+                        0 => *active_tab = (*active_tab + 1) % 4,
+                        1 => *cursor_pos = (*cursor_pos + 1).min(search_query.len()),
+                        2 => match *active_tab {
+                            0 => if !candidates.is_empty() { *selected_candidate_idx = (*selected_candidate_idx + 1) % candidates.len(); },
+                            1 => if !covers.is_empty() { *selected_cover_idx = (*selected_cover_idx + 1) % covers.len(); },
+                            2 => if !banners.is_empty() { *selected_banner_idx = (*selected_banner_idx + 1) % banners.len(); },
+                            _ => if !icons.is_empty() { *selected_icon_idx = (*selected_icon_idx + 1) % icons.len(); },
+                        },
+                        _ => {}
+                    }
                 }
                 self.update_visual_media_preview();
             }

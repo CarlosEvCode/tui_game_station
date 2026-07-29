@@ -57,10 +57,12 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Up => match app.modal_state {
+                                ModalState::VisualMediaSelector { .. } => {
+                                    app.update(Action::VisualMediaNavUp).await;
+                                }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
-                                | ModalState::VisualMediaSelector { .. }
                                 | ModalState::ManageWineRunners { .. }
                                 | ModalState::ProtonDownloader { .. }
                                 | ModalState::SelectWineRunnerPicker { .. } => {
@@ -71,10 +73,12 @@ async fn main() -> Result<()> {
                                 }
                             },
                             KeyCode::Down => match app.modal_state {
+                                ModalState::VisualMediaSelector { .. } => {
+                                    app.update(Action::VisualMediaNavDown).await;
+                                }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
-                                | ModalState::VisualMediaSelector { .. }
                                 | ModalState::ManageWineRunners { .. }
                                 | ModalState::ProtonDownloader { .. }
                                 | ModalState::SelectWineRunnerPicker { .. } => {
@@ -85,12 +89,12 @@ async fn main() -> Result<()> {
                                 }
                             },
                             KeyCode::Left => match app.modal_state {
+                                ModalState::VisualMediaSelector { .. } => {
+                                    app.update(Action::VisualMediaNavLeft).await;
+                                }
                                 ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
                                 | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
                                     app.update(Action::CycleWineRunner(-1)).await;
-                                }
-                                ModalState::VisualMediaSelector { .. } => {
-                                    app.update(Action::SwitchVisualMediaTab).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::SwitchProtonTargetLocationPrev).await;
@@ -100,12 +104,12 @@ async fn main() -> Result<()> {
                                 }
                             },
                             KeyCode::Right => match app.modal_state {
+                                ModalState::VisualMediaSelector { .. } => {
+                                    app.update(Action::VisualMediaNavRight).await;
+                                }
                                 ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 4, .. }
                                 | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 4, .. } => {
                                     app.update(Action::CycleWineRunner(1)).await;
-                                }
-                                ModalState::VisualMediaSelector { .. } => {
-                                    app.update(Action::SwitchVisualMediaTab).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::SwitchProtonTargetLocationNext).await;
@@ -169,11 +173,14 @@ async fn main() -> Result<()> {
                                     app.update(Action::SaveAppSettings).await;
                                 }
                                 ModalState::VisualMediaSelector {
+                                    focused_section,
                                     active_tab,
                                     ref candidates,
                                     ..
                                 } => {
-                                    if active_tab == 0 {
+                                    if focused_section == 1 || (focused_section == 0 && active_tab == 0) {
+                                        app.update(Action::SearchVisualMedia).await;
+                                    } else if active_tab == 0 {
                                         if candidates.is_empty() {
                                             app.update(Action::SearchVisualMedia).await;
                                         } else {
