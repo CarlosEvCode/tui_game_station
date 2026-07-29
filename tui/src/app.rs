@@ -1138,9 +1138,11 @@ impl App {
 
                     tokio::spawn(async move {
                         let client = scraper::steamgriddb::SteamGridDBClient::new(Some(key_str));
-                        let mut success_count = 0;
+                        let mut log_lines = Vec::new();
+                        log_lines.push(format!("[DEBUG] Starting FetchGameMedia for {} games...", target_games.len()));
 
                         for (idx, game) in target_games.iter().enumerate() {
+                            log_lines.push(format!("[DEBUG] Game ID={}, Title='{}'", game.id, game.title));
                             let _ = progress_tx.send(DownloadEvent {
                                 downloaded: (idx + 1) as u64,
                                 total: total_games as u64,
@@ -1149,14 +1151,19 @@ impl App {
                                 error: None,
                             }).await;
 
-                            if let Ok(res) = client.download_all_media_for_game(game.id, &game.title).await {
-                                if let Some(path) = res.cover_path {
-                                    let mut manager = CoverManager::new();
-                                    if let Some(protocol) = manager.load_protocol_from_file(&path) {
-                                        let _ = tx.send(LoadedCoverEvent { game_id: game.id, protocol }).await;
+                            match client.download_all_media_for_game(game.id, &game.title).await {
+                                Ok(res) => {
+                                    log_lines.push(format!("  [OK] Cover={:?}, Banner={:?}, Icon={:?}", res.cover_path, res.banner_path, res.icon_path));
+                                    if let Some(path) = res.cover_path {
+                                        let mut manager = CoverManager::new();
+                                        if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                                            let _ = tx.send(LoadedCoverEvent { game_id: game.id, protocol }).await;
+                                        }
                                     }
                                 }
-                                success_count += 1;
+                                Err(err) => {
+                                    log_lines.push(format!("  [ERROR] Failed to download media: {:?}", err));
+                                }
                             }
                         }
 
@@ -1167,6 +1174,12 @@ impl App {
                             finished: true,
                             error: None,
                         }).await;
+
+                        let log_path = dirs::data_dir()
+                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                            .join("tui_game_station")
+                            .join("tui_debug.log");
+                        let _ = std::fs::write(log_path, log_lines.join("\n"));
                     });
                 }
             }
