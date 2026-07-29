@@ -207,17 +207,18 @@ impl Database {
             )?;
         }
 
-        // Preserve a previously configured 3DS runner while normalising the old
-        // display names and launch templates to the current preset convention.
+        // Normalise legacy runner display names (e.g. removing "(Standalone)" suffixes)
+        // and delete any duplicate runner entries per platform.
         self.conn.execute(
-            "UPDATE runners
-             SET name = CASE name
-                    WHEN 'Azahar (3DS Emulator)' THEN 'Azahar'
-                    WHEN 'Citra (3DS Emulator)' THEN 'Citra'
-                    ELSE name END,
-                 command_template = '\"{executable_path}\" \"{rom}\"'
-             WHERE platform_id = (SELECT id FROM platforms WHERE slug = '3ds')
-               AND name IN ('Azahar (3DS Emulator)', 'Citra (3DS Emulator)')",
+            "UPDATE runners SET name = TRIM(REPLACE(REPLACE(REPLACE(name, '(Standalone)', ''), 'Standalone', ''), '(3DS Emulator)', ''))
+             WHERE name LIKE '%Standalone%' OR name LIKE '%(3DS Emulator)%'",
+            [],
+        )?;
+
+        self.conn.execute(
+            "DELETE FROM runners WHERE id NOT IN (
+                SELECT MIN(id) FROM runners GROUP BY platform_id, name
+             )",
             [],
         )?;
 
