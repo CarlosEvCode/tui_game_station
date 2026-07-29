@@ -661,13 +661,20 @@ impl App {
                     progress.error_msg = event.error.clone();
 
                     if event.finished {
+                        let name = progress.runner_name.clone();
+                        self.download_progress = None;
+                        self.download_rx = None;
+
                         if let Some(err) = event.error {
                             self.status_msg = format!("[Error] Download failed: {}", err);
                         } else {
-                            self.status_msg = format!("[OK] Download of '{}' completed and installed successfully!", progress.runner_name);
-                            self.modal_state = ModalState::None;
-                            self.download_rx = None;
+                            self.status_msg = format!("[OK] Download of '{}' completed successfully!", name);
+                            let sel = self.selected_game_idx;
                             self.load_platforms();
+                            if sel < self.games.len() {
+                                self.selected_game_idx = sel;
+                            }
+                            self.trigger_async_cover_fetch();
                         }
                     }
                 }

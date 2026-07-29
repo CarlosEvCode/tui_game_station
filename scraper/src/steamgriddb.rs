@@ -50,7 +50,6 @@ pub struct SteamGridDBClient {
 impl SteamGridDBClient {
     pub fn new(api_key: Option<String>) -> Self {
         let key = api_key.unwrap_or_else(|| {
-            // Default environment or fallback key
             std::env::var("STEAMGRIDDB_API_KEY").unwrap_or_default()
         });
 
@@ -76,10 +75,7 @@ impl SteamGridDBClient {
 
     /// Search game by title on SteamGridDB using cleaned search query
     pub async fn search_game(&self, raw_title: &str) -> Result<Vec<SteamGridSearchResult>> {
-        let cleaned = TitleCleaner::clean_title(raw_title);
-        let query = if cleaned.is_empty() { raw_title } else { &cleaned };
-
-        let url = format!("{}/search/autocomplete/{}", BASE_URL, urlencoding::encode(query));
+        let url = format!("{}/search/autocomplete/{}", BASE_URL, urlencoding::encode(raw_title));
         let body = self.request_json::<Vec<SteamGridSearchResult>>(&url).await?;
         Ok(body.unwrap_or_default())
     }
@@ -104,15 +100,38 @@ impl SteamGridDBClient {
         game_id: i64,
         raw_title: &str,
     ) -> Result<DownloadedMediaResult> {
-        let candidates = self.search_game(raw_title).await?;
-        if candidates.is_empty() {
-            anyhow::bail!("No candidate found on SteamGridDB for '{}'", raw_title);
+        let cleaned = TitleCleaner::clean_title(raw_title);
+        let mut candidates_to_try = vec![raw_title.to_string()];
+        if !cleaned.is_empty() && cleaned != raw_title {
+            candidates_to_try.push(cleaned);
         }
 
-        let sgdb_id = candidates[0].id;
-        let media_dir = Self::get_media_dir();
+        let mut sgdb_id = None;
+        for cand in &candidates_to_try {
+            tracing::info!("[SteamGridDB] Searching candidate: '{}'", cand);
+            if let Ok(res) = self.search_game(cand).await {
+                if let Some(first) = res.first() {
+                    sgdb_id = Some(first.id);
+                    tracing::info!("[SteamGridDB] Candidate match for '{}' -> SGDB ID: {} ({})", cand, first.id, first.name);
+                    break;
+                }
+            }
+        }
 
-        // 1. Cover / Grid (600x900)
+        let sgdb_id = match sgdb_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!("[SteamGridDB] No candidates found on SteamGridDB for '{}'", raw_title);
+                anyhow::bail!("No candidate found on SteamGridDB for '{}'", raw_title);
+            }
+        };
+
+        let media_dir = Self::get_media_dir();
+        fs::create_dir_all(media_dir.join("covers"))?;
+        fs::create_dir_all(media_dir.join("banners"))?;
+        fs::create_dir_all(media_dir.join("icons"))?;
+
+        // 1. Cover / Grid
         let cover_dest = media_dir.join("covers").join(format!("{}.jpg", game_id));
         let cover_path = if let Ok(covers) = self.get_images(sgdb_id, "grids").await {
             if let Some(c) = covers.first() {
@@ -160,6 +179,8 @@ impl SteamGridDBClient {
             None
         };
 
+        tracing::info!("[SteamGridDB] Media download completed for game_id={}. Cover: {:?}", game_id, cover_path);
+
         Ok(DownloadedMediaResult {
             cover_path,
             banner_path,
@@ -168,9 +189,16 @@ impl SteamGridDBClient {
     }
 
     async fn download_file_to_path(&self, url: &str, dest: &PathBuf) -> Result<()> {
-        let resp = self.client.get(url).send().await?.error_for_status()?;
+        let resp = self
+            .client
+            .get(url)
+            .header("User-Agent", USER_AGENTS[0])
+            .send()
+            .await?
+            .error_for_status()?;
         let bytes = resp.bytes().await?;
         fs::write(dest, bytes)?;
+        tracing::info!("[SteamGridDB] Saved media to {:?}", dest);
         Ok(())
     }
 
@@ -189,7 +217,6 @@ impl SteamGridDBClient {
             match resp {
                 Ok(response) => {
                     if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                        // Rate limit: exponential backoff
                         let delay = Duration::from_secs(1 << retries);
                         sleep(delay).await;
                         retries += 1;
