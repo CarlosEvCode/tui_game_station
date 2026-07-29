@@ -68,7 +68,9 @@ fn render_main_content(frame: &mut Frame, app: &mut App, area: Rect) {
 
     match app.view_mode {
         ViewMode::Table => render_games_table(frame, app, main_chunks[1]),
-        ViewMode::Grid => render_games_grid(frame, app, main_chunks[1]),
+        ViewMode::CoverCard | ViewMode::BannerCard | ViewMode::IconCard => {
+            render_games_grid(frame, app, main_chunks[1])
+        }
     }
 }
 
@@ -197,7 +199,6 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
-/// Render Lutris-style Cards / Grid View with Vertical Cover & Metadata Layout
 fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
     let border_color = if app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None {
         Color::Yellow
@@ -245,10 +246,17 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
         format!(" ({})", app.games.len())
     };
 
+    let mode_name = match app.view_mode {
+        ViewMode::CoverCard => "Cards (Cover)",
+        ViewMode::BannerCard => "Hero Banners",
+        ViewMode::IconCard => "Icons",
+        ViewMode::Table => "Table",
+    };
+
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Cards View - {}{} [v] Switch View ", p.name, sel_title)
+        format!(" Mode: {} - {}{} [v] Cycle View Mode ", mode_name, p.name, sel_title)
     } else {
-        " Cards View (0) ".to_string()
+        format!(" Mode: {} (0) ", mode_name)
     };
 
     let list_widget = List::new(items).block(
@@ -265,17 +273,22 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_stateful_widget(list_widget, grid_chunks[0], &mut state);
 
-    // Right Column: Vertical Cover Image Card (Top) & Metadata Panel (Bottom)
+    // Right Column: Vertical Cover Image Card / Banner Card / Icon Card (Top) & Metadata Panel (Bottom)
     render_game_cover_card(frame, app, grid_chunks[1]);
 }
 
-fn render_cover_placeholder(frame: &mut Frame, app: &App, game_id: i64, area: Rect) {
+fn render_cover_placeholder(frame: &mut Frame, app: &App, game_id: i64, media_type: &str, area: Rect) {
     frame.render_widget(Clear, area);
-    let cover_status = app.db.get_media_status(game_id, "cover").ok().flatten();
+    let cover_status = app.db.get_media_status(game_id, media_type).ok().flatten();
+    let label = match media_type {
+        "banner" => "Banner",
+        "icon" => "Icon",
+        _ => "Cover",
+    };
     let msg = if cover_status.as_deref() == Some("not_found") {
-        "  [ No Cover Found ]"
+        format!("  [ No {} Found ]", label)
     } else {
-        "  [ Fetching Cover Image... ]"
+        format!("  [ Fetching {}... ]", label)
     };
     let placeholder = Paragraph::new(vec![
         Line::from(""),
@@ -288,7 +301,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     if app.games.is_empty() || app.selected_game_idx >= app.games.len() {
         let empty_p = Paragraph::new("No game selected").block(
             Block::default()
-                .title(" Cover & Details ")
+                .title(" Media & Details ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Gray)),
         );
@@ -300,16 +313,21 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     let game_id = game.id;
     let current_platform = app.platforms.get(app.selected_platform_idx);
 
-    // Vertical layout inside the right card pane:
+    let (media_type, title_prefix, top_percentage) = match app.view_mode {
+        ViewMode::CoverCard => ("cover", "Cover", 55),
+        ViewMode::BannerCard => ("banner", "Hero Banner", 35),
+        ViewMode::IconCard => ("icon", "Icon", 25),
+        ViewMode::Table => ("cover", "Cover", 55),
+    };
+
     let card_vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .constraints([Constraint::Percentage(top_percentage), Constraint::Percentage(100 - top_percentage)])
         .split(area);
 
-    // 1. Render Cover Image Box
     let cover_block = Block::default()
         .title(Span::styled(
-            format!(" Cover - {} ", game.title),
+            format!(" {} - {} ", title_prefix, game.title),
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
@@ -319,11 +337,11 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Clear, card_vertical_chunks[0]);
     frame.render_widget(cover_block, card_vertical_chunks[0]);
 
-    if let Some(protocol) = app.image_protocols.get_mut(&game_id) {
+    if let Some(protocol) = app.media_protocols.get_mut(&(game_id, media_type.to_string())) {
         let image_widget = StatefulImage::new(None);
         frame.render_stateful_widget(image_widget, inner_cover_area, protocol);
     } else {
-        render_cover_placeholder(frame, app, game_id, inner_cover_area);
+        render_cover_placeholder(frame, app, game_id, media_type, inner_cover_area);
     }
 
     // 2. Render Game Details Panel

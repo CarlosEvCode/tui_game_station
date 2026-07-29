@@ -15,6 +15,7 @@ use crate::cover_renderer::CoverManager;
 
 pub struct LoadedCoverEvent {
     pub game_id: i64,
+    pub media_type: String,
     pub protocol: StatefulProtocol,
 }
 
@@ -31,8 +32,10 @@ pub enum FocusedPane {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
+    CoverCard,
+    BannerCard,
+    IconCard,
     Table,
-    Grid,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,7 +185,7 @@ pub struct App {
     pub preview_rx: mpsc::Receiver<LoadedPreviewEvent>,
     pub cover_manager: CoverManager,
     pub pending_cover_requests: HashSet<i64>,
-    pub image_protocols: HashMap<i64, StatefulProtocol>,
+    pub media_protocols: HashMap<(i64, String), StatefulProtocol>,
     pub visual_preview_protocol: Option<StatefulProtocol>,
     pub visual_preview_url: Option<String>,
     pub visual_preview_loading: bool,
@@ -211,7 +214,7 @@ impl App {
             selected_game_idx: 0,
             selected_game_ids: HashSet::new(),
             focused_pane: FocusedPane::Platforms,
-            view_mode: ViewMode::Grid,
+            view_mode: ViewMode::CoverCard,
             modal_state: ModalState::None,
             download_progress: None,
             download_rx: None,
@@ -221,7 +224,7 @@ impl App {
             preview_rx,
             cover_manager,
             pending_cover_requests: HashSet::new(),
-            image_protocols: HashMap::new(),
+            media_protocols: HashMap::new(),
             visual_preview_protocol: None,
             visual_preview_url: None,
             visual_preview_loading: false,
@@ -305,11 +308,18 @@ impl App {
         let title = game.title.clone();
         let appid = game.steam_appid;
 
+        let (media_type, media_sub_dir) = match self.view_mode {
+            ViewMode::CoverCard => ("cover", "covers"),
+            ViewMode::BannerCard => ("banner", "banners"),
+            ViewMode::IconCard => ("icon", "icons"),
+            ViewMode::Table => ("cover", "covers"),
+        };
+
         if self.pending_cover_requests.contains(&game_id) {
             return;
         }
 
-        let cover_status = self.db.get_media_status(game_id, "cover").ok().flatten();
+        let cover_status = self.db.get_media_status(game_id, media_type).ok().flatten();
         if cover_status.as_deref() == Some("not_found") {
             return;
         }
@@ -318,22 +328,24 @@ impl App {
         let tx = self.cover_tx.clone();
         let manager = self.cover_manager.clone();
         let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
+        let media_type_str = media_type.to_string();
+        let sub_dir_str = media_sub_dir.to_string();
 
         tokio::spawn(async move {
             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
-            let covers_dir = media_dir.join("covers");
+            let target_dir = media_dir.join(&sub_dir_str);
             let local_cover = vec![
-                covers_dir.join(format!("{}.jpg", game_id)),
-                covers_dir.join(format!("{}.png", game_id)),
-                covers_dir.join(format!("{}.webp", game_id)),
+                target_dir.join(format!("{}.jpg", game_id)),
+                target_dir.join(format!("{}.png", game_id)),
+                target_dir.join(format!("{}.webp", game_id)),
             ]
             .into_iter()
             .find(|p| p.exists());
 
             let cover_path = if let Some(path) = local_cover {
                 Some(path)
-            } else if let Some(id) = appid {
-                SteamCoverResolver::resolve_cover(id).await
+            } else if media_type_str == "cover" && appid.is_some() {
+                SteamCoverResolver::resolve_cover(appid.unwrap()).await
             } else {
                 let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
                 let db_path = dirs::data_dir()
@@ -341,7 +353,11 @@ impl App {
                     .join("tui_game_station")
                     .join("game_station.db");
                 if let Ok(res) = client.download_all_media_for_game(Some(db_path), game_id, &title, false).await {
-                    res.cover_path
+                    match media_type_str.as_str() {
+                        "banner" => res.banner_path,
+                        "icon" => res.icon_path,
+                        _ => res.cover_path,
+                    }
                 } else {
                     None
                 }
@@ -349,7 +365,7 @@ impl App {
 
             if let Some(path) = cover_path {
                 if let Some(protocol) = manager.load_protocol_from_file(&path) {
-                    let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
+                    let _ = tx.send(LoadedCoverEvent { game_id, media_type: media_type_str, protocol }).await;
                 }
             }
         });
@@ -369,7 +385,7 @@ impl App {
         // Receive loaded cover events from background task non-blocking
         while let Ok(loaded) = self.cover_rx.try_recv() {
             self.pending_cover_requests.remove(&loaded.game_id);
-            self.image_protocols.insert(loaded.game_id, loaded.protocol);
+            self.media_protocols.insert((loaded.game_id, loaded.media_type), loaded.protocol);
         }
 
         // Receive loaded preview events for Visual Media Selector
@@ -465,13 +481,18 @@ impl App {
             }
             Action::ToggleViewMode => {
                 self.view_mode = match self.view_mode {
-                    ViewMode::Table => ViewMode::Grid,
-                    ViewMode::Grid => ViewMode::Table,
+                    ViewMode::CoverCard => ViewMode::BannerCard,
+                    ViewMode::BannerCard => ViewMode::IconCard,
+                    ViewMode::IconCard => ViewMode::Table,
+                    ViewMode::Table => ViewMode::CoverCard,
                 };
                 self.status_msg = match self.view_mode {
-                    ViewMode::Grid => "Vista cambiada a TARJETAS / CARDS con Covers.".to_string(),
-                    ViewMode::Table => "Vista cambiada a TABLA detallada.".to_string(),
+                    ViewMode::CoverCard => "Vista: TARJETAS (Covers Poster)".to_string(),
+                    ViewMode::BannerCard => "Vista: HERO BANNERS".to_string(),
+                    ViewMode::IconCard => "Vista: ICONOS".to_string(),
+                    ViewMode::Table => "Vista: TABLA DETALLADA".to_string(),
                 };
+                self.trigger_async_cover_fetch();
             }
             Action::ToggleShowAllPlatforms => {
                 self.show_all_platforms = !self.show_all_platforms;
@@ -1542,7 +1563,9 @@ impl App {
                     }
 
                     for g in &target_games {
-                        self.image_protocols.remove(&g.id);
+                        self.media_protocols.remove(&(g.id, "cover".to_string()));
+                        self.media_protocols.remove(&(g.id, "banner".to_string()));
+                        self.media_protocols.remove(&(g.id, "icon".to_string()));
                         self.pending_cover_requests.remove(&g.id);
                     }
 
@@ -1611,6 +1634,7 @@ impl App {
                                             let _ = tx
                                                 .send(LoadedCoverEvent {
                                                     game_id: game.id,
+                                                    media_type: "cover".to_string(),
                                                     protocol,
                                                 })
                                                 .await;
@@ -1837,11 +1861,11 @@ impl App {
                                             let _ = db.record_media_status(game_id, "cover", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                         }
                                         if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                            let _ = tx.send(LoadedCoverEvent { game_id, protocol }).await;
+                                            let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
                                         }
                                     }
                                 });
-                                self.image_protocols.remove(&game_id);
+                                self.media_protocols.remove(&(game_id, "cover".to_string()));
                                 self.pending_cover_requests.remove(&game_id);
                                 self.modal_state = ModalState::None;
                                 self.status_msg = "[OK] Custom Cover updated!".to_string();
@@ -1850,6 +1874,8 @@ impl App {
                         2 => {
                             if let Some(b) = banners.get(selected_banner_idx) {
                                 let dest = media_dir.join("banners").join(format!("{}.jpg", game_id));
+                                let tx = self.cover_tx.clone();
+                                let manager = self.cover_manager.clone();
                                 let url = b.url.clone();
                                 tokio::spawn(async move {
                                     if client.download_file_to_path(&url, &dest).await.is_ok() {
@@ -1860,8 +1886,13 @@ impl App {
                                         if let Ok(db) = Database::open(&db_path) {
                                             let _ = db.record_media_status(game_id, "banner", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                         }
+                                        if let Some(protocol) = manager.load_protocol_from_file(&dest) {
+                                            let _ = tx.send(LoadedCoverEvent { game_id, media_type: "banner".to_string(), protocol }).await;
+                                        }
                                     }
                                 });
+                                self.media_protocols.remove(&(game_id, "banner".to_string()));
+                                self.pending_cover_requests.remove(&game_id);
                                 self.modal_state = ModalState::None;
                                 self.status_msg = "[OK] Custom Banner updated!".to_string();
                             }
@@ -1869,6 +1900,8 @@ impl App {
                         3 => {
                             if let Some(i) = icons.get(selected_icon_idx) {
                                 let dest = media_dir.join("icons").join(format!("{}.png", game_id));
+                                let tx = self.cover_tx.clone();
+                                let manager = self.cover_manager.clone();
                                 let url = i.url.clone();
                                 tokio::spawn(async move {
                                     if client.download_file_to_path(&url, &dest).await.is_ok() {
@@ -1879,8 +1912,13 @@ impl App {
                                         if let Ok(db) = Database::open(&db_path) {
                                             let _ = db.record_media_status(game_id, "icon", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                         }
+                                        if let Some(protocol) = manager.load_protocol_from_file(&dest) {
+                                            let _ = tx.send(LoadedCoverEvent { game_id, media_type: "icon".to_string(), protocol }).await;
+                                        }
                                     }
                                 });
+                                self.media_protocols.remove(&(game_id, "icon".to_string()));
+                                self.pending_cover_requests.remove(&game_id);
                                 self.modal_state = ModalState::None;
                                 self.status_msg = "[OK] Custom Icon updated!".to_string();
                             }
