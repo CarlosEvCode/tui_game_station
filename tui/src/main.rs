@@ -162,9 +162,6 @@ async fn main() -> Result<()> {
                                 ModalState::ScanFolderStep1Platform { .. } => {
                                     app.update(Action::ScanModalConfirmPlatform).await;
                                 }
-                                ModalState::ScanFolderForm { .. } => {
-                                    app.update(Action::StartFolderScan).await;
-                                }
                                 ModalState::ConfigureApiKeyInput { .. } => {
                                     app.update(Action::SaveApiKey).await;
                                 }
@@ -189,9 +186,6 @@ async fn main() -> Result<()> {
                                 ModalState::ManageRunnersStep1Platform { .. } => {
                                     app.update(Action::RunnerModalConfirmPlatform).await;
                                 }
-                                ModalState::ManageRunnersStep2Config { .. } => {
-                                    app.update(Action::SaveRunnerConfig).await;
-                                }
                                 ModalState::ManageWineRunners { .. } => {
                                     app.update(Action::OpenProtonDownloader).await;
                                 }
@@ -204,12 +198,72 @@ async fn main() -> Result<()> {
                                 ModalState::EditCustomArgsInput { .. } => {
                                     app.update(Action::SaveCustomArgsInput).await;
                                 }
-                                ModalState::AddGameForm { game_type: PlatformType::Wine, selected_field: 5, .. }
-                                | ModalState::EditGameForm { game_type: PlatformType::Wine, selected_field: 5, .. } => {
-                                    app.update(Action::OpenCustomArgsEditor).await;
-                                }
-                                ModalState::EditGameForm { .. } => {
-                                    app.update(Action::SaveEditGameModal).await;
+                                ModalState::AddGameForm {
+                                    ref game_type,
+                                    selected_field,
+                                    ..
+                                } => match game_type {
+                                    PlatformType::Wine => match selected_field {
+                                        1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
+                                        4 => app.update(Action::OpenWineRunnerPicker).await,
+                                        5 => app.update(Action::OpenCustomArgsEditor).await,
+                                        6 => app.update(Action::SaveModalGame).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                    PlatformType::Native => match selected_field {
+                                        1 | 2 => app.update(Action::OpenFilePicker).await,
+                                        3 => app.update(Action::OpenCustomArgsEditor).await,
+                                        4 => app.update(Action::SaveModalGame).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                    PlatformType::Emulator => match selected_field {
+                                        1 => app.update(Action::OpenFilePicker).await,
+                                        2 => app.update(Action::OpenCustomArgsEditor).await,
+                                        3 => app.update(Action::SaveModalGame).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                    PlatformType::Steam => match selected_field {
+                                        2 => app.update(Action::SaveModalGame).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                },
+                                ModalState::EditGameForm {
+                                    ref game_type,
+                                    selected_field,
+                                    ..
+                                } => match game_type {
+                                    PlatformType::Wine => match selected_field {
+                                        1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
+                                        4 => app.update(Action::OpenWineRunnerPicker).await,
+                                        5 => app.update(Action::OpenCustomArgsEditor).await,
+                                        6 => app.update(Action::SaveEditGameModal).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                    PlatformType::Native => match selected_field {
+                                        1 | 2 => app.update(Action::OpenFilePicker).await,
+                                        3 => app.update(Action::OpenCustomArgsEditor).await,
+                                        4 => app.update(Action::SaveEditGameModal).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                    PlatformType::Emulator => match selected_field {
+                                        1 => app.update(Action::OpenFilePicker).await,
+                                        2 => app.update(Action::OpenCustomArgsEditor).await,
+                                        3 => app.update(Action::SaveEditGameModal).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                    PlatformType::Steam => match selected_field {
+                                        2 => app.update(Action::SaveEditGameModal).await,
+                                        _ => app.update(Action::ModalNextField).await,
+                                    },
+                                },
+                                ModalState::ScanFolderForm { selected_field, .. } => match selected_field {
+                                    0 => app.update(Action::OpenFilePicker).await,
+                                    2 => app.update(Action::ModalToggleCheckbox).await,
+                                    3 => app.update(Action::StartFolderScan).await,
+                                    _ => app.update(Action::ModalNextField).await,
+                                },
+                                ModalState::ManageRunnersStep2Config { .. } => {
+                                    app.update(Action::SaveRunnerConfig).await;
                                 }
                                 _ => {
                                     app.update(Action::SaveModalGame).await;

@@ -1596,7 +1596,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [f] File Picker | [p] Select Runner | [Left/Right] Cycle Runner | [Tab/Shift+Tab] Field | [Enter] Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -1744,7 +1744,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [f] File/Folder Picker | [Tab/Up/Down] Field | [Enter] Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Tab/Shift+Tab] Move Field | [Left/Right] Cycle Runner | [Enter] Open Field / Save | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
