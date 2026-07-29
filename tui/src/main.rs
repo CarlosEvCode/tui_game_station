@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Up => match app.modal_state {
                                 ModalState::AddGameStep1Type { .. }
+                                | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
@@ -65,6 +66,7 @@ async fn main() -> Result<()> {
                             },
                             KeyCode::Down => match app.modal_state {
                                 ModalState::AddGameStep1Type { .. }
+                                | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::ModalSelectNext).await;
@@ -209,10 +211,16 @@ async fn main() -> Result<()> {
                                 app.update(Action::OpenVisualMediaModal).await;
                             }
                             KeyCode::Tab => {
-                                if let ModalState::VisualMediaSelector { .. } = app.modal_state {
-                                    app.update(Action::SwitchVisualMediaTab).await;
-                                } else {
-                                    app.update(Action::TogglePane).await;
+                                app.update(Action::TogglePane).await;
+                            }
+                            KeyCode::Right => {
+                                if app.focused_pane == FocusedPane::Platforms {
+                                    app.focused_pane = FocusedPane::Games;
+                                }
+                            }
+                            KeyCode::Left => {
+                                if app.focused_pane == FocusedPane::Games {
+                                    app.focused_pane = FocusedPane::Platforms;
                                 }
                             }
                             KeyCode::Up => match app.focused_pane {
