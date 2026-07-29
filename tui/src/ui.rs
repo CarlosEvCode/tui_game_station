@@ -75,7 +75,8 @@ fn render_main_content(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
-    let border_color = if app.focused_pane == FocusedPane::Platforms && app.modal_state == ModalState::None {
+    let is_focused = app.focused_pane == FocusedPane::Platforms && app.modal_state == ModalState::None;
+    let border_color = if is_focused {
         Color::Yellow
     } else {
         Color::Gray
@@ -88,30 +89,47 @@ fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
         .map(|(idx, p)| {
             let is_selected = idx == app.selected_platform_idx;
             let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                if is_focused {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .bg(Color::Rgb(40, 44, 52))
+                        .add_modifier(Modifier::BOLD)
+                }
             } else {
                 Style::default().fg(Color::White)
             };
 
+            let pointer = if is_selected && is_focused { "▶ " } else if is_selected { "► " } else { "  " };
+
             let type_badge = match p.platform_type {
-                PlatformType::Emulator => " [EMU]",
-                PlatformType::Native => " [NAT]",
-                PlatformType::Wine => " [WIN]",
-                PlatformType::Steam => " [STM]",
+                PlatformType::Emulator => "[EMU]",
+                PlatformType::Native => "[NAT]",
+                PlatformType::Wine => "[WIN]",
+                PlatformType::Steam => "[STM]",
             };
 
-            let content = format!(" {} {}", p.name, type_badge);
+            let content = format!("{} {} {}", pointer, p.name, type_badge);
             ListItem::new(content).style(style)
         })
         .collect();
 
-    let title = format!(" Platforms ({}) ", app.platforms.len());
+    let focus_badge = if is_focused { " [FOCUS] " } else { " " };
+    let title = format!(" Platforms ({}){}", app.platforms.len(), focus_badge);
     let list_widget = List::new(items).block(
         Block::default()
-            .title(Span::styled(title, Style::default().add_modifier(Modifier::BOLD)))
+            .title(Span::styled(
+                title,
+                if is_focused {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color)),
     );
@@ -123,7 +141,8 @@ fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
-    let border_color = if app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None {
+    let is_focused = app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None;
+    let border_color = if is_focused {
         Color::Yellow
     } else {
         Color::Gray
@@ -141,18 +160,26 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
             let is_checked = app.selected_game_ids.contains(&g.id);
 
             let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                if is_focused {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .bg(Color::Rgb(40, 44, 52))
+                        .add_modifier(Modifier::BOLD)
+                }
             } else if is_checked {
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
 
+            let pointer = if is_selected && is_focused { "▶ " } else if is_selected { "► " } else { "" };
             let mark = if is_checked { "[x] " } else { "" };
-            let title = format!("{}{}", mark, g.title);
+            let title = format!("{}{}{}", pointer, mark, g.title);
             let ext = g.file_extension.clone().unwrap_or_else(|| "-".to_string());
             let size_mb = g.file_size.map(|s| format!("{:.1} MB", s as f64 / (1024.0 * 1024.0))).unwrap_or_else(|| "-".to_string());
             let gtype = g.game_type.to_uppercase();
@@ -168,10 +195,12 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
         format!(" ({})", app.games.len())
     };
 
+    let focus_badge = if is_focused { " [FOCUS]" } else { "" };
+
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Games Table - {}{} [v] Switch View ", p.name, sel_title)
+        format!(" Games Table - {}{}{} [v] Switch View ", p.name, sel_title, focus_badge)
     } else {
-        " Games (0) ".to_string()
+        format!(" Games (0){} ", focus_badge)
     };
 
     let table = Table::new(
@@ -186,7 +215,14 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
     .header(header)
     .block(
         Block::default()
-            .title(Span::styled(title, Style::default().add_modifier(Modifier::BOLD)))
+            .title(Span::styled(
+                title,
+                if is_focused {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                },
+            ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color)),
     );
@@ -200,7 +236,8 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
-    let border_color = if app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None {
+    let is_focused = app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None;
+    let border_color = if is_focused {
         Color::Yellow
     } else {
         Color::Gray
@@ -221,19 +258,27 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
             let is_checked = app.selected_game_ids.contains(&g.id);
 
             let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+                if is_focused {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .bg(Color::Rgb(40, 44, 52))
+                        .add_modifier(Modifier::BOLD)
+                }
             } else if is_checked {
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)
             };
 
+            let pointer = if is_selected && is_focused { "▶ " } else if is_selected { "► " } else { "  " };
             let mark = if is_checked { "[x] " } else { "" };
             let appid_info = g.steam_appid.map(|id| format!(" (AppID: {})", id)).unwrap_or_default();
-            let content = format!(" {}{}[{}] {}{}", mark, if is_checked { "" } else { " " }, g.game_type.to_uppercase(), g.title, appid_info);
+            let content = format!("{}{}{}[{}] {}{}", pointer, mark, if is_checked { "" } else { "" }, g.game_type.to_uppercase(), g.title, appid_info);
 
             ListItem::new(content).style(style)
         })
@@ -253,10 +298,12 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
         ViewMode::Table => "Table",
     };
 
+    let focus_badge = if is_focused { " [FOCUS]" } else { "" };
+
     let title = if let Some(p) = app.platforms.get(app.selected_platform_idx) {
-        format!(" Mode: {} - {}{} [v] Cycle View Mode ", mode_name, p.name, sel_title)
+        format!(" Mode: {} - {}{}{} [v] Cycle View ", mode_name, p.name, sel_title, focus_badge)
     } else {
-        format!(" Mode: {} (0) ", mode_name)
+        format!(" Mode: {} (0){} ", mode_name, focus_badge)
     };
 
     let list_widget = List::new(items).block(
