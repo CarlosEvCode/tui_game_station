@@ -133,6 +133,10 @@ impl Database {
             );
             ",
         )?;
+
+        // Auto-migration for existing DB files
+        let _ = self.conn.execute("ALTER TABLE runners ADD COLUMN is_configured BOOLEAN DEFAULT 0", []);
+
         Ok(())
     }
 
