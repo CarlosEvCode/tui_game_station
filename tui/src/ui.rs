@@ -440,10 +440,37 @@ fn render_modal(frame: &mut Frame, app: &App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::ScanFolderStep1Platform { selected_platform_idx } => {
-            let all_platforms = app.db.get_platforms().unwrap_or_default();
+            let configured_emulators = app.get_configured_emulator_platforms();
             let active_ids: Vec<i64> = app.platforms.iter().map(|p| p.id).collect();
 
-            let items: Vec<ListItem> = all_platforms
+            if configured_emulators.is_empty() {
+                let empty_p = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled("  [ No Configured Emulator Platforms ]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                    Line::from(""),
+                    Line::from("  First configure an emulator runner in [m] (e.g. Azahar for Nintendo 3DS)"),
+                    Line::from("  to enable automated ROM scanning for that emulator platform."),
+                ]).block(
+                    Block::default()
+                        .title(Span::styled(" Scan ROMs Folder - Select Platform ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                );
+
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(6), Constraint::Length(2)])
+                    .split(popup_area);
+
+                frame.render_widget(empty_p, chunks[0]);
+
+                let help = Paragraph::new(" [Esc] Back")
+                    .style(Style::default().fg(Color::DarkGray));
+                frame.render_widget(help, chunks[1]);
+                return;
+            }
+
+            let items: Vec<ListItem> = configured_emulators
                 .iter()
                 .enumerate()
                 .map(|(idx, p)| {
@@ -453,15 +480,13 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     let status_badge = if is_active {
                         " [Active / Configured]"
                     } else {
-                        " [Unconfigured]"
+                        " [Runner Ready]"
                     };
 
                     let style = if is_selected {
                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
-                    } else if is_active {
-                        Style::default().fg(Color::Green)
                     } else {
-                        Style::default().fg(Color::DarkGray)
+                        Style::default().fg(Color::Green)
                     };
 
                     ListItem::new(format!("  {} ({}){}", p.name, p.slug, status_badge)).style(style)
@@ -471,7 +496,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " Scan ROMs Folder - Step 2: Select Target Platform ",
+                        " Scan ROMs Folder - Step 2: Select Configured Emulator Platform ",
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
@@ -567,10 +592,10 @@ fn render_modal(frame: &mut Frame, app: &App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
-            let all_platforms = app.db.get_platforms().unwrap_or_default();
+            let runner_platforms = app.get_runner_platforms();
             let active_ids: Vec<i64> = app.platforms.iter().map(|p| p.id).collect();
 
-            let items: Vec<ListItem> = all_platforms
+            let items: Vec<ListItem> = runner_platforms
                 .iter()
                 .enumerate()
                 .map(|(idx, p)| {

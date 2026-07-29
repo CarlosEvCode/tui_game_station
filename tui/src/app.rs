@@ -181,6 +181,31 @@ impl App {
         Ok(app)
     }
 
+    /// Platforms list for Runner Manager (excludes Linux Native & Steam)
+    pub fn get_runner_platforms(&self) -> Vec<Platform> {
+        self.db
+            .get_platforms()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| p.slug != "linux" && p.slug != "steam")
+            .collect()
+    }
+
+    /// Platforms list for Scan ROMs Folder (ONLY configured emulators with executable path!)
+    pub fn get_configured_emulator_platforms(&self) -> Vec<Platform> {
+        self.db
+            .get_platforms()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| {
+                p.platform_type == PlatformType::Emulator && {
+                    let runner = self.db.get_runner_for_platform(p.id).ok().flatten();
+                    runner.and_then(|r| r.executable_path).is_some()
+                }
+            })
+            .collect()
+    }
+
     pub fn load_platforms(&mut self) {
         if let Ok(platforms) = self.db.get_active_platforms(self.show_all_platforms) {
             self.platforms = platforms;
@@ -439,8 +464,8 @@ impl App {
             }
             Action::RunnerModalConfirmPlatform => {
                 if let ModalState::ManageRunnersStep1Platform { selected_platform_idx } = self.modal_state {
-                    let all_platforms = self.db.get_platforms().unwrap_or_default();
-                    if let Some(p) = all_platforms.get(selected_platform_idx) {
+                    let runner_platforms = self.get_runner_platforms();
+                    if let Some(p) = runner_platforms.get(selected_platform_idx) {
                         let runners = self.db.get_runners_for_platform(p.id).unwrap_or_default();
                         let default_exe = runners.first().and_then(|r| r.executable_path.clone()).unwrap_or_default();
 
@@ -623,14 +648,16 @@ impl App {
                 self.modal_state = ModalState::None;
             }
             Action::ModalSelectNext => {
+                let total_configured_emulators = self.get_configured_emulator_platforms().len();
+                let total_runner_platforms = self.get_runner_platforms().len();
+
                 match self.modal_state {
                     ModalState::AddGameStep1Type { ref mut selected_type_idx } => {
                         *selected_type_idx = (*selected_type_idx + 1) % 4;
                     }
                     ModalState::ScanFolderStep1Platform { ref mut selected_platform_idx } => {
-                        let total = self.db.get_platforms().unwrap_or_default().len();
-                        if total > 0 {
-                            *selected_platform_idx = (*selected_platform_idx + 1) % total;
+                        if total_configured_emulators > 0 {
+                            *selected_platform_idx = (*selected_platform_idx + 1) % total_configured_emulators;
                         }
                     }
                     ModalState::AddGameForm { game_type: PlatformType::Emulator, ref mut platform_idx, .. } => {
@@ -639,9 +666,8 @@ impl App {
                         }
                     }
                     ModalState::ManageRunnersStep1Platform { ref mut selected_platform_idx } => {
-                        let total = self.db.get_platforms().unwrap_or_default().len();
-                        if total > 0 {
-                            *selected_platform_idx = (*selected_platform_idx + 1) % total;
+                        if total_runner_platforms > 0 {
+                            *selected_platform_idx = (*selected_platform_idx + 1) % total_runner_platforms;
                         }
                     }
                     ModalState::ManageRunnersStep2Config { ref runners, ref mut selected_runner_idx, ref mut exe_path_input, .. } => {
@@ -656,6 +682,9 @@ impl App {
                 }
             }
             Action::ModalSelectPrev => {
+                let total_configured_emulators = self.get_configured_emulator_platforms().len();
+                let total_runner_platforms = self.get_runner_platforms().len();
+
                 match self.modal_state {
                     ModalState::AddGameStep1Type { ref mut selected_type_idx } => {
                         if *selected_type_idx == 0 {
@@ -665,10 +694,9 @@ impl App {
                         }
                     }
                     ModalState::ScanFolderStep1Platform { ref mut selected_platform_idx } => {
-                        let total = self.db.get_platforms().unwrap_or_default().len();
-                        if total > 0 {
+                        if total_configured_emulators > 0 {
                             if *selected_platform_idx == 0 {
-                                *selected_platform_idx = total - 1;
+                                *selected_platform_idx = total_configured_emulators - 1;
                             } else {
                                 *selected_platform_idx -= 1;
                             }
@@ -684,10 +712,9 @@ impl App {
                         }
                     }
                     ModalState::ManageRunnersStep1Platform { ref mut selected_platform_idx } => {
-                        let total = self.db.get_platforms().unwrap_or_default().len();
-                        if total > 0 {
+                        if total_runner_platforms > 0 {
                             if *selected_platform_idx == 0 {
-                                *selected_platform_idx = total - 1;
+                                *selected_platform_idx = total_runner_platforms - 1;
                             } else {
                                 *selected_platform_idx -= 1;
                             }
@@ -711,7 +738,7 @@ impl App {
             Action::ModalConfirmStep1 => {
                 if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state {
                     if selected_type_idx == 0 {
-                        // Scan ROMs Folder Mode -> Step 2: Select Platform
+                        // Scan ROMs Folder Mode -> Step 2: Select Platform (ONLY configured emulators)
                         self.modal_state = ModalState::ScanFolderStep1Platform {
                             selected_platform_idx: 0,
                         };
@@ -738,8 +765,8 @@ impl App {
             }
             Action::ScanModalConfirmPlatform => {
                 if let ModalState::ScanFolderStep1Platform { selected_platform_idx } = self.modal_state {
-                    let all_platforms = self.db.get_platforms().unwrap_or_default();
-                    if let Some(p) = all_platforms.get(selected_platform_idx) {
+                    let emulator_platforms = self.get_configured_emulator_platforms();
+                    if let Some(p) = emulator_platforms.get(selected_platform_idx) {
                         let default_exts = p.default_extensions.join(", ");
                         self.modal_state = ModalState::ScanFolderForm {
                             platform: p.clone(),
@@ -927,12 +954,6 @@ impl App {
                     ..
                 } = self.modal_state.clone()
                 {
-                    let runner = self.db.get_runner_for_platform(platform.id).ok().flatten();
-                    if runner.as_ref().and_then(|r| r.executable_path.as_ref()).is_none() && platform.slug != "linux" && platform.slug != "windows" {
-                        self.status_msg = format!("[Runner Not Configured] Configure or download a runner for '{}' in [m] before scanning ROMs.", platform.name);
-                        return;
-                    }
-
                     let path = PathBuf::from(folder_path.trim());
                     if !path.exists() {
                         self.status_msg = format!("[Error] Folder path does not exist: '{}'", folder_path);
