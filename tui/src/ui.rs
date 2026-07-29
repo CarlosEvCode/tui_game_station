@@ -416,7 +416,7 @@ fn render_download_gauge(frame: &mut Frame, progress: &crate::app::DownloadProgr
 }
 
 /// Render centered pop-up modal overlay dialog
-fn render_modal(frame: &mut Frame, app: &App) {
+fn render_modal(frame: &mut Frame, app: &mut App) {
     let popup_area = centered_rect(75, 70, frame.area());
     frame.render_widget(Clear, popup_area);
 
@@ -737,6 +737,16 @@ fn render_modal(frame: &mut Frame, app: &App) {
             let tabs_line = Line::from(tab_spans);
             frame.render_widget(Paragraph::new(tabs_line), modal_chunks[0]);
 
+            let (list_area, preview_area) = if active_tab > 0 {
+                let side_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+                    .split(modal_chunks[1]);
+                (side_chunks[0], Some(side_chunks[1]))
+            } else {
+                (modal_chunks[1], None)
+            };
+
             match active_tab {
                 0 => {
                     let items: Vec<ListItem> = if is_searching {
@@ -768,11 +778,11 @@ fn render_modal(frame: &mut Frame, app: &App) {
                             .borders(Borders::ALL)
                             .border_style(Style::default().fg(Color::Cyan)),
                     );
-                    frame.render_widget(list, modal_chunks[1]);
+                    frame.render_widget(list, list_area);
                 }
                 1 => {
                     let items: Vec<ListItem> = if covers.is_empty() {
-                        vec![ListItem::new(" No covers available for this candidate. Select another candidate in Tab 1.").style(Style::default().fg(Color::Yellow))]
+                        vec![ListItem::new(" No covers available for this candidate.").style(Style::default().fg(Color::Yellow))]
                     } else {
                         covers
                             .iter()
@@ -784,7 +794,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
-                                ListItem::new(format!("  Cover #{} - ID: {} | URL: {}", idx + 1, c.id, c.url)).style(style)
+                                ListItem::new(format!("  Cover #{} - ID: {}", idx + 1, c.id)).style(style)
                             })
                             .collect()
                     };
@@ -792,17 +802,17 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     let list = List::new(items).block(
                         Block::default()
                             .title(Span::styled(
-                                " Available Cover Posters (600x900) ",
+                                " Available Covers ",
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
                             .border_style(Style::default().fg(Color::Green)),
                     );
-                    frame.render_widget(list, modal_chunks[1]);
+                    frame.render_widget(list, list_area);
                 }
                 2 => {
                     let items: Vec<ListItem> = if banners.is_empty() {
-                        vec![ListItem::new(" No banners available for this candidate. Select another candidate in Tab 1.").style(Style::default().fg(Color::Yellow))]
+                        vec![ListItem::new(" No banners available for this candidate.").style(Style::default().fg(Color::Yellow))]
                     } else {
                         banners
                             .iter()
@@ -814,7 +824,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
-                                ListItem::new(format!("  Banner #{} - ID: {} | URL: {}", idx + 1, b.id, b.url)).style(style)
+                                ListItem::new(format!("  Banner #{} - ID: {}", idx + 1, b.id)).style(style)
                             })
                             .collect()
                     };
@@ -822,17 +832,17 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     let list = List::new(items).block(
                         Block::default()
                             .title(Span::styled(
-                                " Available Banners / Heroes ",
+                                " Available Banners ",
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
                             .border_style(Style::default().fg(Color::Green)),
                     );
-                    frame.render_widget(list, modal_chunks[1]);
+                    frame.render_widget(list, list_area);
                 }
                 3 => {
                     let items: Vec<ListItem> = if icons.is_empty() {
-                        vec![ListItem::new(" No icons available for this candidate. Select another candidate in Tab 1.").style(Style::default().fg(Color::Yellow))]
+                        vec![ListItem::new(" No icons available for this candidate.").style(Style::default().fg(Color::Yellow))]
                     } else {
                         icons
                             .iter()
@@ -844,7 +854,7 @@ fn render_modal(frame: &mut Frame, app: &App) {
                                 } else {
                                     Style::default().fg(Color::White)
                                 };
-                                ListItem::new(format!("  Icon #{} - ID: {} | URL: {}", idx + 1, ic.id, ic.url)).style(style)
+                                ListItem::new(format!("  Icon #{} - ID: {}", idx + 1, ic.id)).style(style)
                             })
                             .collect()
                     };
@@ -852,20 +862,47 @@ fn render_modal(frame: &mut Frame, app: &App) {
                     let list = List::new(items).block(
                         Block::default()
                             .title(Span::styled(
-                                " Available Game Icons ",
+                                " Available Icons ",
                                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                             ))
                             .borders(Borders::ALL)
                             .border_style(Style::default().fg(Color::Green)),
                     );
-                    frame.render_widget(list, modal_chunks[1]);
+                    frame.render_widget(list, list_area);
                 }
                 _ => {}
             }
 
+            // Render Live Preview on the right panel
+            if let Some(preview_box) = preview_area {
+                let preview_block = Block::default()
+                    .title(Span::styled(
+                        " Image Preview ",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow));
+
+                let inner = preview_block.inner(preview_box);
+                frame.render_widget(preview_block, preview_box);
+
+                if app.visual_preview_loading {
+                    let loading_txt = Paragraph::new("\n  [ Downloading Preview... ]")
+                        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+                    frame.render_widget(loading_txt, inner);
+                } else if let Some(ref mut proto) = app.visual_preview_protocol {
+                    let image_widget = StatefulImage::new(None);
+                    frame.render_stateful_widget(image_widget, inner, proto);
+                } else {
+                    let no_preview = Paragraph::new("\n  No preview selected")
+                        .style(Style::default().fg(Color::DarkGray));
+                    frame.render_widget(no_preview, inner);
+                }
+            }
+
             let help_str = match active_tab {
                 0 => " [Up/Down] Select Candidate | [Enter] Load Candidate Media | [Tab] Switch Tab | [Esc] Close",
-                _ => " [Up/Down] Select Image | [Enter] Apply Image | [Tab] Switch Tab | [Esc] Close",
+                _ => " [Up/Down] Preview Image | [Enter] Apply Image | [Tab] Switch Tab | [Esc] Close",
             };
             let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[2]);

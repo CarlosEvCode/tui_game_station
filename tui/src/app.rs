@@ -18,6 +18,11 @@ pub struct LoadedCoverEvent {
     pub protocol: StatefulProtocol,
 }
 
+pub struct LoadedPreviewEvent {
+    pub url: String,
+    pub protocol: StatefulProtocol,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
     Platforms,
@@ -172,8 +177,13 @@ pub struct App {
     pub download_rx: Option<mpsc::Receiver<DownloadEvent>>,
     pub cover_tx: mpsc::Sender<LoadedCoverEvent>,
     pub cover_rx: mpsc::Receiver<LoadedCoverEvent>,
+    pub preview_tx: mpsc::Sender<LoadedPreviewEvent>,
+    pub preview_rx: mpsc::Receiver<LoadedPreviewEvent>,
     pub pending_cover_requests: HashSet<i64>,
     pub image_protocols: HashMap<i64, StatefulProtocol>,
+    pub visual_preview_protocol: Option<StatefulProtocol>,
+    pub visual_preview_url: Option<String>,
+    pub visual_preview_loading: bool,
     pub show_all_platforms: bool,
     pub status_msg: String,
     pub should_quit: bool,
@@ -188,6 +198,7 @@ impl App {
         let show_all_platforms = false;
         let platforms = db.get_active_platforms(show_all_platforms)?;
         let (cover_tx, cover_rx) = mpsc::channel::<LoadedCoverEvent>(50);
+        let (preview_tx, preview_rx) = mpsc::channel::<LoadedPreviewEvent>(50);
 
         let mut app = Self {
             db,
@@ -203,8 +214,13 @@ impl App {
             download_rx: None,
             cover_tx,
             cover_rx,
+            preview_tx,
+            preview_rx,
             pending_cover_requests: HashSet::new(),
             image_protocols: HashMap::new(),
+            visual_preview_protocol: None,
+            visual_preview_url: None,
+            visual_preview_loading: false,
             show_all_platforms,
             status_msg: if steam_added > 0 {
                 format!(
@@ -353,6 +369,80 @@ impl App {
         while let Ok(loaded) = self.cover_rx.try_recv() {
             self.pending_cover_requests.remove(&loaded.game_id);
             self.image_protocols.insert(loaded.game_id, loaded.protocol);
+        }
+
+        // Receive loaded preview events for Visual Media Selector
+        while let Ok(loaded) = self.preview_rx.try_recv() {
+            if self.visual_preview_url.as_deref() == Some(&loaded.url) {
+                self.visual_preview_protocol = Some(loaded.protocol);
+                self.visual_preview_loading = false;
+            }
+        }
+    }
+
+    pub fn update_visual_media_preview(&mut self) {
+        if let ModalState::VisualMediaSelector {
+            active_tab,
+            ref covers,
+            selected_cover_idx,
+            ref banners,
+            selected_banner_idx,
+            ref icons,
+            selected_icon_idx,
+            ..
+        } = self.modal_state
+        {
+            let target_url = match active_tab {
+                1 => covers.get(selected_cover_idx).map(|c| c.thumb.as_ref().unwrap_or(&c.url).clone()),
+                2 => banners.get(selected_banner_idx).map(|b| b.thumb.as_ref().unwrap_or(&b.url).clone()),
+                3 => icons.get(selected_icon_idx).map(|i| i.thumb.as_ref().unwrap_or(&i.url).clone()),
+                _ => None,
+            };
+
+            if let Some(url) = target_url {
+                if self.visual_preview_url.as_deref() == Some(&url) {
+                    return;
+                }
+
+                self.visual_preview_url = Some(url.clone());
+                self.visual_preview_loading = true;
+                self.visual_preview_protocol = None;
+
+                let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                let cache_dir = media_dir.join("preview_cache");
+                let _ = std::fs::create_dir_all(&cache_dir);
+
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hash::hash(&url, &mut hasher);
+                let url_hash = format!("{:x}", std::hash::Hasher::finish(&hasher));
+                let cache_path = cache_dir.join(format!("{}.jpg", url_hash));
+
+                if cache_path.exists() {
+                    let mut manager = CoverManager::new();
+                    if let Some(protocol) = manager.load_protocol_from_file(&cache_path) {
+                        self.visual_preview_protocol = Some(protocol);
+                        self.visual_preview_loading = false;
+                        return;
+                    }
+                }
+
+                let key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
+                let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                let tx = self.preview_tx.clone();
+                let url_to_fetch = url.clone();
+                tokio::spawn(async move {
+                    if client.download_file_to_path(&url_to_fetch, &cache_path).await.is_ok() {
+                        let mut manager = CoverManager::new();
+                        if let Some(protocol) = manager.load_protocol_from_file(&cache_path) {
+                            let _ = tx.send(LoadedPreviewEvent { url: url_to_fetch, protocol }).await;
+                        }
+                    }
+                });
+            } else {
+                self.visual_preview_url = None;
+                self.visual_preview_loading = false;
+                self.visual_preview_protocol = None;
+            }
         }
     }
 
@@ -893,6 +983,7 @@ impl App {
                     },
                     _ => {}
                 }
+                self.update_visual_media_preview();
             }
             Action::ModalSelectPrev => {
                 let total_configured_emulators = self.get_configured_emulator_platforms().len();
@@ -1012,6 +1103,7 @@ impl App {
                     },
                     _ => {}
                 }
+                self.update_visual_media_preview();
             }
             Action::ModalConfirmStep1 => {
                 if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state {
@@ -1695,6 +1787,7 @@ impl App {
                             *active_tab = 1; // Switch to Covers tab
                             self.status_msg = format!("[OK] Candidate '{}' selected. {} covers, {} banners, {} icons loaded.", cand_name, c_count, b_count, i_count);
                         }
+                        self.update_visual_media_preview();
                     }
                 }
             }
@@ -1702,6 +1795,7 @@ impl App {
                 if let ModalState::VisualMediaSelector { ref mut active_tab, .. } = self.modal_state {
                     *active_tab = (*active_tab + 1) % 4;
                 }
+                self.update_visual_media_preview();
             }
             Action::ApplyVisualMediaSelection => {
                 if let ModalState::VisualMediaSelector {
