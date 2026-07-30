@@ -171,6 +171,11 @@ pub enum ModalState {
         cursor_pos: usize,
         parent_modal: Box<ModalState>,
     },
+    ConfirmDeleteGame {
+        game_ids: Vec<i64>,
+        display_title: String,
+        selected_option: usize,
+    },
 }
 
 pub enum Action {
@@ -229,6 +234,9 @@ pub enum Action {
     QuickRescanPlatform,
     ToggleSelectGame,
     DeleteSelectedGames,
+    OpenConfirmDeleteModal,
+    ConfirmDeleteGameExecution,
+    ToggleConfirmDeleteOption,
     FetchGameMedia,
     SaveApiKey,
     OpenSettingsModal,
@@ -2721,22 +2729,41 @@ impl App {
                     }
                 }
             }
-            Action::DeleteSelectedGames => {
+            Action::DeleteSelectedGames | Action::OpenConfirmDeleteModal => {
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
-                    if !self.selected_game_ids.is_empty() {
+                    let (game_ids, display_title) = if !self.selected_game_ids.is_empty() {
                         let ids: Vec<i64> = self.selected_game_ids.iter().copied().collect();
-                        let count = self.db.delete_games(&ids).unwrap_or(0);
-                        self.selected_game_ids.clear();
-                        self.status_msg =
-                            format!("[OK] Removed {} selected game(s) from database.", count);
-                        self.load_platforms();
+                        let title = format!("{} selected games", ids.len());
+                        (ids, title)
                     } else if self.selected_game_idx < self.games.len() {
                         let game = &self.games[self.selected_game_idx];
-                        let title = game.title.clone();
-                        if self.db.delete_game(game.id).is_ok() {
-                            self.status_msg = format!("[OK] Removed '{}' from database.", title);
-                            self.load_platforms();
-                        }
+                        (vec![game.id], game.title.clone())
+                    } else {
+                        return;
+                    };
+
+                    self.modal_state = ModalState::ConfirmDeleteGame {
+                        game_ids,
+                        display_title,
+                        selected_option: 0,
+                    };
+                }
+            }
+            Action::ToggleConfirmDeleteOption => {
+                if let ModalState::ConfirmDeleteGame { ref mut selected_option, .. } = self.modal_state {
+                    *selected_option = if *selected_option == 0 { 1 } else { 0 };
+                }
+            }
+            Action::ConfirmDeleteGameExecution => {
+                if let ModalState::ConfirmDeleteGame { game_ids, display_title, selected_option } = self.modal_state.clone() {
+                    if selected_option == 1 {
+                        let count = self.db.delete_games(&game_ids).unwrap_or(0);
+                        self.selected_game_ids.clear();
+                        self.status_msg = format!("[OK] Removed {} ('{}') from library.", if game_ids.len() > 1 { format!("{} games", count) } else { "game".to_string() }, display_title);
+                        self.modal_state = ModalState::None;
+                        self.load_platforms();
+                    } else {
+                        self.modal_state = ModalState::None;
                     }
                 }
             }

@@ -68,6 +68,9 @@ async fn main() -> Result<()> {
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::ProtonDownloaderSelectPrev).await;
                                 }
+                                ModalState::ConfirmDeleteGame { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteOption).await;
+                                }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
@@ -86,6 +89,9 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::ProtonDownloaderSelectNext).await;
+                                }
+                                ModalState::ConfirmDeleteGame { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteOption).await;
                                 }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
@@ -111,6 +117,9 @@ async fn main() -> Result<()> {
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::ProtonDownloaderBack).await;
                                 }
+                                ModalState::ConfirmDeleteGame { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteOption).await;
+                                }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
@@ -126,6 +135,9 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::ProtonDownloader { .. } => {
                                     app.update(Action::ProtonDownloaderConfirm).await;
+                                }
+                                ModalState::ConfirmDeleteGame { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteOption).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectNext).await;
@@ -286,6 +298,9 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::EditCustomArgsInput { .. } => {
                                     app.update(Action::SaveCustomArgsInput).await;
+                                }
+                                ModalState::ConfirmDeleteGame { .. } => {
+                                    app.update(Action::ConfirmDeleteGameExecution).await;
                                 }
                                 ModalState::AddGameForm {
                                     ref game_type,
@@ -538,8 +553,8 @@ async fn main() -> Result<()> {
                             KeyCode::Char(' ') => {
                                 app.update(Action::ToggleSelectGame).await;
                             }
-                            KeyCode::Delete | KeyCode::Char('x') => {
-                                app.update(Action::DeleteSelectedGames).await;
+                            KeyCode::Delete => {
+                                app.update(Action::OpenConfirmDeleteModal).await;
                             }
                             _ => {}
                         }

@@ -1544,6 +1544,60 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
+        ModalState::ConfirmDeleteGame {
+            ref display_title,
+            selected_option,
+            ref game_ids,
+        } => {
+            let msg = if game_ids.len() > 1 {
+                format!("Are you sure you want to remove {} selected games from your library?", game_ids.len())
+            } else {
+                format!("Are you sure you want to remove '{}' from your library?", display_title)
+            };
+
+            let popup_area = centered_rect(65, 25, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let no_style = if selected_option == 0 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            let yes_style = if selected_option == 1 {
+                Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let content = vec![
+                Line::from(""),
+                Line::from(Span::styled(msg, Style::default().fg(Color::White).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("   [ NO ]   ", no_style),
+                    Span::raw("          "),
+                    Span::styled("   [ YES, DELETE ]   ", yes_style),
+                ]),
+            ];
+
+            let block = Paragraph::new(content).block(
+                Block::default()
+                    .title(Span::styled(" Confirm Game Deletion ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(5), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(block, chunks[0]);
+
+            let help = Paragraph::new(" [Left/Right/Tab] Select Option | [Enter] Confirm | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
         ModalState::ManageRunnersStep2Config {
             ref runner_info,
             ref exe_path_input,
