@@ -385,12 +385,14 @@ impl App {
 
     pub fn filter_games_by_search(&mut self) {
         if self.search_query.trim().is_empty() {
+            self.is_search_active = false;
             self.load_games_for_selected_platform();
             return;
         }
 
+        self.is_search_active = true;
         let q = self.search_query.to_lowercase();
-        let all_games = self.db.get_games_for_platform(self.platforms[self.selected_platform_idx].id).unwrap_or_default();
+        let all_games = self.db.get_all_games().unwrap_or_default();
         self.games = all_games.into_iter().filter(|g| g.title.to_lowercase().contains(&q)).collect();
         self.selected_game_idx = 0;
         self.trigger_async_cover_fetch();

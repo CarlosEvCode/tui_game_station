@@ -24,7 +24,7 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
             ])
             .split(frame.area());
 
-        render_header(frame, chunks[0]);
+        render_header(frame, app, chunks[0]);
         render_main_content(frame, app, chunks[1]);
         render_activity_status_bar(frame, app, chunks[2]);
         render_controls_footer(frame, app, chunks[3]);
@@ -37,28 +37,54 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
     crate::toast::render_toasts(frame, &app.toasts, frame.area());
 }
 
-fn render_header(frame: &mut Frame, area: Rect) {
-    let header_text = vec![Line::from(vec![
-        Span::styled(
-            " TUI GAME STATION ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            "| Standalone Games Launcher ",
-            Style::default().fg(Color::DarkGray),
-        ),
-    ])];
+fn render_header(frame: &mut Frame, app: &App, area: Rect) {
+    let header_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(26), Constraint::Min(20)])
+        .split(area);
 
-    let header_paragraph = Paragraph::new(header_text).block(
+    let logo_text = Line::from(vec![
+        Span::styled(
+            " 🎮 TUI GAME STATION ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    let logo_p = Paragraph::new(logo_text).block(
         Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan)),
     );
+    frame.render_widget(logo_p, header_chunks[0]);
 
-    frame.render_widget(header_paragraph, area);
+    let (search_text, search_border_color) = if !app.search_query.is_empty() {
+        (
+            vec![Line::from(vec![
+                Span::styled(" 🔍 ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(&app.search_query, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("  [{} juegos encontrados en todas las consolas]", app.games.len()), Style::default().fg(Color::DarkGray)),
+            ])],
+            Color::Yellow,
+        )
+    } else {
+        (
+            vec![Line::from(vec![
+                Span::styled(" 🔍 [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("Buscar juegos en todas las plataformas...", Style::default().fg(Color::DarkGray)),
+            ])],
+            Color::DarkGray,
+        )
+    };
+
+    let search_p = Paragraph::new(search_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(search_border_color)),
+    );
+
+    frame.render_widget(search_p, header_chunks[1]);
 }
 
 fn render_main_content(frame: &mut Frame, app: &mut App, area: Rect) {

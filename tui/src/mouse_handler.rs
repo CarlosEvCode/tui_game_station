@@ -115,7 +115,12 @@ async fn handle_library_click(app: &mut App, x: u16, y: u16, area: Rect) {
     let status_h = 3u16;
     let footer_h = 3u16;
 
-    if y < header_h || y >= area.height.saturating_sub(status_h + footer_h) {
+    if y < header_h {
+        app.update(Action::OpenFuzzySearchModal).await;
+        return;
+    }
+
+    if y >= area.height.saturating_sub(status_h + footer_h) {
         return;
     }
 

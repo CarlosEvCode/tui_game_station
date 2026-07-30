@@ -679,6 +679,54 @@ impl Database {
         Ok(games)
     }
 
+    pub fn get_all_games(&self) -> Result<Vec<Game>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at FROM games ORDER BY title ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(Game {
+                id: row.get(0)?,
+                platform_id: row.get(1)?,
+                title: row.get(2)?,
+                sort_title: row.get(3)?,
+                game_type: row.get(4)?,
+                file_path: row.get(5)?,
+                working_dir: row.get(6)?,
+                custom_command: row.get(7)?,
+                env_vars: row.get(8)?,
+                wine_prefix: row.get(9)?,
+                wine_runner_id: row.get(10)?,
+                steam_appid: row.get(11)?,
+                file_name: row.get(12)?,
+                file_extension: row.get(13)?,
+                file_size: row.get(14)?,
+                file_hash_crc32: row.get(15)?,
+                file_hash_md5: row.get(16)?,
+                file_hash_sha1: row.get(17)?,
+                serial: row.get(18)?,
+                release_year: row.get(19)?,
+                developer: row.get(20)?,
+                publisher: row.get(21)?,
+                description: row.get(22)?,
+                genre: row.get(23)?,
+                rating: row.get(24)?,
+                favorite: row.get(25)?,
+                play_count: row.get(26)?,
+                play_time_seconds: row.get(27)?,
+                last_played_at: row.get(28)?,
+                created_at: row.get(29)?,
+                updated_at: row.get(30)?,
+            })
+        })?;
+
+        let mut games = Vec::new();
+        for g in rows {
+            games.push(g?);
+        }
+        Ok(games)
+    }
+
     pub fn insert_game(&self, game: &Game) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO games (
