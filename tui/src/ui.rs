@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap},
@@ -1551,7 +1551,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             selected_option,
             ref game_ids,
         } => {
-            let popup_area = centered_rect(65, 30, frame.area());
+            let popup_area = centered_rect_fixed(60, 8, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let msg = if game_ids.len() > 1 {
@@ -1582,6 +1582,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ];
 
             let block = Paragraph::new(content)
+                .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true })
                 .block(
                     Block::default()
@@ -1592,12 +1593,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(5), Constraint::Length(2)])
+                .constraints([Constraint::Min(5), Constraint::Length(1)])
                 .split(popup_area);
 
             frame.render_widget(block, chunks[0]);
 
             let help = Paragraph::new(" [Left/Right/Tab] Select Option | [Enter] Confirm | [Esc] Cancel")
+                .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -2078,6 +2080,28 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_y) / 2),
             Constraint::Percentage(percent_y),
             Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
+/// Helper function to center a pop-up dialog box with fixed height in lines and percentage width
+fn centered_rect_fixed(percent_x: u16, height_lines: u16, r: Rect) -> Rect {
+    let margin = r.height.saturating_sub(height_lines) / 2;
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(margin),
+            Constraint::Length(height_lines),
+            Constraint::Min(0),
         ])
         .split(r);
 
