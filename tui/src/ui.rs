@@ -599,54 +599,13 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let top_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
         .split(main_chunks[0]);
 
     let is_bar_focused = app.big_picture_focus == BigPictureFocus::PlatformBar;
     let is_search_focused = app.big_picture_focus == BigPictureFocus::Search;
 
-    // 1. LEFT TOP CHUNK: Platforms Carousel Navbar
-    let mut platform_spans = Vec::new();
-    for (idx, p) in app.platforms.iter().enumerate() {
-        let is_current = idx == app.selected_platform_idx;
-        let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
-        let label = format!(" {} ({}) ", p.name, count);
-
-        if is_current {
-            if is_bar_focused {
-                platform_spans.push(Span::styled(
-                    format!("▶{}◀", label),
-                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
-                ));
-            } else {
-                platform_spans.push(Span::styled(
-                    format!("[{}]", label),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                ));
-            }
-        } else {
-            platform_spans.push(Span::styled(
-                format!(" {} ", p.name),
-                Style::default().fg(Color::DarkGray),
-            ));
-        }
-        platform_spans.push(Span::raw(" "));
-    }
-
-    let platform_bar_color = if is_bar_focused { Color::Yellow } else { Color::DarkGray };
-    let platform_p = Paragraph::new(Line::from(platform_spans)).block(
-        Block::default()
-            .title(Span::styled(
-                if is_bar_focused { " Consoles (Focused) " } else { " Consoles " },
-                Style::default().fg(platform_bar_color),
-            ))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(platform_bar_color)),
-    );
-    frame.render_widget(platform_p, top_chunks[0]);
-
-    // 2. RIGHT TOP CHUNK: Dedicated Search Input Box for Big Picture
+    // 1. LEFT TOP CHUNK: Dedicated Search Input Box for Big Picture
     let search_border_color = if is_search_focused {
         Color::Yellow
     } else if !app.search_query.is_empty() {
@@ -685,7 +644,48 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(search_border_color)),
     );
-    frame.render_widget(search_p, top_chunks[1]);
+    frame.render_widget(search_p, top_chunks[0]);
+
+    // 2. RIGHT TOP CHUNK: Platforms Carousel Navbar
+    let mut platform_spans = Vec::new();
+    for (idx, p) in app.platforms.iter().enumerate() {
+        let is_current = idx == app.selected_platform_idx;
+        let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
+        let label = format!(" {} ({}) ", p.name, count);
+
+        if is_current {
+            if is_bar_focused {
+                platform_spans.push(Span::styled(
+                    format!("▶{}◀", label),
+                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                platform_spans.push(Span::styled(
+                    format!("[{}]", label),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            }
+        } else {
+            platform_spans.push(Span::styled(
+                format!(" {} ", p.name),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        platform_spans.push(Span::raw(" "));
+    }
+
+    let platform_bar_color = if is_bar_focused { Color::Yellow } else { Color::DarkGray };
+    let platform_p = Paragraph::new(Line::from(platform_spans)).block(
+        Block::default()
+            .title(Span::styled(
+                if is_bar_focused { " Consoles (Focused) " } else { " Consoles " },
+                Style::default().fg(platform_bar_color),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(platform_bar_color)),
+    );
+    frame.render_widget(platform_p, top_chunks[1]);
 
     let stage_area = main_chunks[1];
 
@@ -873,18 +873,22 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    // Floating Footer
+    // Floating Footer (Transparent, Fine Brackets, Rounded Borders)
     let footer_text = Line::from(vec![
-        Span::styled(" [Alt+O] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw(" Exit  "),
-        Span::styled(" [Up / Down] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Focus Bar/Carousel  "),
-        Span::styled(" [p] ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::raw(" Platforms Modal  "),
-        Span::styled(" [Tab] ", Style::default().fg(Color::Black).bg(Color::Blue).add_modifier(Modifier::BOLD)),
-        Span::raw(" Cycle Platform  "),
-        Span::styled(" [Enter] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" PLAY GAME "),
+        Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Buscar ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [Tab] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Foco ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [p] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Consolas ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [Alt+O] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::styled("Modo Normal ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled("Lanzar Juego", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
     ]);
 
     let footer_p = Paragraph::new(footer_text)
@@ -892,7 +896,8 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::DarkGray)),
         );
     frame.render_widget(footer_p, main_chunks[2]);
 }

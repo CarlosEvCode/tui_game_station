@@ -87,16 +87,16 @@ async fn handle_big_picture_click(app: &mut App, x: u16, y: u16, area: Rect) {
     let footer_h = 3u16;
 
     if y < top_banner_h {
-        let left_w = (area.width * 70) / 100;
-        if x < left_w {
+        let search_w = (area.width * 30) / 100;
+        if x < search_w {
+            app.big_picture_focus = BigPictureFocus::Search;
+        } else {
             app.big_picture_focus = BigPictureFocus::PlatformBar;
-            if x < area.width / 3 {
+            if x < search_w + (area.width - search_w) / 3 {
                 app.update(Action::PrevPlatform).await;
-            } else if x > (area.width * 2) / 3 {
+            } else if x > search_w + ((area.width - search_w) * 2) / 3 {
                 app.update(Action::NextPlatform).await;
             }
-        } else {
-            app.big_picture_focus = BigPictureFocus::Search;
         }
         return;
     }
