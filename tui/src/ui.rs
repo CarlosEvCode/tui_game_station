@@ -2345,7 +2345,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::PlatformSelector { selected_idx } => {
-            let popup_area = centered_rect(50, 50, frame.area());
+            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(15);
+            let needed_w = (max_name_len as u16 + 24).max(46);
+            let needed_h = ((app.platforms.len() as u16) + 4).clamp(6, 16);
+
+            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let mut items = Vec::new();
@@ -2373,18 +2377,27 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(4), Constraint::Length(2)])
+                .constraints([Constraint::Min(3), Constraint::Length(1)])
                 .split(popup_area);
 
             frame.render_widget(list, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Select Platform | [Esc] Close")
+            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Select | [Esc] Close ")
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
         ModalState::None => {}
     }
+}
+
+/// Helper function to center a pop-up dialog box with exact pixel dimensions relative to screen
+fn centered_rect_exact(width: u16, height: u16, r: Rect) -> Rect {
+    let w = width.min(r.width);
+    let h = height.min(r.height);
+    let x = r.x + (r.width.saturating_sub(w)) / 2;
+    let y = r.y + (r.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, w, h)
 }
 
 /// Helper function to center a pop-up dialog box in percentage relative to screen
