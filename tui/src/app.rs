@@ -193,6 +193,7 @@ pub enum ModalState {
 pub enum BigPictureFocus {
     Carousel,
     PlatformBar,
+    Search,
 }
 
 pub enum Action {
@@ -796,7 +797,8 @@ impl App {
             Action::ToggleBigPictureFocus => {
                 self.big_picture_focus = match self.big_picture_focus {
                     BigPictureFocus::Carousel => BigPictureFocus::PlatformBar,
-                    BigPictureFocus::PlatformBar => BigPictureFocus::Carousel,
+                    BigPictureFocus::PlatformBar => BigPictureFocus::Search,
+                    BigPictureFocus::Search => BigPictureFocus::Carousel,
                 };
             }
             Action::NextPlatform => {

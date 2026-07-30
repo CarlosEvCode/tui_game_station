@@ -512,15 +512,29 @@ async fn main() -> Result<()> {
                         }
                     } else {
                         // Main View Keyboard Shortcuts & Interactive Search Input
-                        if app.focused_pane == FocusedPane::Search {
+                        let is_search_active_focus = if app.is_big_picture {
+                            app.big_picture_focus == BigPictureFocus::Search
+                        } else {
+                            app.focused_pane == FocusedPane::Search
+                        };
+
+                        if is_search_active_focus {
                             match key.code {
                                 KeyCode::Esc => {
                                     app.search_query.clear();
                                     app.filter_games_by_search();
-                                    app.focused_pane = FocusedPane::Platforms;
+                                    if app.is_big_picture {
+                                        app.big_picture_focus = BigPictureFocus::Carousel;
+                                    } else {
+                                        app.focused_pane = FocusedPane::Platforms;
+                                    }
                                 }
                                 KeyCode::Enter | KeyCode::Down => {
-                                    app.focused_pane = FocusedPane::Platforms;
+                                    if app.is_big_picture {
+                                        app.big_picture_focus = BigPictureFocus::Carousel;
+                                    } else {
+                                        app.focused_pane = FocusedPane::Platforms;
+                                    }
                                 }
                                 KeyCode::Backspace => {
                                     if !app.search_query.is_empty() {
@@ -529,7 +543,11 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 KeyCode::Tab => {
-                                    app.update(Action::TogglePane).await;
+                                    if app.is_big_picture {
+                                        app.update(Action::ToggleBigPictureFocus).await;
+                                    } else {
+                                        app.update(Action::TogglePane).await;
+                                    }
                                 }
                                 KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::ALT) => {
                                     app.update(Action::ToggleBigPictureMode).await;
@@ -543,7 +561,11 @@ async fn main() -> Result<()> {
                         } else {
                             match key.code {
                                 KeyCode::Char('/') => {
-                                    app.focused_pane = FocusedPane::Search;
+                                    if app.is_big_picture {
+                                        app.big_picture_focus = BigPictureFocus::Search;
+                                    } else {
+                                        app.focused_pane = FocusedPane::Search;
+                                    }
                                 }
                                 KeyCode::Esc if !app.search_query.is_empty() => {
                                     app.search_query.clear();
@@ -572,7 +594,7 @@ async fn main() -> Result<()> {
                                 }
                                 KeyCode::Tab => {
                                     if app.is_big_picture {
-                                        app.update(Action::NextPlatform).await;
+                                        app.update(Action::ToggleBigPictureFocus).await;
                                     } else {
                                         app.update(Action::TogglePane).await;
                                     }

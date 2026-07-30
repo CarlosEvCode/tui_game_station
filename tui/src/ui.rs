@@ -591,24 +591,22 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Top Title Banner
-            Constraint::Min(10),   // CoverFlow Stage
-            Constraint::Length(3), // Floating Minimal Footer
+            Constraint::Length(3), // Top Row (Platforms Navbar + Search Input)
+            Constraint::Min(10),   // Stage
+            Constraint::Length(3), // Floating Footer
         ])
         .split(area);
 
+    let top_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(main_chunks[0]);
+
     let is_bar_focused = app.big_picture_focus == BigPictureFocus::PlatformBar;
-    let current_game_num = if app.games.is_empty() { 0 } else { app.selected_game_idx + 1 };
-    let total_games_num = app.games.len();
+    let is_search_focused = app.big_picture_focus == BigPictureFocus::Search;
 
-    let mut header_spans = vec![
-        Span::styled(
-            if is_bar_focused { " PLATFORMS " } else { " BIG PICTURE " },
-            Style::default().fg(if is_bar_focused { Color::Yellow } else { Color::Cyan }).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" | "),
-    ];
-
+    // 1. LEFT TOP CHUNK: Platforms Carousel Navbar
+    let mut platform_spans = Vec::new();
     for (idx, p) in app.platforms.iter().enumerate() {
         let is_current = idx == app.selected_platform_idx;
         let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
@@ -616,40 +614,78 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         if is_current {
             if is_bar_focused {
-                header_spans.push(Span::styled(
+                platform_spans.push(Span::styled(
                     format!("▶{}◀", label),
                     Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ));
             } else {
-                header_spans.push(Span::styled(
+                platform_spans.push(Span::styled(
                     format!("[{}]", label),
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ));
             }
         } else {
-            header_spans.push(Span::styled(
+            platform_spans.push(Span::styled(
                 format!(" {} ", p.name),
                 Style::default().fg(Color::DarkGray),
             ));
         }
-        header_spans.push(Span::raw(" "));
+        platform_spans.push(Span::raw(" "));
     }
 
-    header_spans.push(Span::raw(" | "));
-    header_spans.push(Span::styled(
-        format!("Game {}/{}", current_game_num, total_games_num),
-        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-    ));
-
-    let banner_border_color = if is_bar_focused { Color::Yellow } else { Color::Cyan };
-
-    let top_banner = Paragraph::new(Line::from(header_spans)).block(
+    let platform_bar_color = if is_bar_focused { Color::Yellow } else { Color::DarkGray };
+    let platform_p = Paragraph::new(Line::from(platform_spans)).block(
         Block::default()
+            .title(Span::styled(
+                if is_bar_focused { " Consoles (Focused) " } else { " Consoles " },
+                Style::default().fg(platform_bar_color),
+            ))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(banner_border_color)),
+            .border_style(Style::default().fg(platform_bar_color)),
     );
-    frame.render_widget(top_banner, main_chunks[0]);
+    frame.render_widget(platform_p, top_chunks[0]);
+
+    // 2. RIGHT TOP CHUNK: Dedicated Search Input Box for Big Picture
+    let search_border_color = if is_search_focused {
+        Color::Yellow
+    } else if !app.search_query.is_empty() {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
+    let search_content = if !app.search_query.is_empty() {
+        let cursor = if is_search_focused { "█" } else { "" };
+        vec![Line::from(vec![
+            Span::styled(" > ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(&app.search_query, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(cursor, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(format!(" ({})", app.games.len()), Style::default().fg(Color::DarkGray)),
+        ])]
+    } else if is_search_focused {
+        vec![Line::from(vec![
+            Span::styled(" > ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" (Type...)", Style::default().fg(Color::DarkGray)),
+        ])]
+    } else {
+        vec![Line::from(vec![
+            Span::styled("   [Search...]", Style::default().fg(Color::DarkGray)),
+        ])]
+    };
+
+    let search_p = Paragraph::new(search_content).block(
+        Block::default()
+            .title(Span::styled(
+                if is_search_focused { " Search (Active) " } else { " Search " },
+                Style::default().fg(search_border_color),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(search_border_color)),
+    );
+    frame.render_widget(search_p, top_chunks[1]);
 
     let stage_area = main_chunks[1];
 
