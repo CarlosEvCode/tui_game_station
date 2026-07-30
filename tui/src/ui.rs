@@ -1275,113 +1275,145 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::ProtonDownloader {
-            active_section,
-            target_launcher,
-            repo_idx,
+            step,
+            selected_launcher_idx,
+            selected_tool_idx,
             ref releases,
             selected_release_idx,
             is_loading,
             download_event: _,
         } => {
-            let launcher_spans: Vec<Span> = scraper::proton::TargetLauncher::all()
-                .iter()
-                .map(|t| {
-                    let is_target = *t == target_launcher;
-                    if is_target {
-                        if active_section == 0 {
-                            Span::styled(format!(" [ {} ] ", t.display_name()), Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD))
-                        } else {
-                            Span::styled(format!(" < {} > ", t.display_name()), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-                        }
-                    } else {
-                        Span::styled(format!("  {}  ", t.display_name()), Style::default().fg(Color::Gray))
-                    }
-                })
-                .collect();
-
-            let valid_repos = target_launcher.valid_repos();
-            let current_repo = valid_repos.get(repo_idx).copied().unwrap_or(scraper::proton::ProtonRepo::GEProton);
-
-            let repo_spans: Vec<Span> = valid_repos
-                .iter()
-                .enumerate()
-                .map(|(idx, repo)| {
-                    let is_active_repo = idx == repo_idx;
-                    if is_active_repo {
-                        if active_section == 1 {
-                            Span::styled(format!(" [ {} ] ", repo.display_name()), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD))
-                        } else {
-                            Span::styled(format!(" < {} > ", repo.display_name()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-                        }
-                    } else {
-                        Span::styled(format!("  {}  ", repo.display_name()), Style::default().fg(Color::Gray))
-                    }
-                })
-                .collect();
+            let launchers = scraper::proton::TargetLauncher::all();
+            let current_launcher = launchers.get(selected_launcher_idx).copied().unwrap_or(scraper::proton::TargetLauncher::Steam);
+            let valid_tools = current_launcher.valid_repos();
+            let current_tool = valid_tools.get(selected_tool_idx).copied().unwrap_or(scraper::proton::ProtonRepo::GEProton);
 
             let modal_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(2), Constraint::Length(2), Constraint::Min(6), Constraint::Length(2)])
+                .constraints([Constraint::Length(2), Constraint::Min(6), Constraint::Length(2)])
                 .split(popup_area);
 
-            frame.render_widget(Paragraph::new(Line::from(launcher_spans)), modal_chunks[0]);
-            frame.render_widget(Paragraph::new(Line::from(repo_spans)), modal_chunks[1]);
+            let breadcrumb_line = match step {
+                0 => Line::from(vec![
+                    Span::styled(" [ STEP 1/3 ] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(" Select Target Launcher", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                ]),
+                1 => Line::from(vec![
+                    Span::styled(" [ STEP 2/3 ] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" {} ", current_launcher.display_name()), Style::default().fg(Color::Cyan)),
+                    Span::styled("➜  Select Tool / Runner", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                ]),
+                _ => Line::from(vec![
+                    Span::styled(" [ STEP 3/3 ] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" {} ➜ {} ", current_launcher.display_name(), current_tool.display_name()), Style::default().fg(Color::Cyan)),
+                    Span::styled("➜  Select Version to Download", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                ]),
+            };
+            frame.render_widget(Paragraph::new(breadcrumb_line), modal_chunks[0]);
 
-            if is_loading {
-                let loading_p = Paragraph::new("\n  [ Fetching releases from API... ]")
-                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-                frame.render_widget(loading_p, modal_chunks[2]);
-            } else if releases.is_empty() {
-                let empty_msg = if active_section < 2 {
-                    "\n  Select a Tool/Runner above and press [Enter] to fetch available releases."
-                } else {
-                    "\n  No downloadable releases found for this repository."
-                };
-                let empty_p = Paragraph::new(empty_msg)
-                    .style(Style::default().fg(if active_section < 2 { Color::Yellow } else { Color::Red }).add_modifier(Modifier::BOLD));
-                frame.render_widget(empty_p, modal_chunks[2]);
-            } else {
-                let items: Vec<ListItem> = releases
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, rel)| {
-                        let is_selected = idx == selected_release_idx;
-                        let size_mb = rel.asset.as_ref().map(|a| a.size as f64 / 1_048_576.0).unwrap_or(0.0);
-                        let style = if is_selected && active_section == 2 {
-                            Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
-                        } else if is_selected {
-                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::default().fg(Color::White)
-                        };
-                        ListItem::new(format!("  {:28}  ({:.1} MB)  Published: {}", rel.name, size_mb, rel.published_at.chars().take(10).collect::<String>())).style(style)
-                    })
-                    .collect();
+            match step {
+                0 => {
+                    let items: Vec<ListItem> = launchers
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, l)| {
+                            let is_selected = idx == selected_launcher_idx;
+                            let style = if is_selected {
+                                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::White)
+                            };
+                            let sub_dir = l.installation_dir(scraper::proton::ProtonRepo::GEProton);
+                            let path_str = sub_dir.to_str().unwrap_or("");
+                            ListItem::new(format!("  {}  ({})", l.display_name(), path_str)).style(style)
+                        })
+                        .collect();
 
-                let target_dir = target_launcher.installation_dir(current_repo);
-                let folder_name = target_dir.file_name().and_then(|f| f.to_str()).unwrap_or("runners");
-                let border_color = if active_section == 2 { Color::Green } else { Color::DarkGray };
-                let list = List::new(items).block(
-                    Block::default()
-                        .title(Span::styled(
-                            format!(" 3. Available Releases for {} -> [{}] ({}) ", current_repo.display_name(), folder_name, releases.len()),
-                            Style::default().fg(border_color).add_modifier(Modifier::BOLD),
-                        ))
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(border_color)),
-                );
-                frame.render_widget(list, modal_chunks[2]);
+                    let list = List::new(items).block(
+                        Block::default()
+                            .title(Span::styled(" Target Launchers ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Cyan)),
+                    );
+                    frame.render_widget(list, modal_chunks[1]);
+                }
+                1 => {
+                    let items: Vec<ListItem> = valid_tools
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, repo)| {
+                            let is_selected = idx == selected_tool_idx;
+                            let style = if is_selected {
+                                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::White)
+                            };
+                            let target_dir = current_launcher.installation_dir(*repo);
+                            let folder_name = target_dir.file_name().and_then(|f| f.to_str()).unwrap_or("runners");
+                            ListItem::new(format!("  {:32}  [Installs to: {}]", repo.display_name(), folder_name)).style(style)
+                        })
+                        .collect();
+
+                    let list = List::new(items).block(
+                        Block::default()
+                            .title(Span::styled(
+                                format!(" Compatible Tools for {} ({}) ", current_launcher.display_name(), valid_tools.len()),
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            ))
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().fg(Color::Yellow)),
+                    );
+                    frame.render_widget(list, modal_chunks[1]);
+                }
+                _ => {
+                    if is_loading {
+                        let loading_p = Paragraph::new("\n  [ Fetching release catalog from API... ]")
+                            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+                        frame.render_widget(loading_p, modal_chunks[1]);
+                    } else if releases.is_empty() {
+                        let empty_p = Paragraph::new("\n  No downloadable releases found for this repository.")
+                            .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD));
+                        frame.render_widget(empty_p, modal_chunks[1]);
+                    } else {
+                        let items: Vec<ListItem> = releases
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, rel)| {
+                                let is_selected = idx == selected_release_idx;
+                                let size_mb = rel.asset.as_ref().map(|a| a.size as f64 / 1_048_576.0).unwrap_or(0.0);
+                                let style = if is_selected {
+                                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                                } else {
+                                    Style::default().fg(Color::White)
+                                };
+                                ListItem::new(format!("  {:28}  ({:.1} MB)  Published: {}", rel.name, size_mb, rel.published_at.chars().take(10).collect::<String>())).style(style)
+                            })
+                            .collect();
+
+                        let target_dir = current_launcher.installation_dir(current_tool);
+                        let path_str = target_dir.to_str().unwrap_or("");
+                        let list = List::new(items).block(
+                            Block::default()
+                                .title(Span::styled(
+                                    format!(" Releases for {} -> [{}] ({}) ", current_tool.display_name(), path_str, releases.len()),
+                                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                                ))
+                                .borders(Borders::ALL)
+                                .border_style(Style::default().fg(Color::Green)),
+                        );
+                        frame.render_widget(list, modal_chunks[1]);
+                    }
+                }
             }
 
-            let help_text = match active_section {
-                0 => " [Section 1/3: Launcher] [Left/Right] Select Launcher | [Enter / Down] Choose Tool | [Esc] Close",
-                1 => " [Section 2/3: Tool Selector] [Left/Right] Select Tool | [Enter] Fetch Releases | [Up] Launcher | [Esc] Close",
-                _ => " [Section 3/3: Release List] [Up/Down] Select Version | [Enter] Download & Extract | [Up] Tool List | [Esc] Close",
+            let help_text = match step {
+                0 => " [Up/Down] Select Launcher | [Enter] Continue | [Esc] Close",
+                1 => " [Up/Down] Select Tool / Runner | [Enter] Fetch Releases | [Esc] Back",
+                _ => " [Up/Down] Select Version | [Enter] Download & Extract | [Esc] Back to Tools",
             };
-
             let help = Paragraph::new(help_text)
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(help, modal_chunks[3]);
+            frame.render_widget(help, modal_chunks[2]);
         }
 
         ModalState::SelectWineRunnerPicker {

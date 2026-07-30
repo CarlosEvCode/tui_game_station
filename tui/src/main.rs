@@ -43,20 +43,18 @@ async fn main() -> Result<()> {
                     if app.modal_state != ModalState::None {
                         match key.code {
                             KeyCode::Esc => {
-                                app.update(Action::CloseModal).await;
+                                if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                    app.update(Action::ProtonDownloaderBack).await;
+                                } else {
+                                    app.update(Action::CloseModal).await;
+                                }
                             }
                             KeyCode::BackTab => {
-                                if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::ProtonDownloaderTabNext).await;
-                                } else {
-                                    app.update(Action::ModalPrevField).await;
-                                }
+                                app.update(Action::ModalPrevField).await;
                             }
                             KeyCode::Tab => {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
                                     app.update(Action::SwitchVisualMediaTab).await;
-                                } else if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::ProtonDownloaderTabNext).await;
                                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
@@ -68,7 +66,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::VisualMediaNavUp).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::ProtonDownloaderNavUp).await;
+                                    app.update(Action::ProtonDownloaderSelectPrev).await;
                                 }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
@@ -86,7 +84,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::VisualMediaNavDown).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::ProtonDownloaderNavDown).await;
+                                    app.update(Action::ProtonDownloaderSelectNext).await;
                                 }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
@@ -107,7 +105,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::FormNavLeft).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::ProtonDownloaderNavLeft).await;
+                                    app.update(Action::ProtonDownloaderBack).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
@@ -121,7 +119,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::FormNavRight).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
-                                    app.update(Action::ProtonDownloaderNavRight).await;
+                                    app.update(Action::ProtonDownloaderConfirm).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectNext).await;
@@ -157,7 +155,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('r') => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::ProtonDownloaderTabNext).await;
+                                    app.update(Action::ProtonDownloaderSelectNext).await;
                                 } else {
                                     app.update(Action::ModalInputChar('r')).await;
                                 }
@@ -333,7 +331,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('t') => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                    app.update(Action::ProtonDownloaderTabNext).await;
+                                    app.update(Action::ProtonDownloaderSelectNext).await;
                                 } else {
                                     app.update(Action::ModalInputChar('t')).await;
                                 }
