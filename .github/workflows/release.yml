@@ -1,0 +1,80 @@
+name: Release Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # -------------------------------------------------------------------
+  # JOB 1: RELEASE PLEASE (Automated Changelog, Versioning & Release PR)
+  # -------------------------------------------------------------------
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: rust
+          path: .
+
+  # -------------------------------------------------------------------
+  # JOB 2: BUILD & PUBLISH RELEASE ASSETS (Ubuntu 22.04 for max compatibility)
+  # -------------------------------------------------------------------
+  build-and-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    name: Build & Publish Release Binaries
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libsqlite3-dev
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Extract Version Tag
+        run: |
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Build Release Binary
+        run: |
+          cargo build --release --bin tui
+
+      - name: Package Release Tarball
+        run: |
+          DIST_DIR="tui_game_station-${{ env.RELEASE_TAG }}-x86_64-unknown-linux-gnu"
+          mkdir -p "$DIST_DIR"
+          cp target/release/tui "$DIST_DIR/tui-game-station"
+          cp README.md LICENSE "$DIST_DIR/"
+          cp -r docs "$DIST_DIR/" 2>/dev/null || true
+          tar -czvf "${DIST_DIR}.tar.gz" "$DIST_DIR"
+          sha256sum "${DIST_DIR}.tar.gz" > SHA256SUMS
+
+      - name: Upload Binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: |
+            tui_game_station-*-x86_64-unknown-linux-gnu.tar.gz
+            SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
