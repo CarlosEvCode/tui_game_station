@@ -409,6 +409,10 @@ impl App {
             return;
         }
 
+        if self.is_big_picture {
+            self.preload_visible_covers();
+        }
+
         let game = &self.games[self.selected_game_idx];
         let game_id = game.id;
         let title = game.title.clone();
@@ -470,7 +474,7 @@ impl App {
             };
 
             if let Some(path) = cover_path {
-                if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                if let Some(protocol) = manager.load_native_protocol_from_file(&path) {
                     let _ = tx.send(LoadedCoverEvent { game_id, media_type: media_type_str, protocol }).await;
                 }
             }
@@ -481,19 +485,17 @@ impl App {
         if self.games.is_empty() {
             return;
         }
-        let cols = self.big_picture_cols.max(1);
-        let rows = 4;
-        let items_per_page = cols * rows;
-        let current_page = self.selected_game_idx / items_per_page;
-        let start_idx = current_page * items_per_page;
-        let end_idx = (start_idx + items_per_page).min(self.games.len());
+        let sel = self.selected_game_idx;
+        let mut range = Vec::new();
+        if sel > 0 { range.push(sel - 1); }
+        if sel + 1 < self.games.len() { range.push(sel + 1); }
 
-        for idx in start_idx..end_idx {
+        for idx in range {
             let game_id = self.games[idx].id;
             let title = self.games[idx].title.clone();
             let appid = self.games[idx].steam_appid;
 
-            if self.media_protocols.contains_key(&(game_id, "cover".to_string())) {
+            if self.media_protocols.contains_key(&(game_id, "cover_hb".to_string())) {
                 continue;
             }
             if self.pending_cover_requests.contains(&game_id) {
@@ -535,7 +537,7 @@ impl App {
 
                 if let Some(path) = cover_path {
                     if let Some(protocol) = manager.load_halfblocks_protocol_from_file(&path) {
-                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
+                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover_hb".to_string(), protocol }).await;
                     }
                 }
             });
