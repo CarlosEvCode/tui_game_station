@@ -53,6 +53,12 @@ async fn main() -> Result<()> {
                     if app.modal_state != ModalState::None {
                         match key.code {
                             KeyCode::Esc => {
+                                if let ModalState::AppSettings { ref mut is_editing_api_key, .. } = app.modal_state {
+                                    if *is_editing_api_key {
+                                        *is_editing_api_key = false;
+                                        continue;
+                                    }
+                                }
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
                                     app.update(Action::ProtonDownloaderBack).await;
                                 } else if let ModalState::WelcomeWizard { ref sgdb_api_key, .. } = app.modal_state {
@@ -63,7 +69,15 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::BackTab => {
-                                app.update(Action::ModalPrevField).await;
+                                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                    app.update(Action::ModalPrevField).await;
+                                } else if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                    app.update(Action::ModalPrevField).await;
+                                } else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                    app.update(Action::ModalPrevField).await;
+                                } else {
+                                    app.update(Action::ModalNextField).await;
+                                }
                             }
                             KeyCode::Tab => {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
@@ -79,7 +93,8 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Up => match &mut app.modal_state {
-                                ModalState::AppSettings { ref mut selected_field, .. } => {
+                                ModalState::AppSettings { ref mut selected_field, ref mut is_editing_api_key, .. } => {
+                                    *is_editing_api_key = false;
                                     if *selected_field > 0 { *selected_field -= 1; }
                                 }
                                 ModalState::WelcomeWizard { step: 3, ref mut active_field, .. } => {
@@ -103,12 +118,16 @@ async fn main() -> Result<()> {
                                 | ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
+                                ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } => {
+                                    *selected_row = 0;
+                                }
                                 _ => {
-                                    app.update(Action::ModalPrevField).await;
+                                    app.update(Action::ModalSelectPrev).await;
                                 }
                             },
                             KeyCode::Down => match &mut app.modal_state {
-                                ModalState::AppSettings { ref mut selected_field, .. } => {
+                                ModalState::AppSettings { ref mut selected_field, ref mut is_editing_api_key, .. } => {
+                                    *is_editing_api_key = false;
                                     if *selected_field < 2 { *selected_field += 1; }
                                 }
                                 ModalState::WelcomeWizard { step: 3, ref mut active_field, .. } => {
@@ -122,6 +141,9 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ToggleConfirmDeleteOption).await;
+                                }
+                                ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } => {
+                                    *selected_row = 1;
                                 }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
@@ -148,8 +170,20 @@ async fn main() -> Result<()> {
                                         *step -= 1;
                                     }
                                 }
+                                ModalState::AppSettings { selected_field: 0, is_editing_api_key: true, ref mut cursor_pos, .. } => {
+                                    if *cursor_pos > 0 {
+                                        *cursor_pos -= 1;
+                                    }
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavLeft).await;
+                                }
+                                ModalState::ManageRunnersStep2Config { ref selected_row, ref mut selected_action_idx, ref mut cursor_pos, .. } => {
+                                    if *selected_row == 0 {
+                                        if *cursor_pos > 0 { *cursor_pos -= 1; }
+                                    } else if *selected_action_idx > 0 {
+                                        *selected_action_idx -= 1;
+                                    }
                                 }
                                 ModalState::EditCustomArgsInput { .. }
                                 | ModalState::AddGameForm { .. }
@@ -178,8 +212,26 @@ async fn main() -> Result<()> {
                                         *step += 1;
                                     }
                                 }
+                                ModalState::AppSettings { selected_field: 0, is_editing_api_key: true, ref api_key_input, ref mut cursor_pos, .. } => {
+                                    if *cursor_pos < api_key_input.len() {
+                                        *cursor_pos += 1;
+                                    }
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavRight).await;
+                                }
+                                ModalState::ManageRunnersStep2Config { ref runner_info, ref exe_path_input, ref selected_row, ref mut selected_action_idx, ref mut cursor_pos } => {
+                                    if *selected_row == 0 {
+                                        if *cursor_pos < exe_path_input.len() { *cursor_pos += 1; }
+                                    } else {
+                                        let is_downloaded = runner_info.executable_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false);
+                                        let mut total_btns = 3;
+                                        if runner_info.download_url.is_some() { total_btns += 1; }
+                                        if is_downloaded { total_btns += 1; }
+                                        if *selected_action_idx + 1 < total_btns {
+                                            *selected_action_idx += 1;
+                                        }
+                                    }
                                 }
                                 ModalState::EditCustomArgsInput { .. }
                                 | ModalState::AddGameForm { .. }
@@ -199,11 +251,15 @@ async fn main() -> Result<()> {
                             KeyCode::Home => {
                                 if let ModalState::WelcomeWizard { step: 2, ref mut cursor_pos, .. } = app.modal_state {
                                     *cursor_pos = 0;
+                                } else if let ModalState::AppSettings { selected_field: 0, is_editing_api_key: true, ref mut cursor_pos, .. } = app.modal_state {
+                                    *cursor_pos = 0;
                                 }
                             }
                             KeyCode::End => {
                                 if let ModalState::WelcomeWizard { step: 2, ref sgdb_api_key, ref mut cursor_pos, .. } = app.modal_state {
                                     *cursor_pos = sgdb_api_key.len();
+                                } else if let ModalState::AppSettings { selected_field: 0, is_editing_api_key: true, ref api_key_input, ref mut cursor_pos, .. } = app.modal_state {
+                                    *cursor_pos = api_key_input.len();
                                 }
                             }
                             KeyCode::Char('1') => {
@@ -286,10 +342,15 @@ async fn main() -> Result<()> {
                                 ModalState::ConfigureApiKeyInput { .. } => {
                                     app.update(Action::SaveApiKey).await;
                                 }
-                                ModalState::AppSettings { selected_field, .. } => {
-                                    if selected_field == 1 {
+                                ModalState::AppSettings { selected_field, ref mut is_editing_api_key, ref api_key_input, ref mut cursor_pos } => {
+                                    if selected_field == 0 {
+                                        *is_editing_api_key = !*is_editing_api_key;
+                                        if *is_editing_api_key {
+                                            *cursor_pos = api_key_input.len();
+                                        }
+                                    } else if selected_field == 1 {
                                         app.update(Action::OpenWelcomeWizardModal).await;
-                                    } else {
+                                    } else if selected_field == 2 {
                                         app.update(Action::SaveAppSettings).await;
                                     }
                                 }
@@ -472,9 +533,32 @@ async fn main() -> Result<()> {
                                     3 => app.update(Action::StartFolderScan).await,
                                     _ => app.update(Action::ModalNextField).await,
                                 },
-                                ModalState::ManageRunnersStep2Config { .. } => {
-                                    app.update(Action::SaveRunnerConfig).await;
-                                }
+                                ModalState::ManageRunnersStep2Config { ref runner_info, ref exe_path_input, selected_row, selected_action_idx, .. } => {
+                                    if selected_row == 0 {
+                                        if exe_path_input.trim().is_empty() {
+                                            app.update(Action::OpenFilePicker).await;
+                                        } else if let ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } = app.modal_state {
+                                            *selected_row = 1;
+                                        }
+                                    } else {
+                                        let is_downloaded = runner_info.executable_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false);
+                                        let mut actions = vec!["browse"];
+                                        if runner_info.download_url.is_some() { actions.push("download"); }
+                                        actions.push("save");
+                                        if is_downloaded { actions.push("delete"); }
+                                        actions.push("deactivate");
+
+                                        let act = actions.get(selected_action_idx).copied().unwrap_or("save");
+                                        match act {
+                                            "browse" => app.update(Action::OpenFilePicker).await,
+                                            "download" => app.update(Action::StartRunnerDownload).await,
+                                            "save" => app.update(Action::SaveRunnerConfig).await,
+                                            "delete" => app.update(Action::DeleteRunnerDownload).await,
+                                            "deactivate" => app.update(Action::ResetRunnerConfig).await,
+                                            _ => {}
+                                        }
+                                    }
+                                },
                                 _ => {
                                     app.update(Action::SaveModalGame).await;
                                 }
@@ -501,6 +585,10 @@ async fn main() -> Result<()> {
                                     if cursor_pos < sgdb_api_key.len() {
                                         sgdb_api_key.remove(cursor_pos);
                                     }
+                                } else if let ModalState::AppSettings { selected_field: 0, is_editing_api_key: true, ref mut api_key_input, cursor_pos, .. } = app.modal_state {
+                                    if cursor_pos < api_key_input.len() {
+                                        api_key_input.remove(cursor_pos);
+                                    }
                                 } else if let ModalState::ManageWineRunners { .. } = app.modal_state {
                                     app.update(Action::DeleteInstalledWineRunner).await;
                                 }
@@ -511,9 +599,12 @@ async fn main() -> Result<()> {
                                         sgdb_api_key.insert_str(*cursor_pos, &pasted);
                                         *cursor_pos += pasted.len();
                                     }
-                                } else if let ModalState::AppSettings { ref mut api_key_input, selected_field: 0 } = app.modal_state {
+                                } else if let ModalState::AppSettings { selected_field: 0, ref mut is_editing_api_key, ref mut api_key_input, ref mut cursor_pos } = app.modal_state {
                                     if let Some(pasted) = crate::app::get_clipboard_text() {
-                                        api_key_input.push_str(&pasted);
+                                        *is_editing_api_key = true;
+                                        let pos = (*cursor_pos).min(api_key_input.len());
+                                        api_key_input.insert_str(pos, &pasted);
+                                        *cursor_pos = pos + pasted.len();
                                     }
                                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = app.modal_state {
                                     if let Some(pasted) = crate::app::get_clipboard_text() {
@@ -522,16 +613,10 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char('d') => {
-                                match app.modal_state {
-                                    ModalState::ManageRunnersStep2Config { .. } => {
-                                        app.update(Action::ResetRunnerConfig).await;
-                                    }
-                                    ModalState::ManageWineRunners { .. } => {
-                                        app.update(Action::OpenProtonDownloader).await;
-                                    }
-                                    _ => {
-                                        app.update(Action::ModalInputChar('d')).await;
-                                    }
+                                if let ModalState::ManageWineRunners { .. } = app.modal_state {
+                                    app.update(Action::OpenProtonDownloader).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('d')).await;
                                 }
                             }
                             KeyCode::Char('p') => {
@@ -560,33 +645,17 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char('w') => {
-                                if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
-                                    app.update(Action::StartRunnerDownload).await;
-                                } else if let ModalState::ManageRunnersStep1Platform { .. } = app.modal_state {
+                                if let ModalState::ManageRunnersStep1Platform { .. } = app.modal_state {
                                     app.update(Action::OpenWineRunnerManager).await;
                                 } else {
                                     app.update(Action::ModalInputChar('w')).await;
                                 }
                             }
                             KeyCode::Char('x') => {
-                                if let ModalState::ManageRunnersStep2Config { .. } = app.modal_state {
-                                    app.update(Action::DeleteRunnerDownload).await;
-                                } else {
-                                    app.update(Action::ModalInputChar('x')).await;
-                                }
+                                app.update(Action::ModalInputChar('x')).await;
                             }
                             KeyCode::Char('f') => {
-                                match &app.modal_state {
-                                    ModalState::ScanFolderForm { selected_field: 0, .. } => {
-                                        app.update(Action::OpenFolderPicker).await;
-                                    }
-                                    ModalState::ManageRunnersStep2Config { .. } => {
-                                        app.update(Action::OpenFilePicker).await;
-                                    }
-                                    _ => {
-                                        app.update(Action::ModalInputChar('f')).await;
-                                    }
-                                }
+                                app.update(Action::ModalInputChar('f')).await;
                             }
                             KeyCode::Char(c) => {
                                 if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, ref mut cursor_pos, .. } = app.modal_state {

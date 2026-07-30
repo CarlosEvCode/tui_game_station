@@ -1143,14 +1143,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let runner_status = if is_runner_ready {
                 Span::styled("Status: [Runner Ready]", Style::default().fg(Color::Green))
             } else {
-                Span::styled("Status: [Runner Not Configured - Configure in [m]]", Style::default().fg(Color::Red))
+                Span::styled("Status: [Runner Not Configured - Press [c] to Configure]", Style::default().fg(Color::Red))
             };
             lines.push(Line::from(runner_status));
             lines.push(Line::from(""));
 
             lines.push(Line::from(vec![
                 Span::styled("1. Folder Path: ", field_style(0)),
-                Span::raw(if folder_path.is_empty() { "< Press [f] to select folder >" } else { folder_path }),
+                Span::raw(if folder_path.is_empty() { "< Press [Enter] to select folder directory >" } else { folder_path }),
             ]));
             lines.push(Line::from(""));
 
@@ -1189,7 +1189,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [f] System Folder Picker | [Space] Toggle Subfolders | [Enter] Start Scan | [Esc] Back")
+            let help = Paragraph::new(" [Up/Down/Tab] Navigate Fields | [Enter] Confirm / Select Folder | [Space] Toggle Subfolders | [Esc] Back")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -1233,24 +1233,59 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
-        ModalState::AppSettings { ref api_key_input, selected_field } => {
+        ModalState::AppSettings {
+            ref api_key_input,
+            selected_field,
+            is_editing_api_key,
+            cursor_pos,
+        } => {
             let mut lines = Vec::new();
             lines.push(Line::from(Span::styled("Application Settings", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
             lines.push(Line::from(""));
 
-            let f0_style = if selected_field == 0 {
-                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+            let f0_label = if selected_field == 0 { "▶ 1. SteamGridDB API Key: " } else { "  1. SteamGridDB API Key: " };
+            let f0_label_style = if selected_field == 0 {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White).bg(Color::DarkGray)
+                Style::default().fg(Color::White)
             };
+
             lines.push(Line::from(vec![
-                Span::styled("1. SteamGridDB API Key: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    if api_key_input.is_empty() { "< No API Key Configured >" } else { api_key_input },
-                    f0_style,
-                ),
+                Span::styled(f0_label, f0_label_style),
             ]));
-            lines.push(Line::from("   * Get key at: https://www.steamgriddb.com/profile/preferences/api"));
+
+            if is_editing_api_key {
+                let (before, after) = api_key_input.split_at(cursor_pos.min(api_key_input.len()));
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(Span::styled(
+                    "   (Press [Enter] or [Esc] to Lock Key | [Ctrl+V] to Paste)",
+                    Style::default().fg(Color::Yellow),
+                )));
+            } else {
+                let masked_text = if api_key_input.is_empty() {
+                    "< No API Key Set - Press [Enter] to Edit / Paste >".to_string()
+                } else {
+                    "●".repeat(api_key_input.len())
+                };
+                let display_style = if selected_field == 0 {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(masked_text, display_style),
+                ]));
+                lines.push(Line::from(Span::styled(
+                    "   * Get key at: https://www.steamgriddb.com/profile/preferences/api (Press [Enter] to Reveal & Edit)",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
             lines.push(Line::from(""));
 
             let f1_style = if selected_field == 1 {
@@ -1287,12 +1322,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(8), Constraint::Length(2)])
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
                 .split(popup_area);
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate | [Typing] Edit Key | [Enter] Select | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Enter] Reveal & Edit / Confirm | [Esc] Close Settings")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -2203,6 +2238,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         ModalState::ManageRunnersStep2Config {
             ref runner_info,
             ref exe_path_input,
+            selected_row,
+            selected_action_idx,
+            cursor_pos,
         } => {
             let mut lines = Vec::new();
             lines.push(Line::from(vec![
@@ -2213,41 +2251,78 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 ),
             ]));
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "1. Executable / .AppImage Path:",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            )));
+
+            let path_label_style = if selected_row == 0 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
             lines.push(Line::from(vec![
-                Span::raw("   "),
-                Span::styled(
-                    if exe_path_input.is_empty() { "< Press [f] to browse file or [w] to download >" } else { exe_path_input },
-                    Style::default().fg(Color::White).bg(Color::DarkGray),
-                ),
+                Span::styled(if selected_row == 0 { "▶ 1. Executable / AppImage Path: " } else { "  1. Executable / AppImage Path: " }, path_label_style),
             ]));
+
+            let (before, after) = exe_path_input.split_at(cursor_pos.min(exe_path_input.len()));
+            let path_span = if selected_row == 0 {
+                vec![
+                    Span::raw("   "),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                ]
+            } else {
+                vec![
+                    Span::raw("   "),
+                    Span::styled(
+                        if exe_path_input.is_empty() { "< No file selected >" } else { exe_path_input },
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]
+            };
+            lines.push(Line::from(path_span));
             lines.push(Line::from(""));
 
-            let mut actions_line = vec![
-                Span::styled("[ SAVE RUNNER ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::raw("  "),
-            ];
-
-            if runner_info.download_url.is_some() {
-                actions_line.push(Span::styled("[w] Download AppImage", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)));
-                actions_line.push(Span::raw("  "));
-            }
-
+            // Build action buttons list dynamically
             let is_downloaded = runner_info
                 .executable_path
                 .as_ref()
                 .map(|p| std::path::Path::new(p).exists())
                 .unwrap_or(false);
 
-            if is_downloaded {
-                actions_line.push(Span::styled("[x] Delete from Disk", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)));
-                actions_line.push(Span::raw("  "));
+            struct ActionBtn {
+                label: &'static str,
+                fg: Color,
             }
 
-            actions_line.push(Span::styled("[d] Deactivate", Style::default().fg(Color::Red)));
+            let mut btns = vec![
+                ActionBtn { label: "[ Browse File ]", fg: Color::Cyan },
+            ];
+
+            if runner_info.download_url.is_some() {
+                btns.push(ActionBtn { label: "[ Download AppImage ]", fg: Color::LightBlue });
+            }
+
+            btns.push(ActionBtn { label: "[ SAVE RUNNER ]", fg: Color::Green });
+
+            if is_downloaded {
+                btns.push(ActionBtn { label: "[ Delete from Disk ]", fg: Color::Red });
+            }
+
+            btns.push(ActionBtn { label: "[ Deactivate ]", fg: Color::DarkGray });
+
+            let mut actions_line = vec![Span::raw("  ")];
+
+            for (idx, btn) in btns.iter().enumerate() {
+                let is_selected = selected_row == 1 && idx == selected_action_idx;
+                let btn_style = if is_selected {
+                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(btn.fg)
+                };
+
+                actions_line.push(Span::styled(btn.label, btn_style));
+                actions_line.push(Span::raw("  "));
+            }
 
             lines.push(Line::from(actions_line));
 
@@ -2268,7 +2343,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [w] Download | [x] Delete | [f] File Picker | [Enter] Save | [Esc] Back")
+            let help = Paragraph::new(" [Up/Down] Switch Row | [Left/Right] Select Action / Edit Cursor | [Enter] Confirm | [Esc] Back")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

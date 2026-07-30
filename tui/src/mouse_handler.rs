@@ -77,6 +77,66 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
         return;
     }
 
+    if let ModalState::ManageRunnersStep2Config { ref runner_info, ref mut selected_row, ref mut selected_action_idx, .. } = app.modal_state {
+        let popup_area = centered_rect_exact(60, 10, area);
+        if x >= popup_area.x && x < popup_area.x + popup_area.width &&
+           y >= popup_area.y && y < popup_area.y + popup_area.height {
+            let rel_y = y.saturating_sub(popup_area.y + 1);
+            if rel_y <= 2 {
+                *selected_row = 0;
+            } else if rel_y >= 3 {
+                *selected_row = 1;
+                let rel_x = x.saturating_sub(popup_area.x + 2);
+                let w = popup_area.width.saturating_sub(4);
+                let is_downloaded = runner_info.executable_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false);
+                let mut actions = vec!["browse"];
+                if runner_info.download_url.is_some() { actions.push("download"); }
+                actions.push("save");
+                if is_downloaded { actions.push("delete"); }
+                actions.push("deactivate");
+
+                let step_w = w / (actions.len() as u16).max(1);
+                let clicked_action = ((rel_x / step_w.max(1)) as usize).min(actions.len() - 1);
+                *selected_action_idx = clicked_action;
+
+                let act = actions.get(clicked_action).copied().unwrap_or("save");
+                match act {
+                    "browse" => app.update(Action::OpenFilePicker).await,
+                    "download" => app.update(Action::StartRunnerDownload).await,
+                    "save" => app.update(Action::SaveRunnerConfig).await,
+                    "delete" => app.update(Action::DeleteRunnerDownload).await,
+                    "deactivate" => app.update(Action::ResetRunnerConfig).await,
+                    _ => {}
+                }
+            }
+        }
+        return;
+    }
+
+    if let ModalState::AppSettings { ref mut selected_field, ref mut is_editing_api_key, ref api_key_input, ref mut cursor_pos } = app.modal_state {
+        let popup_area = centered_rect_exact(60, 10, area);
+        if x >= popup_area.x && x < popup_area.x + popup_area.width &&
+           y >= popup_area.y && y < popup_area.y + popup_area.height {
+            let rel_y = y.saturating_sub(popup_area.y + 1);
+            if rel_y <= 2 {
+                *selected_field = 0;
+                *is_editing_api_key = !*is_editing_api_key;
+                if *is_editing_api_key {
+                    *cursor_pos = api_key_input.len();
+                }
+            } else if rel_y == 3 || rel_y == 4 {
+                *selected_field = 1;
+                *is_editing_api_key = false;
+                app.update(Action::OpenWelcomeWizardModal).await;
+            } else if rel_y >= 5 {
+                *selected_field = 2;
+                *is_editing_api_key = false;
+                app.update(Action::SaveAppSettings).await;
+            }
+        }
+        return;
+    }
+
     if let ModalState::PlatformSelector { selected_idx } = app.modal_state {
         let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(12);
         let needed_w = (max_name_len as u16 + 26).clamp(42, 60).min(area.width.saturating_sub(4));

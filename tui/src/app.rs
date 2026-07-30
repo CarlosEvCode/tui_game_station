@@ -116,6 +116,8 @@ pub enum ModalState {
     AppSettings {
         api_key_input: String,
         selected_field: usize,
+        is_editing_api_key: bool,
+        cursor_pos: usize,
     },
     WelcomeWizard {
         step: usize,
@@ -151,6 +153,9 @@ pub enum ModalState {
     ManageRunnersStep2Config {
         runner_info: game_core::models::UniqueRunnerInfo,
         exe_path_input: String,
+        selected_row: usize,
+        selected_action_idx: usize,
+        cursor_pos: usize,
     },
     ManageWineRunners {
         installed_runners: Vec<game_core::runner_detector::InstalledWineRunner>,
@@ -1101,9 +1106,13 @@ impl App {
                     let unique_runners = self.db.get_unique_runners().unwrap_or_default();
                     if let Some(r) = unique_runners.get(selected_platform_idx) {
                         let exe_path = r.executable_path.clone().unwrap_or_default();
+                        let len = exe_path.len();
                         self.modal_state = ModalState::ManageRunnersStep2Config {
                             runner_info: r.clone(),
                             exe_path_input: exe_path,
+                            selected_row: 0,
+                            selected_action_idx: 0,
+                            cursor_pos: len,
                         };
                     }
                 }
@@ -1934,6 +1943,7 @@ impl App {
                             if let ModalState::ManageRunnersStep2Config {
                                 ref mut runner_info,
                                 ref mut exe_path_input,
+                                ..
                             } = self.modal_state
                             {
                                 if runner_info.name == name {
@@ -2582,6 +2592,12 @@ impl App {
                 } => {
                     *selected_field = (*selected_field + 1) % 4;
                 }
+                ModalState::ManageRunnersStep2Config {
+                    ref mut selected_row,
+                    ..
+                } => {
+                    *selected_row = 1;
+                }
                 _ => {}
             },
             Action::ModalPrevField => match self.modal_state {
@@ -2623,6 +2639,12 @@ impl App {
                     } else {
                         *selected_field -= 1;
                     }
+                }
+                ModalState::ManageRunnersStep2Config {
+                    ref mut selected_row,
+                    ..
+                } => {
+                    *selected_row = 0;
                 }
                 _ => {}
             },
@@ -2718,20 +2740,29 @@ impl App {
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config {
+                    selected_row: 0,
                     ref mut exe_path_input,
+                    ref mut cursor_pos,
                     ..
                 } = self.modal_state
                 {
-                    exe_path_input.push(ch);
+                    let pos = (*cursor_pos).min(exe_path_input.len());
+                    exe_path_input.insert(pos, ch);
+                    *cursor_pos = pos + 1;
                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state
                 {
                     input.push(ch);
                 } else if let ModalState::AppSettings {
+                    selected_field: 0,
+                    is_editing_api_key: true,
                     ref mut api_key_input,
+                    ref mut cursor_pos,
                     ..
                 } = self.modal_state
                 {
-                    api_key_input.push(ch);
+                    let pos = (*cursor_pos).min(api_key_input.len());
+                    api_key_input.insert(pos, ch);
+                    *cursor_pos = pos + 1;
                 } else if let ModalState::VisualMediaSelector {
                     active_tab: 0,
                     focused_section: 1,
@@ -2852,20 +2883,33 @@ impl App {
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config {
+                    selected_row: 0,
                     ref mut exe_path_input,
+                    ref mut cursor_pos,
                     ..
                 } = self.modal_state
                 {
-                    exe_path_input.pop();
+                    let pos = (*cursor_pos).min(exe_path_input.len());
+                    if pos > 0 && !exe_path_input.is_empty() {
+                        exe_path_input.remove(pos - 1);
+                        *cursor_pos = pos - 1;
+                    }
                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state
                 {
                     input.pop();
                 } else if let ModalState::AppSettings {
+                    selected_field: 0,
+                    is_editing_api_key: true,
                     ref mut api_key_input,
+                    ref mut cursor_pos,
                     ..
                 } = self.modal_state
                 {
-                    api_key_input.pop();
+                    let pos = (*cursor_pos).min(api_key_input.len());
+                    if pos > 0 && !api_key_input.is_empty() {
+                        api_key_input.remove(pos - 1);
+                        *cursor_pos = pos - 1;
+                    }
                 } else if let ModalState::VisualMediaSelector {
                     active_tab: 0,
                     focused_section: 1,
@@ -3208,9 +3252,12 @@ impl App {
                     .ok()
                     .flatten()
                     .unwrap_or_default();
+                let len = current_key.len();
                 self.modal_state = ModalState::AppSettings {
                     api_key_input: current_key,
                     selected_field: 0,
+                    is_editing_api_key: false,
+                    cursor_pos: len,
                 };
                 self.status_msg =
                     "Settings menu opened. Edit API Key and press Enter to save.".to_string();
