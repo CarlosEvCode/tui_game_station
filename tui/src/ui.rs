@@ -2345,28 +2345,28 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::PlatformSelector { selected_idx } => {
-            let needed_w = 58u16.min(frame.area().width.saturating_sub(4));
-            let needed_h = ((app.platforms.len() as u16) + 6).clamp(8, 18).min(frame.area().height.saturating_sub(2));
+            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(12);
+            let needed_w = (max_name_len as u16 + 26).clamp(42, 60).min(frame.area().width.saturating_sub(4));
+            let needed_h = (app.platforms.len() as u16 + 2).clamp(4, 16).min(frame.area().height.saturating_sub(2));
 
             let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
 
-            let inner_width = popup_area.width.saturating_sub(6);
+            let inner_width = popup_area.width.saturating_sub(4) as usize;
 
             let mut items = Vec::new();
             for (idx, p) in app.platforms.iter().enumerate() {
                 let is_sel = idx == selected_idx;
                 let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
-                let count_str = format!("[{} games]", count);
-                let name_len = p.name.len();
-                let count_len = count_str.len();
-                let pad_len = (inner_width as usize).saturating_sub(name_len + count_len + 4);
+                let count_str = format!("({} juegos)", count);
+                let name_str = format!(" {}", p.name);
+                let pad_len = inner_width.saturating_sub(name_str.len() + count_str.len() + 3);
                 let padding = " ".repeat(pad_len);
 
                 let line = if is_sel {
                     Line::from(vec![
                         Span::styled(" ▶ ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {} ", p.name), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled(name_str, Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
                         Span::styled(padding, Style::default().bg(Color::Yellow)),
                         Span::styled(count_str, Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
                         Span::raw(" "),
@@ -2374,7 +2374,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 } else {
                     Line::from(vec![
                         Span::styled("   ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(format!(" {} ", p.name), Style::default().fg(Color::White)),
+                        Span::styled(name_str, Style::default().fg(Color::White)),
                         Span::styled(padding, Style::default().fg(Color::DarkGray)),
                         Span::styled(count_str, Style::default().fg(Color::Cyan)),
                         Span::raw(" "),
@@ -2383,29 +2383,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 items.push(ListItem::new(line));
             }
 
-            let main_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(4), Constraint::Length(2)])
-                .split(popup_area);
-
             let list = List::new(items).block(
                 Block::default()
-                    .title(Span::styled(" 🎮 SELECT GAME PLATFORM 🎮 ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(" 🎮 SELECCIONAR PLATAFORMA 🎮 ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title_bottom(Span::styled(" ▲▼ Navegar | ↵ Seleccionar | Esc Cerrar ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
             );
 
-            frame.render_widget(list, main_chunks[0]);
-
-            let help = Paragraph::new(" [Up/Down] Select Platform  |  [Enter] Confirm  |  [Esc] Cancel ")
-                .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Yellow)),
-                )
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(help, main_chunks[1]);
+            frame.render_widget(list, popup_area);
         }
         ModalState::None => {}
     }
