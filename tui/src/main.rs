@@ -72,7 +72,8 @@ async fn main() -> Result<()> {
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::ManageWineRunners { .. }
-                                | ModalState::SelectWineRunnerPicker { .. } => {
+                                | ModalState::SelectWineRunnerPicker { .. }
+                                | ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
                                 _ => {
@@ -90,7 +91,8 @@ async fn main() -> Result<()> {
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::ManageWineRunners { .. }
-                                | ModalState::SelectWineRunnerPicker { .. } => {
+                                | ModalState::SelectWineRunnerPicker { .. }
+                                | ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::ModalSelectNext).await;
                                 }
                                 _ => {
@@ -164,7 +166,25 @@ async fn main() -> Result<()> {
                                 let is_form = matches!(app.modal_state,
                                     ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. });
                                 if is_form {
-                                    app.update(Action::ModalToggleCheckbox).await;
+                                    let selected_field = match &app.modal_state {
+                                        ModalState::AddGameForm { selected_field, .. } | ModalState::EditGameForm { selected_field, .. } => *selected_field,
+                                        _ => 0,
+                                    };
+                                    let game_type = match &app.modal_state {
+                                        ModalState::AddGameForm { game_type, .. } | ModalState::EditGameForm { game_type, .. } => game_type,
+                                        _ => &PlatformType::Native,
+                                    };
+                                    let on_checkbox = match game_type {
+                                        PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
+                                        PlatformType::Native => selected_field >= 4 && selected_field <= 6,
+                                        PlatformType::Emulator | PlatformType::Steam =>
+                                            selected_field >= 3 && selected_field <= 5,
+                                    };
+                                    if on_checkbox {
+                                        app.update(Action::ModalToggleCheckbox).await;
+                                    } else {
+                                        app.update(Action::ModalInputChar(' ')).await;
+                                    }
                                 } else if let ModalState::ScanFolderForm { .. } = app.modal_state {
                                     app.update(Action::ModalToggleCheckbox).await;
                                 } else if let ModalState::VisualMediaSelector { active_tab, .. } = app.modal_state {
@@ -222,6 +242,43 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::SelectWineTool).await;
+                                    if let Some(cmd) = app.pending_wine_tool.take() {
+                                        match cmd.exe.as_str() {
+                                            "winecfg" | "winetricks" => {
+                                                disable_raw_mode()?;
+                                                execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
+                                                let mut child = std::process::Command::new(&cmd.exe)
+                                                    .args(&cmd.args)
+                                                    .envs(&cmd.envs)
+                                                    .spawn()
+                                                    .ok();
+                                                if let Some(ref mut c) = child {
+                                                    let _ = c.wait();
+                                                }
+                                                enable_raw_mode()?;
+                                                execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
+                                                terminal.clear()?;
+                                                terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                                            }
+                                            "wineserver" => {
+                                                let _ = std::process::Command::new(&cmd.exe)
+                                                    .args(&cmd.args)
+                                                    .envs(&cmd.envs)
+                                                    .output();
+                                            }
+                                            "xdg-open" => {
+                                                let path = cmd.args.first().map(|s| s.as_str()).unwrap_or("");
+                                                if std::path::Path::new(path).exists() {
+                                                    let _ = std::process::Command::new(&cmd.exe)
+                                                        .args(&cmd.args)
+                                                        .spawn();
+                                                } else {
+                                                    app.status_msg = format!("[Warning] Prefix folder does not exist: {}", path);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
                                 }
                                 ModalState::EditCustomArgsInput { .. } => {
                                     app.update(Action::SaveCustomArgsInput).await;
@@ -233,7 +290,8 @@ async fn main() -> Result<()> {
                                 } => {
                                     let on_checkbox = match game_type {
                                         PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
-                                        PlatformType::Native | PlatformType::Emulator | PlatformType::Steam =>
+                                        PlatformType::Native => selected_field >= 4 && selected_field <= 6,
+                                        PlatformType::Emulator | PlatformType::Steam =>
                                             selected_field >= 3 && selected_field <= 5,
                                     };
                                     if on_checkbox {
@@ -274,7 +332,8 @@ async fn main() -> Result<()> {
                                 } => {
                                     let on_checkbox = match game_type {
                                         PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
-                                        PlatformType::Native | PlatformType::Emulator | PlatformType::Steam =>
+                                        PlatformType::Native => selected_field >= 4 && selected_field <= 6,
+                                        PlatformType::Emulator | PlatformType::Steam =>
                                             selected_field >= 3 && selected_field <= 5,
                                     };
                                     if on_checkbox {
