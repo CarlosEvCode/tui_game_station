@@ -405,6 +405,11 @@ impl App {
     }
 
     pub fn trigger_async_cover_fetch(&mut self) {
+        if self.is_big_picture {
+            self.preload_visible_covers();
+            return;
+        }
+
         if self.games.is_empty() || self.selected_game_idx >= self.games.len() {
             return;
         }
@@ -475,6 +480,71 @@ impl App {
                 }
             }
         });
+    }
+
+    pub fn preload_visible_covers(&mut self) {
+        if self.games.is_empty() {
+            return;
+        }
+        let cols = self.big_picture_cols.max(1);
+        let rows = 4;
+        let items_per_page = cols * rows;
+        let current_page = self.selected_game_idx / items_per_page;
+        let start_idx = current_page * items_per_page;
+        let end_idx = (start_idx + items_per_page).min(self.games.len());
+
+        for idx in start_idx..end_idx {
+            let game_id = self.games[idx].id;
+            let title = self.games[idx].title.clone();
+            let appid = self.games[idx].steam_appid;
+
+            if self.media_protocols.contains_key(&(game_id, "cover".to_string())) {
+                continue;
+            }
+            if self.pending_cover_requests.contains(&game_id) {
+                continue;
+            }
+
+            self.pending_cover_requests.insert(game_id);
+            let tx = self.cover_tx.clone();
+            let manager = self.cover_manager.clone();
+            let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
+
+            tokio::spawn(async move {
+                let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                let target_dir = media_dir.join("covers");
+                let local_cover = vec![
+                    target_dir.join(format!("{}.jpg", game_id)),
+                    target_dir.join(format!("{}.png", game_id)),
+                    target_dir.join(format!("{}.webp", game_id)),
+                ]
+                .into_iter()
+                .find(|p| p.exists());
+
+                let cover_path = if let Some(path) = local_cover {
+                    Some(path)
+                } else if appid.is_some() {
+                    SteamCoverResolver::resolve_cover(appid.unwrap()).await
+                } else {
+                    let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
+                    let db_path = dirs::data_dir()
+                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                        .join("tui_game_station")
+                        .join("game_station.db");
+                    if let Ok(res) = client.download_all_media_for_game(Some(db_path), game_id, &title, false).await {
+                        res.cover_path
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(path) = cover_path {
+                    if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
+                    }
+                }
+            });
+        }
     }
 
     pub async fn check_download_events(&mut self) {
@@ -603,6 +673,7 @@ impl App {
             Action::ToggleBigPictureMode => {
                 self.is_big_picture = !self.is_big_picture;
                 if self.is_big_picture {
+                    self.preload_visible_covers();
                     self.status_msg = "[MODE] Switched to BIG PICTURE Mode (Press Alt+O to exit)".to_string();
                 } else {
                     self.status_msg = "[MODE] Switched to LIBRARY Management Mode".to_string();
