@@ -657,14 +657,31 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             ])
             .split(center_inner);
 
-        // Dynamically center the HD cover image with exact aspect ratio cell math
+        // Dynamically center the HD cover image both Vertically & Horizontally
         let cover_box = center_split[0];
         let h = cover_box.height;
         let w = cover_box.width;
-        let estimated_img_w = ((h as f32) * 1.35) as u16;
-        let img_w = estimated_img_w.min(w.saturating_sub(2)).max(8);
+
+        let max_h = h.saturating_sub(1).max(4);
+        let target_w = ((max_h as f32) * 1.33) as u16;
+
+        let (img_w, img_h) = if target_w <= w.saturating_sub(2) {
+            (target_w, max_h)
+        } else {
+            let fit_w = w.saturating_sub(2).max(6);
+            let fit_h = ((fit_w as f32) / 1.33) as u16;
+            (fit_w, fit_h.min(h))
+        };
+
         let offset_x = (w.saturating_sub(img_w)) / 2;
-        let img_centered_rect = Rect::new(cover_box.x + offset_x, cover_box.y, img_w, h);
+        let offset_y = (h.saturating_sub(img_h)) / 2;
+
+        let img_centered_rect = Rect::new(
+            cover_box.x + offset_x,
+            cover_box.y + offset_y,
+            img_w,
+            img_h,
+        );
 
         // Render Featured HD Native Cover Image
         let key = (active_game.id, "cover".to_string());
