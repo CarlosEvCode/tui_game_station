@@ -20,7 +20,22 @@ impl CoverManager {
         Self { picker, halfblocks_picker }
     }
 
-    pub fn load_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
+    pub fn load_native_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
+        if !path.exists() {
+            return None;
+        }
+
+        let dyn_img: DynamicImage = ImageReader::open(path)
+            .ok()?
+            .with_guessed_format()
+            .ok()?
+            .decode()
+            .ok()?;
+        let mut picker = self.picker.clone();
+        Some(picker.new_resize_protocol(dyn_img))
+    }
+
+    pub fn load_halfblocks_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
         if !path.exists() {
             return None;
         }
@@ -33,5 +48,9 @@ impl CoverManager {
             .ok()?;
         let mut picker = self.halfblocks_picker.clone();
         Some(picker.new_resize_protocol(dyn_img))
+    }
+
+    pub fn load_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
+        self.load_native_protocol_from_file(path)
     }
 }

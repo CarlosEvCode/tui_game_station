@@ -539,7 +539,7 @@ impl App {
                 };
 
                 if let Some(path) = cover_path {
-                    if let Some(protocol) = manager.load_protocol_from_file(&path) {
+                    if let Some(protocol) = manager.load_halfblocks_protocol_from_file(&path) {
                         let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
                     }
                 }
