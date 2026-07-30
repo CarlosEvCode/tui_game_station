@@ -7,6 +7,7 @@ use std::path::Path;
 #[derive(Clone)]
 pub struct CoverManager {
     pub picker: Picker,
+    pub halfblocks_picker: Picker,
 }
 
 impl CoverManager {
@@ -14,12 +15,9 @@ impl CoverManager {
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| {
             Picker::from_fontsize((8, 16))
         });
+        let halfblocks_picker = Picker::from_fontsize((8, 16));
 
-        Self { picker }
-    }
-
-    pub fn with_picker(picker: Picker) -> Self {
-        Self { picker }
+        Self { picker, halfblocks_picker }
     }
 
     pub fn load_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
@@ -33,7 +31,7 @@ impl CoverManager {
             .ok()?
             .decode()
             .ok()?;
-        let mut picker = self.picker.clone();
+        let mut picker = self.halfblocks_picker.clone();
         Some(picker.new_resize_protocol(dyn_img))
     }
 }
