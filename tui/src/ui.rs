@@ -2345,38 +2345,67 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::PlatformSelector { selected_idx } => {
-            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(10);
-            let needed_w = (max_name_len as u16 + 12).max(28);
-            let needed_h = (app.platforms.len() as u16 + 2).max(4);
+            let needed_w = 58u16.min(frame.area().width.saturating_sub(4));
+            let needed_h = ((app.platforms.len() as u16) + 6).clamp(8, 18).min(frame.area().height.saturating_sub(2));
 
             let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
+
+            let inner_width = popup_area.width.saturating_sub(6);
 
             let mut items = Vec::new();
             for (idx, p) in app.platforms.iter().enumerate() {
                 let is_sel = idx == selected_idx;
                 let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
-                let text = format!("{} ({})", p.name, count);
-                let style = if is_sel {
-                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                let count_str = format!("[{} games]", count);
+                let name_len = p.name.len();
+                let count_len = count_str.len();
+                let pad_len = (inner_width as usize).saturating_sub(name_len + count_len + 4);
+                let padding = " ".repeat(pad_len);
+
+                let line = if is_sel {
+                    Line::from(vec![
+                        Span::styled(" ▶ ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {} ", p.name), Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled(padding, Style::default().bg(Color::Yellow)),
+                        Span::styled(count_str, Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw(" "),
+                    ])
                 } else {
-                    Style::default().fg(Color::White)
+                    Line::from(vec![
+                        Span::styled("   ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(format!(" {} ", p.name), Style::default().fg(Color::White)),
+                        Span::styled(padding, Style::default().fg(Color::DarkGray)),
+                        Span::styled(count_str, Style::default().fg(Color::Cyan)),
+                        Span::raw(" "),
+                    ])
                 };
-                items.push(ListItem::new(Line::from(vec![
-                    Span::styled(if is_sel { "▶ " } else { "  " }, Style::default().fg(Color::Yellow)),
-                    Span::styled(text, style),
-                ])));
+                items.push(ListItem::new(line));
             }
+
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(4), Constraint::Length(2)])
+                .split(popup_area);
 
             let list = List::new(items).block(
                 Block::default()
-                    .title(Span::styled(" 🎮 Platform ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
-                    .title_bottom(Span::styled(" ↵Select | Esc ", Style::default().fg(Color::Yellow)))
+                    .title(Span::styled(" 🎮 SELECT GAME PLATFORM 🎮 ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
+                    .border_style(Style::default().fg(Color::Cyan)),
             );
 
-            frame.render_widget(list, popup_area);
+            frame.render_widget(list, main_chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Select Platform  |  [Enter] Confirm  |  [Esc] Cancel ")
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                )
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, main_chunks[1]);
         }
         ModalState::None => {}
     }
