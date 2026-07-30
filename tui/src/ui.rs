@@ -2484,65 +2484,66 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(list, popup_area);
         }
         ModalState::CheatsheetModal { .. } => {
-            let needed_w = 68u16.min(frame.area().width.saturating_sub(4));
+            let needed_w = 72u16.min(frame.area().width.saturating_sub(4));
             let needed_h = 16u16.min(frame.area().height.saturating_sub(2));
             let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let lines = vec![
                 Line::from(vec![
-                    Span::styled(" [Navegación] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::styled("▲▼ / Scroll Mouse ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Navegar | "),
+                    Span::styled(" [Navigation] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled("Up/Down / Mouse Scroll ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Browse | "),
                     Span::styled("Tab / p ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Consolas"),
+                    Span::raw("Switch Consoles"),
                 ]),
                 Line::from(vec![
-                    Span::styled(" [Vistas]     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" [Views]      ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled("v ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Cambiar Vista (Tarjetas/Hero/Tabla) | "),
+                    Span::raw("Cycle View (Cards/Banner/Table) | "),
                     Span::styled("Alt+O ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Big Picture"),
+                    Span::raw("Big Picture Mode"),
                 ]),
                 Line::from(vec![
-                    Span::styled(" [Búsqueda]   ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" [Search]     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled("/ ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Búsqueda Difusa en vivo | "),
+                    Span::raw("Focus Search Bar | "),
                     Span::styled("Esc ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Limpiar Filtro"),
+                    Span::raw("Clear Search Query"),
                 ]),
                 Line::from(vec![
-                    Span::styled(" [Juegos]     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::styled("↵ / DblClick ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Lanzar Juego | "),
+                    Span::styled(" [Games]      ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled("Enter / DblClick ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Launch | "),
                     Span::styled("Space ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Seleccionar | "),
+                    Span::raw("Select | "),
                     Span::styled("Del ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Borrar"),
+                    Span::raw("Delete Game"),
                 ]),
                 Line::from(vec![
                     Span::styled(" [Media/ROMs] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled("g ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Descargar Carátulas | "),
+                    Span::raw("Fetch Cover Artwork | "),
                     Span::styled("r ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Re-escanear carpeta"),
+                    Span::raw("Rescan Platform Folder"),
                 ]),
                 Line::from(vec![
-                    Span::styled(" [Gestión]    ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(" [System]     ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled("m ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Emuladores/Runners | "),
+                    Span::raw("Emulators/Runners | "),
                     Span::styled("c ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Wine/Proton | "),
+                    Span::raw("Wine/Proton Tools | "),
                     Span::styled("s ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Ajustes"),
+                    Span::raw("Settings"),
                 ]),
             ];
 
             let p = Paragraph::new(lines).block(
                 Block::default()
-                    .title(Span::styled(" ❓ GUÍA DE ATAJOS Y MOUSE ❓ ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)))
-                    .title_bottom(Span::styled(" Presione [Esc] o [?] para cerrar ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(" KEYBOARD & MOUSE CONTROLS CHEATSHEET ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                    .title_bottom(Span::styled(" Press [Esc] or [?] to close ", Style::default().fg(Color::DarkGray)))
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Yellow)),
             );
 
