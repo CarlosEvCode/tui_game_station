@@ -19,6 +19,7 @@ pub async fn handle_mouse_event(app: &mut App, mouse: MouseEvent, area: Rect) {
                 match app.focused_pane {
                     FocusedPane::Platforms => app.update(Action::PrevPlatform).await,
                     FocusedPane::Games => app.update(Action::PrevGame).await,
+                    FocusedPane::Search => {}
                 }
             }
         }
@@ -35,6 +36,7 @@ pub async fn handle_mouse_event(app: &mut App, mouse: MouseEvent, area: Rect) {
                 match app.focused_pane {
                     FocusedPane::Platforms => app.update(Action::NextPlatform).await,
                     FocusedPane::Games => app.update(Action::NextGame).await,
+                    FocusedPane::Search => {}
                 }
             }
         }
@@ -116,7 +118,7 @@ async fn handle_library_click(app: &mut App, x: u16, y: u16, area: Rect) {
     let footer_h = 3u16;
 
     if y < header_h {
-        app.update(Action::OpenFuzzySearchModal).await;
+        app.focused_pane = FocusedPane::Search;
         return;
     }
 

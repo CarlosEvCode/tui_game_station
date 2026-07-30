@@ -38,53 +38,50 @@ pub fn render_ui(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
-    let header_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(26), Constraint::Min(20)])
-        .split(area);
-
-    let logo_text = Line::from(vec![
-        Span::styled(
-            " 🎮 TUI GAME STATION ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        ),
-    ]);
-    let logo_p = Paragraph::new(logo_text).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Cyan)),
-    );
-    frame.render_widget(logo_p, header_chunks[0]);
-
-    let (search_text, search_border_color) = if !app.search_query.is_empty() {
-        (
-            vec![Line::from(vec![
-                Span::styled(" 🔍 ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(&app.search_query, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("  [{} juegos encontrados en todas las consolas]", app.games.len()), Style::default().fg(Color::DarkGray)),
-            ])],
-            Color::Yellow,
-        )
+    let is_search_focused = app.focused_pane == FocusedPane::Search && app.modal_state == ModalState::None;
+    let border_color = if is_search_focused {
+        Color::Yellow
+    } else if !app.search_query.is_empty() {
+        Color::Cyan
     } else {
-        (
-            vec![Line::from(vec![
-                Span::styled(" 🔍 [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled("Buscar juegos en todas las plataformas...", Style::default().fg(Color::DarkGray)),
-            ])],
-            Color::DarkGray,
-        )
+        Color::DarkGray
     };
 
-    let search_p = Paragraph::new(search_text).block(
+    let title_span = if is_search_focused {
+        Span::styled(" Search (Typing...) ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    } else {
+        Span::styled(" Search ", Style::default().fg(Color::DarkGray))
+    };
+
+    let search_content = if !app.search_query.is_empty() {
+        let cursor = if is_search_focused { "█" } else { "" };
+        vec![Line::from(vec![
+            Span::styled(" > ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(&app.search_query, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(cursor, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  ({} games found across all platforms)", app.games.len()), Style::default().fg(Color::DarkGray)),
+        ])]
+    } else if is_search_focused {
+        vec![Line::from(vec![
+            Span::styled(" > ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" (Type to search across all platforms...)", Style::default().fg(Color::DarkGray)),
+        ])]
+    } else {
+        vec![Line::from(vec![
+            Span::styled("   [Type '/' or click to search games across all platforms...]", Style::default().fg(Color::DarkGray)),
+        ])]
+    };
+
+    let search_p = Paragraph::new(search_content).block(
         Block::default()
+            .title(title_span)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(search_border_color)),
+            .border_style(Style::default().fg(border_color)),
     );
 
-    frame.render_widget(search_p, header_chunks[1]);
+    frame.render_widget(search_p, area);
 }
 
 fn render_main_content(frame: &mut Frame, app: &mut App, area: Rect) {

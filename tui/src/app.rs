@@ -32,6 +32,7 @@ pub struct LoadedPreviewEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
+    Search,
     Platforms,
     Games,
 }
@@ -710,8 +711,9 @@ impl App {
             Action::TogglePane => {
                 if self.modal_state == ModalState::None {
                     self.focused_pane = match self.focused_pane {
+                        FocusedPane::Search => FocusedPane::Platforms,
                         FocusedPane::Platforms => FocusedPane::Games,
-                        FocusedPane::Games => FocusedPane::Platforms,
+                        FocusedPane::Games => FocusedPane::Search,
                     };
                 }
             }

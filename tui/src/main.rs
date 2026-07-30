@@ -511,132 +511,180 @@ async fn main() -> Result<()> {
                             _ => {}
                         }
                     } else {
-                        // Main View Keyboard Shortcuts
-                        match key.code {
-                            KeyCode::Char('/') => {
-                                app.update(Action::OpenFuzzySearchModal).await;
-                            }
-                            KeyCode::Char('?') => {
-                                app.update(Action::OpenCheatsheetModal).await;
-                            }
-                            KeyCode::Char('q') => {
-                                app.update(Action::Quit).await;
-                            }
-                            KeyCode::Char('a') => {
-                                app.update(Action::OpenAddGameModal).await;
-                            }
-                            KeyCode::Char('c') => {
-                                app.update(Action::OpenWineToolsMenu).await;
-                            }
-                            KeyCode::Char('e') => {
-                                app.update(Action::OpenEditGameModal).await;
-                            }
-                            KeyCode::Char('m') => {
-                                app.update(Action::OpenManageRunnersModal).await;
-                            }
-                            KeyCode::Char('w') => {
-                                app.update(Action::OpenVisualMediaModal).await;
-                            }
-                            KeyCode::Tab => {
-                                if app.is_big_picture {
-                                    app.update(Action::NextPlatform).await;
-                                } else {
-                                    app.update(Action::TogglePane).await;
-                                }
-                            }
-                            KeyCode::BackTab => {
-                                if app.is_big_picture {
-                                    app.update(Action::PrevPlatform).await;
-                                }
-                            }
-                            KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::ALT) => {
-                                app.update(Action::ToggleBigPictureMode).await;
-                            }
-                            KeyCode::Right => {
-                                if app.is_big_picture {
-                                    if app.big_picture_focus == BigPictureFocus::PlatformBar {
-                                        app.update(Action::NextPlatform).await;
-                                    } else if app.selected_game_idx + 1 < app.games.len() {
-                                        app.selected_game_idx += 1;
-                                        app.trigger_async_cover_fetch();
-                                    }
-                                } else if app.focused_pane == FocusedPane::Platforms {
-                                    app.focused_pane = FocusedPane::Games;
-                                }
-                            }
-                            KeyCode::Left => {
-                                if app.is_big_picture {
-                                    if app.big_picture_focus == BigPictureFocus::PlatformBar {
-                                        app.update(Action::PrevPlatform).await;
-                                    } else if app.selected_game_idx > 0 {
-                                        app.selected_game_idx -= 1;
-                                        app.trigger_async_cover_fetch();
-                                    }
-                                } else if app.focused_pane == FocusedPane::Games {
+                        // Main View Keyboard Shortcuts & Interactive Search Input
+                        if app.focused_pane == FocusedPane::Search {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    app.search_query.clear();
+                                    app.filter_games_by_search();
                                     app.focused_pane = FocusedPane::Platforms;
                                 }
-                            }
-                            KeyCode::Up => {
-                                if app.is_big_picture {
-                                    app.big_picture_focus = BigPictureFocus::PlatformBar;
-                                } else {
-                                    match app.focused_pane {
-                                        FocusedPane::Platforms => app.update(Action::PrevPlatform).await,
-                                        FocusedPane::Games => app.update(Action::PrevGame).await,
+                                KeyCode::Enter | KeyCode::Down => {
+                                    app.focused_pane = FocusedPane::Platforms;
+                                }
+                                KeyCode::Backspace => {
+                                    if !app.search_query.is_empty() {
+                                        app.search_query.pop();
+                                        app.filter_games_by_search();
                                     }
                                 }
+                                KeyCode::Tab => {
+                                    app.update(Action::TogglePane).await;
+                                }
+                                KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::ALT) => {
+                                    app.update(Action::ToggleBigPictureMode).await;
+                                }
+                                KeyCode::Char(c) => {
+                                    app.search_query.push(c);
+                                    app.filter_games_by_search();
+                                }
+                                _ => {}
                             }
-                            KeyCode::Down => {
-                                if app.is_big_picture {
-                                    app.big_picture_focus = BigPictureFocus::Carousel;
-                                } else {
-                                    match app.focused_pane {
-                                        FocusedPane::Platforms => app.update(Action::NextPlatform).await,
-                                        FocusedPane::Games => app.update(Action::NextGame).await,
+                        } else {
+                            match key.code {
+                                KeyCode::Char('/') => {
+                                    app.focused_pane = FocusedPane::Search;
+                                }
+                                KeyCode::Esc if !app.search_query.is_empty() => {
+                                    app.search_query.clear();
+                                    app.filter_games_by_search();
+                                }
+                                KeyCode::Char('?') => {
+                                    app.update(Action::OpenCheatsheetModal).await;
+                                }
+                                KeyCode::Char('q') => {
+                                    app.update(Action::Quit).await;
+                                }
+                                KeyCode::Char('a') => {
+                                    app.update(Action::OpenAddGameModal).await;
+                                }
+                                KeyCode::Char('c') => {
+                                    app.update(Action::OpenWineToolsMenu).await;
+                                }
+                                KeyCode::Char('e') => {
+                                    app.update(Action::OpenEditGameModal).await;
+                                }
+                                KeyCode::Char('m') => {
+                                    app.update(Action::OpenManageRunnersModal).await;
+                                }
+                                KeyCode::Char('w') => {
+                                    app.update(Action::OpenVisualMediaModal).await;
+                                }
+                                KeyCode::Tab => {
+                                    if app.is_big_picture {
+                                        app.update(Action::NextPlatform).await;
+                                    } else {
+                                        app.update(Action::TogglePane).await;
                                     }
                                 }
-                            }
-                            KeyCode::Enter => {
-                                window_helper::minimize_active_window();
-
-                                disable_raw_mode()?;
-                                execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture, cursor::Show)?;
-
-                                app.update(Action::LaunchGame).await;
-
-                                window_helper::restore_active_window();
-
-                                enable_raw_mode()?;
-                                execute!(stdout(), EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
-                                terminal.clear()?;
-                                terminal.draw(|f| ui::render_ui(f, &mut app))?;
-                            }
-                            KeyCode::Char('v') => {
-                                app.update(Action::ToggleViewMode).await;
-                            }
-                            KeyCode::Char('s') => {
-                                app.update(Action::OpenSettingsModal).await;
-                            }
-                            KeyCode::Char('p') | KeyCode::Char('P') => {
-                                if app.is_big_picture {
-                                    app.update(Action::OpenPlatformSelectorModal).await;
-                                } else {
-                                    app.update(Action::ToggleShowAllPlatforms).await;
+                                KeyCode::BackTab => {
+                                    if app.is_big_picture {
+                                        app.update(Action::PrevPlatform).await;
+                                    }
                                 }
+                                KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::ALT) => {
+                                    app.update(Action::ToggleBigPictureMode).await;
+                                }
+                                KeyCode::Right => {
+                                    if app.is_big_picture {
+                                        if app.big_picture_focus == BigPictureFocus::PlatformBar {
+                                            app.update(Action::NextPlatform).await;
+                                        } else if app.selected_game_idx + 1 < app.games.len() {
+                                            app.selected_game_idx += 1;
+                                            app.trigger_async_cover_fetch();
+                                        }
+                                    } else if app.focused_pane == FocusedPane::Platforms {
+                                        app.focused_pane = FocusedPane::Games;
+                                    }
+                                }
+                                KeyCode::Left => {
+                                    if app.is_big_picture {
+                                        if app.big_picture_focus == BigPictureFocus::PlatformBar {
+                                            app.update(Action::PrevPlatform).await;
+                                        } else if app.selected_game_idx > 0 {
+                                            app.selected_game_idx -= 1;
+                                            app.trigger_async_cover_fetch();
+                                        }
+                                    } else if app.focused_pane == FocusedPane::Games {
+                                        app.focused_pane = FocusedPane::Platforms;
+                                    }
+                                }
+                                KeyCode::Up => {
+                                    if app.is_big_picture {
+                                        app.big_picture_focus = BigPictureFocus::PlatformBar;
+                                    } else {
+                                        match app.focused_pane {
+                                            FocusedPane::Platforms => {
+                                                if app.selected_platform_idx == 0 {
+                                                    app.focused_pane = FocusedPane::Search;
+                                                } else {
+                                                    app.update(Action::PrevPlatform).await;
+                                                }
+                                            }
+                                            FocusedPane::Games => {
+                                                if app.selected_game_idx == 0 {
+                                                    app.focused_pane = FocusedPane::Search;
+                                                } else {
+                                                    app.update(Action::PrevGame).await;
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    if app.is_big_picture {
+                                        app.big_picture_focus = BigPictureFocus::Carousel;
+                                    } else {
+                                        match app.focused_pane {
+                                            FocusedPane::Platforms => app.update(Action::NextPlatform).await,
+                                            FocusedPane::Games => app.update(Action::NextGame).await,
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    window_helper::minimize_active_window();
+
+                                    disable_raw_mode()?;
+                                    execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture, cursor::Show)?;
+
+                                    app.update(Action::LaunchGame).await;
+
+                                    window_helper::restore_active_window();
+
+                                    enable_raw_mode()?;
+                                    execute!(stdout(), EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
+                                    terminal.clear()?;
+                                    terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                                }
+                                KeyCode::Char('v') => {
+                                    app.update(Action::ToggleViewMode).await;
+                                }
+                                KeyCode::Char('s') => {
+                                    app.update(Action::OpenSettingsModal).await;
+                                }
+                                KeyCode::Char('p') | KeyCode::Char('P') => {
+                                    if app.is_big_picture {
+                                        app.update(Action::OpenPlatformSelectorModal).await;
+                                    } else {
+                                        app.update(Action::ToggleShowAllPlatforms).await;
+                                    }
+                                }
+                                KeyCode::Char('r') => {
+                                    app.update(Action::QuickRescanPlatform).await;
+                                }
+                                KeyCode::Char('g') => {
+                                    app.update(Action::FetchGameMedia).await;
+                                }
+                                KeyCode::Char(' ') => {
+                                    app.update(Action::ToggleSelectGame).await;
+                                }
+                                KeyCode::Delete => {
+                                    app.update(Action::OpenConfirmDeleteModal).await;
+                                }
+                                _ => {}
                             }
-                            KeyCode::Char('r') => {
-                                app.update(Action::QuickRescanPlatform).await;
-                            }
-                            KeyCode::Char('g') => {
-                                app.update(Action::FetchGameMedia).await;
-                            }
-                            KeyCode::Char(' ') => {
-                                app.update(Action::ToggleSelectGame).await;
-                            }
-                            KeyCode::Delete => {
-                                app.update(Action::OpenConfirmDeleteModal).await;
-                            }
-                            _ => {}
                         }
                     }
                 }
