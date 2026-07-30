@@ -1233,22 +1233,45 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
-        ModalState::AppSettings { ref api_key_input, .. } => {
+        ModalState::AppSettings { ref api_key_input, selected_field } => {
             let mut lines = Vec::new();
             lines.push(Line::from(Span::styled("Application Settings", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
             lines.push(Line::from(""));
+
+            let f0_style = if selected_field == 0 {
+                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White).bg(Color::DarkGray)
+            };
             lines.push(Line::from(vec![
-                Span::styled("SteamGridDB API Key: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("1. SteamGridDB API Key: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::styled(
                     if api_key_input.is_empty() { "< No API Key Configured >" } else { api_key_input },
-                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                    f0_style,
                 ),
             ]));
+            lines.push(Line::from("   * Get key at: https://www.steamgriddb.com/profile/preferences/api"));
             lines.push(Line::from(""));
-            lines.push(Line::from("  * You can get your SteamGridDB key at: https://www.steamgriddb.com/profile/api"));
-            lines.push(Line::from(""));
+
+            let f1_style = if selected_field == 1 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
             lines.push(Line::from(vec![
-                Span::styled("[ SAVE SETTINGS ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(if selected_field == 1 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ Re-run Welcome & Setup Wizard ]", f1_style),
+            ]));
+            lines.push(Line::from(""));
+
+            let f2_style = if selected_field == 2 {
+                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Green)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected_field == 2 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ SAVE SETTINGS ]", f2_style),
             ]));
 
             let p = Paragraph::new(lines).block(
@@ -1258,19 +1281,195 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Yellow)),
             );
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .constraints([Constraint::Min(8), Constraint::Length(2)])
                 .split(popup_area);
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [Typing] Edit API Key | [Enter] Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate | [Typing] Edit Key | [Enter] Select | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
+        }
+        ModalState::WelcomeWizard { step, ref sgdb_api_key, cursor_pos, .. } => {
+            let wizard_area = frame.area();
+            frame.render_widget(Clear, wizard_area);
+
+            let main_block = Block::default()
+                .title(Span::styled(
+                    " GAME STATION - WELCOME & INITIAL SETUP ",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ))
+                .title_bottom(Span::styled(
+                    format!(" Step ({}/4) | [← / →] Switch Slide | [Tab] Cycle | [Esc] Skip Setup ", step + 1),
+                    Style::default().fg(Color::DarkGray),
+                ))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Yellow));
+
+            let inner_area = main_block.inner(wizard_area);
+            frame.render_widget(main_block, wizard_area);
+
+            let outer_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(0),     // Flexible Top Spacer (Centers content vertically)
+                    Constraint::Length(18), // Main Centered Content Block (Banner + Spacer + Body)
+                    Constraint::Min(0),     // Flexible Bottom Spacer
+                    Constraint::Length(3),  // Fixed Footer Bar
+                ])
+                .split(inner_area);
+
+            let content_area = outer_chunks[1];
+            let content_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(7), // Massive ASCII Banner
+                    Constraint::Length(1), // Spacer
+                    Constraint::Min(10),   // Slide Body Lines
+                ])
+                .split(content_area);
+
+            // 1. ANSI Shadow ASCII Art Header (Matching Chirp / Chirp Hub style with native terminal colors & pixel-perfect alignment)
+            let ascii_banner = vec![
+                Line::from(Span::styled("  ██████╗  █████╗ ███╗   ███╗███████╗    ███████╗████████╗█████╗ ████████╗██╗ ██████╗ ███╗   ██╗", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(" ██╔════╝ ██╔══██╗████╗ ████║██╔════╝    ██╔════╝╚══██╔══╝██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(" ██║  ███╗███████║██╔████╔██║█████╗      ███████╗   ██║   ███████║   ██║   ██║██║   ██║██╔██╗ ██║", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(" ██║   ██║██╔══██║██║╚██╔╝██║██╔══╝      ╚════██║   ██║   ██╔══██║   ██║   ██║██║   ██║██║╚██╗██║", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(" ╚██████╔╝██║  ██║██║ ╚═╝ ██║███████╗    ███████║   ██║   ██║  ██║   ██║   ██║╚██████╔╝██║ ╚████║", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled("  ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝    ╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝ ╚═╝   ╚═╝ ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+            ];
+            let ascii_p = Paragraph::new(ascii_banner).alignment(Alignment::Center);
+            frame.render_widget(ascii_p, content_chunks[0]);
+
+            // 2. Slide Content Body (Horizontally and Vertically Centered)
+            let mut body_lines = Vec::new();
+            match step {
+                0 => {
+                    body_lines.push(Line::from(Span::styled("WELCOME TO GAME STATION", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                    body_lines.push(Line::from(Span::styled("Centralized Retro & Modern Gaming Dashboard for Linux", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from("Game Station is your all-in-one terminal hub to organize, manage, and launch your"));
+                    body_lines.push(Line::from("entire video game library seamlessly from a fast, hardware-accelerated TUI interface."));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("Multi-Platform Consoles ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw("│ 3DS, DS, GameCube, Wii, Switch, PS1, PS2, PSP, SNES, GBA & more"),
+                    ]));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("Native & Wine / Proton ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw("│ Windows executables, custom runners, winetricks & Steam games"),
+                    ]));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("HD Artwork Scraper      ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw("│ Automatic cover art, hero banners & icons in seconds"),
+                    ]));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from(Span::styled("Press [ → / Right Arrow ] or [ Enter ] to continue setup tour...", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                }
+                1 => {
+                    body_lines.push(Line::from(Span::styled("KEY FEATURES & NAVIGATION SHORTCUTS", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("  [Alt+O]  ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+                        Span::raw("Toggle Big Picture Mode (3D Cover Flow Stage with HD Media)"),
+                    ]));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("    [/]    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::raw("Interactive Live Search bar to filter games across all platforms"),
+                    ]));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("    [w]    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::raw("Visual Media Selector to fetch & customize covers, banners and icons"),
+                    ]));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("    [c]    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::raw("Wine & Proton Runner Manager, winetricks and prefix tools"),
+                    ]));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("    [?]    ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw("Keyboard & Mouse Controls Cheatsheet"),
+                    ]));
+                }
+                2 => {
+                    body_lines.push(Line::from(Span::styled("ARTWORK SCRAPER CONFIGURATION (OPTIONAL)", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from("Configure your SteamGridDB API key to enable instant high-definition cover artwork"));
+                    body_lines.push(Line::from("and hero banner scraping for all your ROMs and executables."));
+                    body_lines.push(Line::from(""));
+
+                    let (before, after) = sgdb_api_key.split_at(cursor_pos.min(sgdb_api_key.len()));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("SteamGridDB API Key: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                        Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                        Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    ]));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from("  * Obtain your free API key at: https://www.steamgriddb.com/profile/preferences/api"));
+                    body_lines.push(Line::from("  * Use [Ctrl+V] to paste from clipboard"));
+                }
+                _ => {
+                    body_lines.push(Line::from(Span::styled("INITIAL SETUP COMPLETE", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from("Game Station is fully configured and ready for your game collection."));
+                    body_lines.push(Line::from(""));
+                    body_lines.push(Line::from(vec![
+                        Span::styled("[ GET STARTED ]", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                    ]));
+                }
+            }
+
+            let body_p = Paragraph::new(body_lines)
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::NONE),
+                );
+            frame.render_widget(body_p, content_chunks[2]);
+
+            // 3. Footer Navigation Bar & Step Dots
+            let prev_btn = if step > 0 {
+                Span::styled(" [ ← Back ] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled("            ", Style::default())
+            };
+
+            let next_btn = if step < 3 {
+                Span::styled(" [ Next → ] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled(" [ Finish ] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            };
+
+            let footer_content = Line::from(vec![
+                prev_btn,
+                Span::raw("       "),
+                Span::styled("Slide ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{}/4 ", step + 1), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                if step == 0 { Span::styled("● ", Style::default().fg(Color::Yellow)) } else { Span::styled("○ ", Style::default().fg(Color::DarkGray)) },
+                if step == 1 { Span::styled("● ", Style::default().fg(Color::Yellow)) } else { Span::styled("○ ", Style::default().fg(Color::DarkGray)) },
+                if step == 2 { Span::styled("● ", Style::default().fg(Color::Yellow)) } else { Span::styled("○ ", Style::default().fg(Color::DarkGray)) },
+                if step == 3 { Span::styled("● ", Style::default().fg(Color::Yellow)) } else { Span::styled("○ ", Style::default().fg(Color::DarkGray)) },
+                Span::raw("       "),
+                next_btn,
+            ]);
+
+            let footer_p = Paragraph::new(footer_content)
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::TOP)
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                );
+
+            frame.render_widget(footer_p, outer_chunks[3]);
         }
         ModalState::VisualMediaSelector {
             ref game_title,

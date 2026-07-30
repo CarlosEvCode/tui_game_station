@@ -117,6 +117,12 @@ pub enum ModalState {
         api_key_input: String,
         selected_field: usize,
     },
+    WelcomeWizard {
+        step: usize,
+        sgdb_api_key: String,
+        active_field: usize,
+        cursor_pos: usize,
+    },
     VisualMediaSelector {
         game_id: i64,
         game_title: String,
@@ -204,6 +210,7 @@ pub enum Action {
     OpenPlatformSelectorModal,
     ConfirmPlatformSelectorModal,
     OpenCheatsheetModal,
+    OpenWelcomeWizardModal,
     OpenFuzzySearchModal,
     UpdateFuzzySearchQuery(String),
     ClearFuzzySearch,
@@ -373,12 +380,43 @@ impl App {
             is_search_active: false,
         };
 
+        let is_first_run = app.db
+            .get_setting("first_run_completed")
+            .ok()
+            .flatten()
+            .map(|v| v != "true")
+            .unwrap_or(true);
+
+        if is_first_run {
+            let api_key = app.db
+                .get_setting("steamgriddb_api_key")
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let key_len = api_key.len();
+            app.modal_state = ModalState::WelcomeWizard {
+                step: 0,
+                sgdb_api_key: api_key,
+                active_field: 0,
+                cursor_pos: key_len,
+            };
+        }
+
         if steam_added > 0 {
-            app.show_toast(format!("Detectados {} juegos de Steam automáticamente!", steam_added), crate::toast::ToastKind::Success);
+            app.show_toast(format!("Detected {} Steam games automatically!", steam_added), crate::toast::ToastKind::Success);
         }
 
         app.load_games_for_selected_platform();
         Ok(app)
+    }
+
+    pub fn finish_welcome_wizard(&mut self, sgdb_api_key: &str) {
+        let _ = self.db.set_setting("first_run_completed", "true");
+        if !sgdb_api_key.trim().is_empty() {
+            let _ = self.db.set_setting("steamgriddb_api_key", sgdb_api_key.trim());
+        }
+        self.modal_state = ModalState::None;
+        self.show_toast("Welcome setup completed!", crate::toast::ToastKind::Success);
     }
 
     pub fn show_toast(&mut self, msg: impl Into<String>, kind: crate::toast::ToastKind) {
@@ -752,6 +790,21 @@ impl App {
             }
             Action::OpenCheatsheetModal => {
                 self.modal_state = ModalState::CheatsheetModal { selected_category_idx: 0 };
+            }
+            Action::OpenWelcomeWizardModal => {
+                let api_key = self
+                    .db
+                    .get_setting("steamgriddb_api_key")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                let key_len = api_key.len();
+                self.modal_state = ModalState::WelcomeWizard {
+                    step: 0,
+                    sgdb_api_key: api_key,
+                    active_field: 0,
+                    cursor_pos: key_len,
+                };
             }
             Action::OpenFuzzySearchModal => {
                 let q = self.search_query.clone();
@@ -2698,6 +2751,10 @@ impl App {
                     let pos = (*cursor_pos).min(input.len());
                     input.insert(pos, ch);
                     *cursor_pos = pos + 1;
+                } else if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, ref mut cursor_pos, .. } = self.modal_state {
+                    let pos = (*cursor_pos).min(sgdb_api_key.len());
+                    sgdb_api_key.insert(pos, ch);
+                    *cursor_pos = pos + 1;
                 }
             }
             Action::ModalBackspace => {
@@ -2830,6 +2887,12 @@ impl App {
                     let pos = (*cursor_pos).min(input.len());
                     if pos > 0 {
                         input.remove(pos - 1);
+                        *cursor_pos = pos - 1;
+                    }
+                } else if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, ref mut cursor_pos, .. } = self.modal_state {
+                    let pos = (*cursor_pos).min(sgdb_api_key.len());
+                    if pos > 0 {
+                        sgdb_api_key.remove(pos - 1);
                         *cursor_pos = pos - 1;
                     }
                 }
@@ -3696,4 +3759,32 @@ impl App {
             }
         }
     }
+}
+
+pub fn get_clipboard_text() -> Option<String> {
+    if let Ok(output) = std::process::Command::new("wl-paste").arg("-n").output() {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    if let Ok(output) = std::process::Command::new("xclip").args(["-selection", "clipboard", "-o"]).output() {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    if let Ok(output) = std::process::Command::new("xsel").args(["-b", "-o"]).output() {
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+    }
+    None
 }

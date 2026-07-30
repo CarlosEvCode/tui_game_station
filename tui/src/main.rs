@@ -55,6 +55,9 @@ async fn main() -> Result<()> {
                             KeyCode::Esc => {
                                 if let ModalState::ProtonDownloader { .. } = app.modal_state {
                                     app.update(Action::ProtonDownloaderBack).await;
+                                } else if let ModalState::WelcomeWizard { ref sgdb_api_key, .. } = app.modal_state {
+                                    let key = sgdb_api_key.clone();
+                                    app.finish_welcome_wizard(&key);
                                 } else {
                                     app.update(Action::CloseModal).await;
                                 }
@@ -65,13 +68,23 @@ async fn main() -> Result<()> {
                             KeyCode::Tab => {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
                                     app.update(Action::SwitchVisualMediaTab).await;
+                                } else if let ModalState::WelcomeWizard { ref mut step, .. } = app.modal_state {
+                                    *step = (*step + 1) % 4;
+                                } else if let ModalState::AppSettings { ref mut selected_field, .. } = app.modal_state {
+                                    *selected_field = (*selected_field + 1) % 3;
                                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
                                     app.update(Action::ModalNextField).await;
                                 }
                             }
-                            KeyCode::Up => match app.modal_state {
+                            KeyCode::Up => match &mut app.modal_state {
+                                ModalState::AppSettings { ref mut selected_field, .. } => {
+                                    if *selected_field > 0 { *selected_field -= 1; }
+                                }
+                                ModalState::WelcomeWizard { step: 3, ref mut active_field, .. } => {
+                                    if *active_field > 0 { *active_field -= 1; }
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavUp).await;
                                 }
@@ -94,7 +107,13 @@ async fn main() -> Result<()> {
                                     app.update(Action::ModalPrevField).await;
                                 }
                             },
-                            KeyCode::Down => match app.modal_state {
+                            KeyCode::Down => match &mut app.modal_state {
+                                ModalState::AppSettings { ref mut selected_field, .. } => {
+                                    if *selected_field < 2 { *selected_field += 1; }
+                                }
+                                ModalState::WelcomeWizard { step: 3, ref mut active_field, .. } => {
+                                    if *active_field < 1 { *active_field += 1; }
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavDown).await;
                                 }
@@ -117,7 +136,18 @@ async fn main() -> Result<()> {
                                     app.update(Action::ModalNextField).await;
                                 }
                             },
-                            KeyCode::Left => match app.modal_state {
+                            KeyCode::Left => match &mut app.modal_state {
+                                ModalState::WelcomeWizard { step, ref mut cursor_pos, .. } => {
+                                    if *step == 2 {
+                                        if *cursor_pos > 0 {
+                                            *cursor_pos -= 1;
+                                        } else if *step > 0 {
+                                            *step -= 1;
+                                        }
+                                    } else if *step > 0 {
+                                        *step -= 1;
+                                    }
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavLeft).await;
                                 }
@@ -136,7 +166,18 @@ async fn main() -> Result<()> {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
                             },
-                            KeyCode::Right => match app.modal_state {
+                            KeyCode::Right => match &mut app.modal_state {
+                                ModalState::WelcomeWizard { step, ref sgdb_api_key, ref mut cursor_pos, .. } => {
+                                    if *step == 2 {
+                                        if *cursor_pos < sgdb_api_key.len() {
+                                            *cursor_pos += 1;
+                                        } else if *step < 3 {
+                                            *step += 1;
+                                        }
+                                    } else if *step < 3 {
+                                        *step += 1;
+                                    }
+                                }
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavRight).await;
                                 }
@@ -155,6 +196,16 @@ async fn main() -> Result<()> {
                                     app.update(Action::ModalSelectNext).await;
                                 }
                             },
+                            KeyCode::Home => {
+                                if let ModalState::WelcomeWizard { step: 2, ref mut cursor_pos, .. } = app.modal_state {
+                                    *cursor_pos = 0;
+                                }
+                            }
+                            KeyCode::End => {
+                                if let ModalState::WelcomeWizard { step: 2, ref sgdb_api_key, ref mut cursor_pos, .. } = app.modal_state {
+                                    *cursor_pos = sgdb_api_key.len();
+                                }
+                            }
                             KeyCode::Char('1') => {
                                 if let ModalState::VisualMediaSelector { .. } = app.modal_state {
                                     app.update(Action::SetVisualMediaTab(0)).await;
@@ -235,8 +286,22 @@ async fn main() -> Result<()> {
                                 ModalState::ConfigureApiKeyInput { .. } => {
                                     app.update(Action::SaveApiKey).await;
                                 }
-                                ModalState::AppSettings { .. } => {
-                                    app.update(Action::SaveAppSettings).await;
+                                ModalState::AppSettings { selected_field, .. } => {
+                                    if selected_field == 1 {
+                                        app.update(Action::OpenWelcomeWizardModal).await;
+                                    } else {
+                                        app.update(Action::SaveAppSettings).await;
+                                    }
+                                }
+                                ModalState::WelcomeWizard { step, ref sgdb_api_key, .. } => {
+                                    if step < 3 {
+                                        if let ModalState::WelcomeWizard { ref mut step, .. } = app.modal_state {
+                                            *step += 1;
+                                        }
+                                    } else {
+                                        let key = sgdb_api_key.clone();
+                                        app.finish_welcome_wizard(&key);
+                                    }
                                 }
                                 ModalState::VisualMediaSelector {
                                     focused_section,
@@ -415,7 +480,12 @@ async fn main() -> Result<()> {
                                 }
                             },
                             KeyCode::Backspace => {
-                                if let ModalState::FuzzySearchModal { ref mut query, ref mut cursor_pos } = app.modal_state {
+                                if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, ref mut cursor_pos, .. } = app.modal_state {
+                                    if *cursor_pos > 0 && !sgdb_api_key.is_empty() {
+                                        sgdb_api_key.remove(*cursor_pos - 1);
+                                        *cursor_pos -= 1;
+                                    }
+                                } else if let ModalState::FuzzySearchModal { ref mut query, ref mut cursor_pos } = app.modal_state {
                                     if *cursor_pos > 0 && !query.is_empty() {
                                         query.remove(*cursor_pos - 1);
                                         *cursor_pos -= 1;
@@ -427,8 +497,28 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Delete => {
-                                if let ModalState::ManageWineRunners { .. } = app.modal_state {
+                                if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, cursor_pos, .. } = app.modal_state {
+                                    if cursor_pos < sgdb_api_key.len() {
+                                        sgdb_api_key.remove(cursor_pos);
+                                    }
+                                } else if let ModalState::ManageWineRunners { .. } = app.modal_state {
                                     app.update(Action::DeleteInstalledWineRunner).await;
+                                }
+                            }
+                            KeyCode::Char('v') | KeyCode::Char('V') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, ref mut cursor_pos, .. } = app.modal_state {
+                                    if let Some(pasted) = crate::app::get_clipboard_text() {
+                                        sgdb_api_key.insert_str(*cursor_pos, &pasted);
+                                        *cursor_pos += pasted.len();
+                                    }
+                                } else if let ModalState::AppSettings { ref mut api_key_input, selected_field: 0 } = app.modal_state {
+                                    if let Some(pasted) = crate::app::get_clipboard_text() {
+                                        api_key_input.push_str(&pasted);
+                                    }
+                                } else if let ModalState::ConfigureApiKeyInput { ref mut input } = app.modal_state {
+                                    if let Some(pasted) = crate::app::get_clipboard_text() {
+                                        input.push_str(&pasted);
+                                    }
                                 }
                             }
                             KeyCode::Char('d') => {
@@ -499,7 +589,10 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char(c) => {
-                                if let ModalState::FuzzySearchModal { ref mut query, ref mut cursor_pos } = app.modal_state {
+                                if let ModalState::WelcomeWizard { step: 2, ref mut sgdb_api_key, ref mut cursor_pos, .. } = app.modal_state {
+                                    sgdb_api_key.insert(*cursor_pos, c);
+                                    *cursor_pos += 1;
+                                } else if let ModalState::FuzzySearchModal { ref mut query, ref mut cursor_pos } = app.modal_state {
                                     query.insert(*cursor_pos, c);
                                     *cursor_pos += 1;
                                     let q = query.clone();

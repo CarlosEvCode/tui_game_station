@@ -57,6 +57,26 @@ pub async fn handle_mouse_event(app: &mut App, mouse: MouseEvent, area: Rect) {
 }
 
 async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
+    if let ModalState::WelcomeWizard { ref mut step, ref sgdb_api_key, .. } = app.modal_state {
+        let footer_y = area.y + area.height.saturating_sub(4);
+        if y >= footer_y {
+            if x < area.x + area.width / 3 {
+                if *step > 0 { *step -= 1; }
+            } else if x > area.x + (area.width * 2) / 3 {
+                if *step < 3 {
+                    *step += 1;
+                } else {
+                    let key = sgdb_api_key.clone();
+                    app.finish_welcome_wizard(&key);
+                }
+            }
+        } else if *step == 3 {
+            let key = sgdb_api_key.clone();
+            app.finish_welcome_wizard(&key);
+        }
+        return;
+    }
+
     if let ModalState::PlatformSelector { selected_idx } = app.modal_state {
         let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(12);
         let needed_w = (max_name_len as u16 + 26).clamp(42, 60).min(area.width.saturating_sub(4));
