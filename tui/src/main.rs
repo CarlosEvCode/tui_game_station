@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod cover_renderer;
+mod mouse_handler;
 mod panic_hook;
 mod ui;
 mod window_helper;
@@ -11,7 +12,7 @@ use clap::Parser;
 use game_core::models::PlatformType;
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyModifiers, KeyEventKind},
+    event::{self, Event, KeyCode, KeyModifiers, KeyEventKind, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -27,10 +28,10 @@ async fn main() -> Result<()> {
     // Install terminal recovery panic hook
     panic_hook::init_panic_hook();
 
-    // Enable Crossterm raw mode & alternate screen
+    // Enable Crossterm raw mode, alternate screen & mouse capture
     enable_raw_mode()?;
     let mut stdout_handle = stdout();
-    execute!(stdout_handle, EnterAlternateScreen, cursor::Hide)?;
+    execute!(stdout_handle, EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
     let backend = CrosstermBackend::new(stdout_handle);
     let mut terminal = Terminal::new(backend)?;
 
@@ -44,8 +45,9 @@ async fn main() -> Result<()> {
         terminal.draw(|f| ui::render_ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
                     // Modal Input Handling
                     if app.modal_state != ModalState::None {
                         match key.code {
@@ -575,14 +577,14 @@ async fn main() -> Result<()> {
                                 window_helper::minimize_active_window();
 
                                 disable_raw_mode()?;
-                                execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
+                                execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture, cursor::Show)?;
 
                                 app.update(Action::LaunchGame).await;
 
                                 window_helper::restore_active_window();
 
                                 enable_raw_mode()?;
-                                execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
+                                execute!(stdout(), EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
                                 terminal.clear()?;
                                 terminal.draw(|f| ui::render_ui(f, &mut app))?;
                             }
@@ -616,7 +618,14 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+            Event::Mouse(mouse) => {
+                let size = terminal.size()?;
+                let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+                mouse_handler::handle_mouse_event(&mut app, mouse, area).await;
+            }
+            _ => {}
         }
+    }
 
         if app.should_quit {
             break;
@@ -625,7 +634,7 @@ async fn main() -> Result<()> {
 
     // Cleanup terminal on normal exit
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, cursor::Show)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture, cursor::Show)?;
     terminal.show_cursor()?;
 
     println!("TUI Game Station cerrado correctamente.");

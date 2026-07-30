@@ -2403,7 +2403,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 }
 
 /// Helper function to center a pop-up dialog box with exact pixel dimensions relative to screen
-fn centered_rect_exact(width: u16, height: u16, r: Rect) -> Rect {
+pub fn centered_rect_exact(width: u16, height: u16, r: Rect) -> Rect {
     let w = width.min(r.width);
     let h = height.min(r.height);
     let x = r.x + (r.width.saturating_sub(w)) / 2;
