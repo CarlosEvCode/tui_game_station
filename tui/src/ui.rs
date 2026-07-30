@@ -563,7 +563,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let mut header_spans = vec![
         Span::styled(
-            if is_bar_focused { " 🕹️  PLATFORMS " } else { " 🕹️  BIG PICTURE " },
+            if is_bar_focused { " PLATFORMS " } else { " BIG PICTURE " },
             Style::default().fg(if is_bar_focused { Color::Yellow } else { Color::Cyan }).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" | "),
@@ -672,7 +672,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let active_game = &app.games[sel_idx];
         let center_block = Block::default()
             .title(Span::styled(
-                format!(" ★ FEATURED: {} ★ ", active_game.title),
+                format!(" FEATURED: {} ", active_game.title),
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
             ))
             .borders(Borders::ALL)
@@ -2390,7 +2390,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let list = List::new(items).block(
                 Block::default()
-                    .title(Span::styled(" 🎮 SELECCIONAR PLATAFORMA 🎮 ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(" SELECCIONAR PLATAFORMA ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)))
                     .title_bottom(Span::styled(" ▲▼ Navegar | ↵ Seleccionar | Esc Cerrar ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
