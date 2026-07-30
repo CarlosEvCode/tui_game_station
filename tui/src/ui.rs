@@ -649,38 +649,39 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let center_inner = center_block.inner(cols[1]);
         frame.render_widget(center_block, cols[1]);
 
-        let center_split = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(8),    // HD Native Cover Graphic Box
-                Constraint::Length(4), // Details & Badges Box
-            ])
-            .split(center_inner);
+        let inner_h = center_inner.height;
+        let inner_w = center_inner.width;
 
-        // Dynamically center the HD cover image both Vertically & Horizontally
-        let cover_box = center_split[0];
-        let h = cover_box.height;
-        let w = cover_box.width;
+        let text_h = 2u16;
+        let gap_h = 1u16;
 
-        let max_h = h.saturating_sub(1).max(4);
-        let target_w = ((max_h as f32) * 1.33) as u16;
+        let avail_img_h = inner_h.saturating_sub(text_h + gap_h + 1).max(4);
+        let target_img_w = ((avail_img_h as f32) * 1.33) as u16;
 
-        let (img_w, img_h) = if target_w <= w.saturating_sub(2) {
-            (target_w, max_h)
+        let (img_w, img_h) = if target_img_w <= inner_w.saturating_sub(2) {
+            (target_img_w, avail_img_h)
         } else {
-            let fit_w = w.saturating_sub(2).max(6);
+            let fit_w = inner_w.saturating_sub(2).max(6);
             let fit_h = ((fit_w as f32) / 1.33) as u16;
-            (fit_w, fit_h.min(h))
+            (fit_w, fit_h.min(avail_img_h))
         };
 
-        let offset_x = (w.saturating_sub(img_w)) / 2;
-        let offset_y = (h.saturating_sub(img_h)) / 2;
+        let total_content_h = img_h + gap_h + text_h;
+        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2;
+        let left_margin = (inner_w.saturating_sub(img_w)) / 2;
 
         let img_centered_rect = Rect::new(
-            cover_box.x + offset_x,
-            cover_box.y + offset_y,
+            center_inner.x + left_margin,
+            center_inner.y + top_margin,
             img_w,
             img_h,
+        );
+
+        let details_rect = Rect::new(
+            center_inner.x,
+            center_inner.y + top_margin + img_h + gap_h,
+            inner_w,
+            text_h,
         );
 
         // Render Featured HD Native Cover Image
@@ -689,7 +690,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let image_widget = StatefulImage::new(None);
             frame.render_stateful_widget(image_widget, img_centered_rect, protocol);
         } else {
-            let no_img = Paragraph::new("\n\n  [ Loading HD Cover Artwork... ]\n  Press [w] to open SteamGridDB Media Manager")
+            let no_img = Paragraph::new("\n [ Loading HD Cover Artwork... ]\n Press [w] for Media Manager")
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow));
             frame.render_widget(no_img, img_centered_rect);
@@ -716,7 +717,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             ]),
         ];
         let details_p = Paragraph::new(details_lines).alignment(Alignment::Center);
-        frame.render_widget(details_p, center_split[1]);
+        frame.render_widget(details_p, details_rect);
 
         // 3. RIGHT SIDE: Next Game Preview (Halfblocks cover, dynamically centered)
         if sel_idx + 1 < app.games.len() {
