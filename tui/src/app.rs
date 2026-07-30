@@ -179,6 +179,13 @@ pub enum ModalState {
     PlatformSelector {
         selected_idx: usize,
     },
+    CheatsheetModal {
+        selected_category_idx: usize,
+    },
+    FuzzySearchModal {
+        query: String,
+        cursor_pos: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +201,11 @@ pub enum Action {
     PrevGame,
     OpenPlatformSelectorModal,
     ConfirmPlatformSelectorModal,
+    OpenCheatsheetModal,
+    OpenFuzzySearchModal,
+    UpdateFuzzySearchQuery(String),
+    ClearFuzzySearch,
+    AddToast(String, crate::toast::ToastKind),
     ToggleBigPictureFocus,
     OpenWineRunnerManager,
     OpenProtonDownloader,
@@ -308,6 +320,9 @@ pub struct App {
     pub status_msg: String,
     pub should_quit: bool,
     pub pending_wine_tool: Option<WineToolCommand>,
+    pub toasts: Vec<crate::toast::Toast>,
+    pub search_query: String,
+    pub is_search_active: bool,
 }
 
 impl App {
@@ -348,20 +363,37 @@ impl App {
             is_big_picture: false,
             big_picture_cols: 4,
             big_picture_focus: BigPictureFocus::Carousel,
-            status_msg: if steam_added > 0 {
-                format!(
-                    "Detectados {} juegos de Steam automáticamente!",
-                    steam_added
-                )
-            } else {
-                "TUI Game Station listo! [v] Cambiar Vista | [m] Configurar Emuladores | [a] Escanear/Agregar ROMs".to_string()
-            },
+            status_msg: "TUI Game Station listo! [/] Buscar | [?] Atajos | [v] Vista | [m] Emuladores".to_string(),
             should_quit: false,
             pending_wine_tool: None,
+            toasts: Vec::new(),
+            search_query: String::new(),
+            is_search_active: false,
         };
+
+        if steam_added > 0 {
+            app.show_toast(format!("Detectados {} juegos de Steam automáticamente!", steam_added), crate::toast::ToastKind::Success);
+        }
 
         app.load_games_for_selected_platform();
         Ok(app)
+    }
+
+    pub fn show_toast(&mut self, msg: impl Into<String>, kind: crate::toast::ToastKind) {
+        self.toasts.push(crate::toast::Toast::new(msg, kind));
+    }
+
+    pub fn filter_games_by_search(&mut self) {
+        if self.search_query.trim().is_empty() {
+            self.load_games_for_selected_platform();
+            return;
+        }
+
+        let q = self.search_query.to_lowercase();
+        let all_games = self.db.get_games_for_platform(self.platforms[self.selected_platform_idx].id).unwrap_or_default();
+        self.games = all_games.into_iter().filter(|g| g.title.to_lowercase().contains(&q)).collect();
+        self.selected_game_idx = 0;
+        self.trigger_async_cover_fetch();
     }
 
     pub fn apply_cli_args(&mut self, cli_args: &crate::cli::CliArgs) {
@@ -700,10 +732,29 @@ impl App {
                 self.is_big_picture = !self.is_big_picture;
                 if self.is_big_picture {
                     self.preload_visible_covers();
-                    self.status_msg = "[MODE] Switched to BIG PICTURE Mode (Press Alt+O to exit)".to_string();
-                } else {
                     self.status_msg = "[MODE] Switched to LIBRARY Management Mode".to_string();
                 }
+            }
+            Action::OpenCheatsheetModal => {
+                self.modal_state = ModalState::CheatsheetModal { selected_category_idx: 0 };
+            }
+            Action::OpenFuzzySearchModal => {
+                let q = self.search_query.clone();
+                let len = q.len();
+                self.modal_state = ModalState::FuzzySearchModal { query: q, cursor_pos: len };
+            }
+            Action::UpdateFuzzySearchQuery(new_q) => {
+                self.search_query = new_q;
+                self.is_search_active = !self.search_query.is_empty();
+                self.filter_games_by_search();
+            }
+            Action::ClearFuzzySearch => {
+                self.search_query.clear();
+                self.is_search_active = false;
+                self.load_games_for_selected_platform();
+            }
+            Action::AddToast(msg, kind) => {
+                self.show_toast(msg, kind);
             }
             Action::ToggleShowAllPlatforms => {
                 self.show_all_platforms = !self.show_all_platforms;

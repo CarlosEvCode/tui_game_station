@@ -3,6 +3,7 @@ mod cli;
 mod cover_renderer;
 mod mouse_handler;
 mod panic_hook;
+mod toast;
 mod ui;
 mod window_helper;
 
@@ -414,7 +415,16 @@ async fn main() -> Result<()> {
                                 }
                             },
                             KeyCode::Backspace => {
-                                app.update(Action::ModalBackspace).await;
+                                if let ModalState::FuzzySearchModal { ref mut query, ref mut cursor_pos } = app.modal_state {
+                                    if *cursor_pos > 0 && !query.is_empty() {
+                                        query.remove(*cursor_pos - 1);
+                                        *cursor_pos -= 1;
+                                        let q = query.clone();
+                                        app.update(Action::UpdateFuzzySearchQuery(q)).await;
+                                    }
+                                } else {
+                                    app.update(Action::ModalBackspace).await;
+                                }
                             }
                             KeyCode::Delete => {
                                 if let ModalState::ManageWineRunners { .. } = app.modal_state {
@@ -489,14 +499,27 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char(c) => {
-                                app.update(Action::ModalInputChar(c)).await;
+                                if let ModalState::FuzzySearchModal { ref mut query, ref mut cursor_pos } = app.modal_state {
+                                    query.insert(*cursor_pos, c);
+                                    *cursor_pos += 1;
+                                    let q = query.clone();
+                                    app.update(Action::UpdateFuzzySearchQuery(q)).await;
+                                } else {
+                                    app.update(Action::ModalInputChar(c)).await;
+                                }
                             }
                             _ => {}
                         }
                     } else {
                         // Main View Keyboard Shortcuts
                         match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => {
+                            KeyCode::Char('/') => {
+                                app.update(Action::OpenFuzzySearchModal).await;
+                            }
+                            KeyCode::Char('?') => {
+                                app.update(Action::OpenCheatsheetModal).await;
+                            }
+                            KeyCode::Char('q') => {
                                 app.update(Action::Quit).await;
                             }
                             KeyCode::Char('a') => {
