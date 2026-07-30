@@ -7,7 +7,7 @@ use ratatui::{
 };
 use ratatui_image::StatefulImage;
 
-use crate::app::{App, FocusedPane, ModalState, ViewMode};
+use crate::app::{App, BigPictureFocus, FocusedPane, ModalState, ViewMode};
 use game_core::models::PlatformType;
 
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
@@ -557,35 +557,56 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(area);
 
-    let current_platform = app
-        .platforms
-        .get(app.selected_platform_idx)
-        .map(|p| p.name.as_str())
-        .unwrap_or("All Games");
-
+    let is_bar_focused = app.big_picture_focus == BigPictureFocus::PlatformBar;
     let current_game_num = if app.games.is_empty() { 0 } else { app.selected_game_idx + 1 };
     let total_games_num = app.games.len();
 
-    let top_banner = Paragraph::new(Line::from(vec![
+    let mut header_spans = vec![
         Span::styled(
-            " 🕹️  BIG PICTURE - COVERFLOW ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            if is_bar_focused { " 🕹️  PLATFORMS " } else { " 🕹️  BIG PICTURE " },
+            Style::default().fg(if is_bar_focused { Color::Yellow } else { Color::Cyan }).add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  |  "),
-        Span::styled(
-            format!("Platform: {}", current_platform),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  |  "),
-        Span::styled(
-            format!("Game {} of {}", current_game_num, total_games_num),
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-        ),
-    ]))
-    .block(
+        Span::raw(" | "),
+    ];
+
+    for (idx, p) in app.platforms.iter().enumerate() {
+        let is_current = idx == app.selected_platform_idx;
+        let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
+        let label = format!(" {} ({}) ", p.name, count);
+
+        if is_current {
+            if is_bar_focused {
+                header_spans.push(Span::styled(
+                    format!("▶{}◀", label),
+                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            } else {
+                header_spans.push(Span::styled(
+                    format!("[{}]", label),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            }
+        } else {
+            header_spans.push(Span::styled(
+                format!(" {} ", p.name),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        header_spans.push(Span::raw(" "));
+    }
+
+    header_spans.push(Span::raw(" | "));
+    header_spans.push(Span::styled(
+        format!("Game {}/{}", current_game_num, total_games_num),
+        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+    ));
+
+    let banner_border_color = if is_bar_focused { Color::Yellow } else { Color::Cyan };
+
+    let top_banner = Paragraph::new(Line::from(header_spans)).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan)),
+            .border_style(Style::default().fg(banner_border_color)),
     );
     frame.render_widget(top_banner, main_chunks[0]);
 
@@ -775,11 +796,15 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
     // Floating Footer
     let footer_text = Line::from(vec![
         Span::styled(" [Alt+O] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw(" Exit Big Picture  "),
-        Span::styled(" [Left / Right] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Carousel Browse  "),
+        Span::raw(" Exit  "),
+        Span::styled(" [Up / Down] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Focus Bar/Carousel  "),
+        Span::styled(" [p] ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::raw(" Platforms Modal  "),
+        Span::styled(" [Tab] ", Style::default().fg(Color::Black).bg(Color::Blue).add_modifier(Modifier::BOLD)),
+        Span::raw(" Cycle Platform  "),
         Span::styled(" [Enter] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" PLAY GAME NOW "),
+        Span::raw(" PLAY GAME "),
     ]);
 
     let footer_p = Paragraph::new(footer_text)
@@ -2316,6 +2341,45 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(form_p, chunks[0]);
 
             let help = Paragraph::new(" [Up/Down] Navigate Fields | [Enter] Toggle / Select | [Space] Toggle Checkbox | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::PlatformSelector { selected_idx } => {
+            let popup_area = centered_rect(50, 50, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let mut items = Vec::new();
+            for (idx, p) in app.platforms.iter().enumerate() {
+                let is_sel = idx == selected_idx;
+                let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
+                let text = format!(" {} ({}) ", p.name, count);
+                let style = if is_sel {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled(if is_sel { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                    Span::styled(text, style),
+                ])));
+            }
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(" 🎮 Select Platform 🎮 ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(4), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Select Platform | [Esc] Close")
+                .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

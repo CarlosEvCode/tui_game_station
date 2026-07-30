@@ -4,7 +4,7 @@ mod panic_hook;
 mod ui;
 
 use anyhow::Result;
-use app::{Action, App, FocusedPane, ModalState};
+use app::{Action, App, BigPictureFocus, FocusedPane, ModalState};
 use game_core::models::PlatformType;
 use crossterm::{
     cursor,
@@ -76,6 +76,7 @@ async fn main() -> Result<()> {
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::ManageWineRunners { .. }
                                 | ModalState::SelectWineRunnerPicker { .. }
+                                | ModalState::PlatformSelector { .. }
                                 | ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
@@ -98,6 +99,7 @@ async fn main() -> Result<()> {
                                 | ModalState::ManageRunnersStep1Platform { .. }
                                 | ModalState::ManageWineRunners { .. }
                                 | ModalState::SelectWineRunnerPicker { .. }
+                                | ModalState::PlatformSelector { .. }
                                 | ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::ModalSelectNext).await;
                                 }
@@ -501,14 +503,25 @@ async fn main() -> Result<()> {
                                 app.update(Action::OpenVisualMediaModal).await;
                             }
                             KeyCode::Tab => {
-                                app.update(Action::TogglePane).await;
+                                if app.is_big_picture {
+                                    app.update(Action::NextPlatform).await;
+                                } else {
+                                    app.update(Action::TogglePane).await;
+                                }
+                            }
+                            KeyCode::BackTab => {
+                                if app.is_big_picture {
+                                    app.update(Action::PrevPlatform).await;
+                                }
                             }
                             KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::ALT) => {
                                 app.update(Action::ToggleBigPictureMode).await;
                             }
                             KeyCode::Right => {
                                 if app.is_big_picture {
-                                    if app.selected_game_idx + 1 < app.games.len() {
+                                    if app.big_picture_focus == BigPictureFocus::PlatformBar {
+                                        app.update(Action::NextPlatform).await;
+                                    } else if app.selected_game_idx + 1 < app.games.len() {
                                         app.selected_game_idx += 1;
                                         app.trigger_async_cover_fetch();
                                     }
@@ -518,7 +531,9 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Left => {
                                 if app.is_big_picture {
-                                    if app.selected_game_idx > 0 {
+                                    if app.big_picture_focus == BigPictureFocus::PlatformBar {
+                                        app.update(Action::PrevPlatform).await;
+                                    } else if app.selected_game_idx > 0 {
                                         app.selected_game_idx -= 1;
                                         app.trigger_async_cover_fetch();
                                     }
@@ -528,11 +543,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Up => {
                                 if app.is_big_picture {
-                                    let cols = app.big_picture_cols.max(1);
-                                    if app.selected_game_idx >= cols {
-                                        app.selected_game_idx -= cols;
-                                        app.trigger_async_cover_fetch();
-                                    }
+                                    app.big_picture_focus = BigPictureFocus::PlatformBar;
                                 } else {
                                     match app.focused_pane {
                                         FocusedPane::Platforms => app.update(Action::PrevPlatform).await,
@@ -542,14 +553,7 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Down => {
                                 if app.is_big_picture {
-                                    let cols = app.big_picture_cols.max(1);
-                                    if app.selected_game_idx + cols < app.games.len() {
-                                        app.selected_game_idx += cols;
-                                        app.trigger_async_cover_fetch();
-                                    } else if !app.games.is_empty() {
-                                        app.selected_game_idx = app.games.len() - 1;
-                                        app.trigger_async_cover_fetch();
-                                    }
+                                    app.big_picture_focus = BigPictureFocus::Carousel;
                                 } else {
                                     match app.focused_pane {
                                         FocusedPane::Platforms => app.update(Action::NextPlatform).await,
@@ -558,14 +562,11 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Enter => {
-                                // 1. Cleanly suspend TUI & leave alternate screen
                                 disable_raw_mode()?;
                                 execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
 
-                                // 2. Launch game (stdout & stderr isolated to log file)
                                 app.update(Action::LaunchGame).await;
 
-                                // 3. Cleanly restore TUI canvas & re-enter alternate screen
                                 enable_raw_mode()?;
                                 execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
                                 terminal.clear()?;
@@ -577,8 +578,12 @@ async fn main() -> Result<()> {
                             KeyCode::Char('s') => {
                                 app.update(Action::OpenSettingsModal).await;
                             }
-                            KeyCode::Char('p') => {
-                                app.update(Action::ToggleShowAllPlatforms).await;
+                            KeyCode::Char('p') | KeyCode::Char('P') => {
+                                if app.is_big_picture {
+                                    app.update(Action::OpenPlatformSelectorModal).await;
+                                } else {
+                                    app.update(Action::ToggleShowAllPlatforms).await;
+                                }
                             }
                             KeyCode::Char('r') => {
                                 app.update(Action::QuickRescanPlatform).await;

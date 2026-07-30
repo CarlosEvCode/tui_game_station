@@ -176,6 +176,15 @@ pub enum ModalState {
         display_title: String,
         selected_option: usize,
     },
+    PlatformSelector {
+        selected_idx: usize,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BigPictureFocus {
+    Carousel,
+    PlatformBar,
 }
 
 pub enum Action {
@@ -183,6 +192,9 @@ pub enum Action {
     PrevPlatform,
     NextGame,
     PrevGame,
+    OpenPlatformSelectorModal,
+    ConfirmPlatformSelectorModal,
+    ToggleBigPictureFocus,
     OpenWineRunnerManager,
     OpenProtonDownloader,
     ProtonDownloaderSelectNext,
@@ -292,6 +304,7 @@ pub struct App {
     pub show_all_platforms: bool,
     pub is_big_picture: bool,
     pub big_picture_cols: usize,
+    pub big_picture_focus: BigPictureFocus,
     pub status_msg: String,
     pub should_quit: bool,
     pub pending_wine_tool: Option<WineToolCommand>,
@@ -334,6 +347,7 @@ impl App {
             show_all_platforms,
             is_big_picture: false,
             big_picture_cols: 4,
+            big_picture_focus: BigPictureFocus::Carousel,
             status_msg: if steam_added > 0 {
                 format!(
                     "Detectados {} juegos de Steam automáticamente!",
@@ -685,15 +699,35 @@ impl App {
                     "Filtro activo: Mostrando solo plataformas instaladas/con juegos.".to_string()
                 };
             }
+            Action::OpenPlatformSelectorModal => {
+                self.modal_state = ModalState::PlatformSelector {
+                    selected_idx: self.selected_platform_idx,
+                };
+            }
+            Action::ConfirmPlatformSelectorModal => {
+                if let ModalState::PlatformSelector { selected_idx } = self.modal_state {
+                    if selected_idx < self.platforms.len() {
+                        self.selected_platform_idx = selected_idx;
+                        self.load_games_for_selected_platform();
+                    }
+                    self.modal_state = ModalState::None;
+                }
+            }
+            Action::ToggleBigPictureFocus => {
+                self.big_picture_focus = match self.big_picture_focus {
+                    BigPictureFocus::Carousel => BigPictureFocus::PlatformBar,
+                    BigPictureFocus::PlatformBar => BigPictureFocus::Carousel,
+                };
+            }
             Action::NextPlatform => {
-                if self.modal_state == ModalState::None && !self.platforms.is_empty() {
+                if !self.platforms.is_empty() {
                     self.selected_platform_idx =
                         (self.selected_platform_idx + 1) % self.platforms.len();
                     self.load_games_for_selected_platform();
                 }
             }
             Action::PrevPlatform => {
-                if self.modal_state == ModalState::None && !self.platforms.is_empty() {
+                if !self.platforms.is_empty() {
                     if self.selected_platform_idx == 0 {
                         self.selected_platform_idx = self.platforms.len() - 1;
                     } else {
@@ -2018,6 +2052,13 @@ impl App {
                     } => {
                         *selected_idx = (*selected_idx + 1) % 4;
                     }
+                    ModalState::PlatformSelector {
+                        ref mut selected_idx,
+                    } => {
+                        if !self.platforms.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % self.platforms.len();
+                        }
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -2167,6 +2208,17 @@ impl App {
                             *selected_idx = 3;
                         } else {
                             *selected_idx -= 1;
+                        }
+                    }
+                    ModalState::PlatformSelector {
+                        ref mut selected_idx,
+                    } => {
+                        if !self.platforms.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = self.platforms.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
                         }
                     }
                     _ => {}
