@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
 use ratatui_image::StatefulImage;
@@ -54,6 +54,7 @@ fn render_header(frame: &mut Frame, area: Rect) {
     let header_paragraph = Paragraph::new(header_text).block(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan)),
     );
 
@@ -133,6 +134,7 @@ fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ))
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color)),
     );
 
@@ -226,6 +228,7 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
                 },
             ))
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color)),
     );
 
@@ -312,6 +315,7 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
         Block::default()
             .title(Span::styled(title, Style::default().add_modifier(Modifier::BOLD)))
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color)),
     );
 
@@ -464,6 +468,7 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Block::default()
             .title(Span::styled(" System Status & Log ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::DarkGray)),
     );
 
@@ -488,6 +493,7 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::Green)),
             )
             .gauge_style(
@@ -507,6 +513,7 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
                 Block::default()
                     .title(Span::styled(" Task Slider ", Style::default().fg(Color::DarkGray)))
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(Color::DarkGray)),
             );
 
@@ -516,34 +523,31 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
     let line = Line::from(vec![
-        Span::styled(" [v] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("View "),
-        Span::styled(" [w] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("Media "),
-        Span::styled(" [e] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("Edit "),
-        Span::styled(" [c] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("Wine "),
-        Span::styled(" [m] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("Runners "),
-        Span::styled(" [a] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("Add/Scan "),
-        Span::styled(" [s] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("Settings "),
-        Span::styled(" [Alt+O] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw("BigPicture "),
-        Span::styled(" [Space] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw("Select "),
-        Span::styled(" [Del] ", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)),
-        Span::raw("Delete "),
-        Span::styled(" [Enter] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw("Launch Game"),
+        Span::styled(" / ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Buscar "),
+        Span::styled(" ? ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" Ayuda "),
+        Span::styled(" v ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Vista "),
+        Span::styled(" m ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Emuladores "),
+        Span::styled(" c ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Wine "),
+        Span::styled(" a ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Agregar "),
+        Span::styled(" s ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Ajustes "),
+        Span::styled(" Alt+O ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::raw(" BigPicture "),
+        Span::styled(" ↵ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw(" Lanzar Juego "),
     ]);
 
     let paragraph = Paragraph::new(line).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Blue)),
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(90, 130, 210))),
     );
 
     frame.render_widget(paragraph, area);
@@ -608,6 +612,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
     let top_banner = Paragraph::new(Line::from(header_spans)).block(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(banner_border_color)),
     );
     frame.render_widget(top_banner, main_chunks[0]);
@@ -637,6 +642,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let left_block = Block::default()
                 .title(Span::styled(format!(" ◀ {} ", prev_game.title), Style::default().fg(Color::DarkGray)))
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(Color::DarkGray));
             let inner = left_block.inner(left_stage);
             frame.render_widget(left_block, left_stage);
@@ -678,6 +684,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
             ))
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Yellow));
 
         let center_inner = center_block.inner(cols[1]);
@@ -761,6 +768,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let right_block = Block::default()
                 .title(Span::styled(format!(" {} ▶ ", next_game.title), Style::default().fg(Color::DarkGray)))
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(Color::DarkGray));
             let inner = right_block.inner(right_stage);
             frame.render_widget(right_block, right_stage);
