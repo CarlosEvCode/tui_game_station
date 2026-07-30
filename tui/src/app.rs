@@ -384,6 +384,15 @@ impl App {
         self.toasts.push(crate::toast::Toast::new(msg, kind));
     }
 
+    pub fn sync_platform_selection_with_game(&mut self) {
+        if self.is_search_active && !self.games.is_empty() && self.selected_game_idx < self.games.len() {
+            let pid = self.games[self.selected_game_idx].platform_id;
+            if let Some(idx) = self.platforms.iter().position(|p| p.id == pid) {
+                self.selected_platform_idx = idx;
+            }
+        }
+    }
+
     pub fn filter_games_by_search(&mut self) {
         if self.search_query.trim().is_empty() {
             self.is_search_active = false;
@@ -396,6 +405,7 @@ impl App {
         let all_games = self.db.get_all_games().unwrap_or_default();
         self.games = all_games.into_iter().filter(|g| g.title.to_lowercase().contains(&q)).collect();
         self.selected_game_idx = 0;
+        self.sync_platform_selection_with_game();
         self.trigger_async_cover_fetch();
     }
 
@@ -809,6 +819,7 @@ impl App {
             Action::NextGame => {
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
                     self.selected_game_idx = (self.selected_game_idx + 1) % self.games.len();
+                    self.sync_platform_selection_with_game();
                     self.trigger_async_cover_fetch();
                 }
             }
@@ -819,6 +830,7 @@ impl App {
                     } else {
                         self.selected_game_idx -= 1;
                     }
+                    self.sync_platform_selection_with_game();
                     self.trigger_async_cover_fetch();
                 }
             }

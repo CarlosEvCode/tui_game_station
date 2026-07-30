@@ -591,6 +591,7 @@ async fn main() -> Result<()> {
                                             app.update(Action::NextPlatform).await;
                                         } else if app.selected_game_idx + 1 < app.games.len() {
                                             app.selected_game_idx += 1;
+                                            app.sync_platform_selection_with_game();
                                             app.trigger_async_cover_fetch();
                                         }
                                     } else if app.focused_pane == FocusedPane::Platforms {
@@ -603,6 +604,7 @@ async fn main() -> Result<()> {
                                             app.update(Action::PrevPlatform).await;
                                         } else if app.selected_game_idx > 0 {
                                             app.selected_game_idx -= 1;
+                                            app.sync_platform_selection_with_game();
                                             app.trigger_async_cover_fetch();
                                         }
                                     } else if app.focused_pane == FocusedPane::Games {
