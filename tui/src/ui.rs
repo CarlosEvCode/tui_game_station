@@ -11,20 +11,24 @@ use crate::app::{App, FocusedPane, ModalState, ViewMode};
 use game_core::models::PlatformType;
 
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Min(8),    // Content
-            Constraint::Length(3), // Activity & Status Bar (Log + Download Slider)
-            Constraint::Length(3), // Shortcuts & Controls Footer
-        ])
-        .split(frame.area());
+    if app.is_big_picture {
+        render_big_picture_mode(frame, app, frame.area());
+    } else {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Header
+                Constraint::Min(8),    // Content
+                Constraint::Length(3), // Activity & Status Bar (Log + Download Slider)
+                Constraint::Length(3), // Shortcuts & Controls Footer
+            ])
+            .split(frame.area());
 
-    render_header(frame, chunks[0]);
-    render_main_content(frame, app, chunks[1]);
-    render_activity_status_bar(frame, app, chunks[2]);
-    render_controls_footer(frame, app, chunks[3]);
+        render_header(frame, chunks[0]);
+        render_main_content(frame, app, chunks[1]);
+        render_activity_status_bar(frame, app, chunks[2]);
+        render_controls_footer(frame, app, chunks[3]);
+    }
 
     if app.modal_state != ModalState::None {
         render_modal(frame, app);
@@ -524,6 +528,8 @@ fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
         Span::raw("Add/Scan "),
         Span::styled(" [s] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw("Settings "),
+        Span::styled(" [Alt+O] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw("BigPicture "),
         Span::styled(" [Space] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw("Select "),
         Span::styled(" [Del] ", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)),
@@ -539,6 +545,157 @@ fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
     );
 
     frame.render_widget(paragraph, area);
+}
+
+fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Top Title Banner
+            Constraint::Min(8),    // Fullscreen Cards Grid
+            Constraint::Length(3), // Floating Minimal Footer
+        ])
+        .split(area);
+
+    let current_platform = app
+        .platforms
+        .get(app.selected_platform_idx)
+        .map(|p| p.name.as_str())
+        .unwrap_or("All Games");
+
+    let top_banner = Paragraph::new(Line::from(vec![
+        Span::styled(
+            " 🕹️  BIG PICTURE MODE ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  |  "),
+        Span::styled(
+            format!("Platform: {}", current_platform),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  |  "),
+        Span::styled(
+            format!("Total Games: {}", app.games.len()),
+            Style::default().fg(Color::Green),
+        ),
+    ]))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    frame.render_widget(top_banner, main_chunks[0]);
+
+    let grid_area = main_chunks[1];
+    let card_w = 26u16;
+    let card_h = 10u16;
+
+    let cols = (grid_area.width / card_w).max(1) as usize;
+    let rows = (grid_area.height / card_h).max(1) as usize;
+    app.big_picture_cols = cols;
+
+    let items_per_page = cols * rows;
+    if items_per_page == 0 {
+        return;
+    }
+
+    let current_page = app.selected_game_idx / items_per_page;
+    let start_idx = current_page * items_per_page;
+    let end_idx = (start_idx + items_per_page).min(app.games.len());
+
+    let row_constraints = vec![Constraint::Length(card_h); rows];
+    let grid_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(row_constraints)
+        .split(grid_area);
+
+    if app.games.is_empty() {
+        let empty_p = Paragraph::new("\n  No games found in current platform.\n  Press [Alt+O] to return to Library Mode.")
+            .style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(empty_p, grid_area);
+    } else {
+        for row_idx in 0..rows {
+            if row_idx >= grid_rows.len() {
+                break;
+            }
+            let col_constraints = vec![Constraint::Length(card_w); cols];
+            let row_cells = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(col_constraints)
+                .split(grid_rows[row_idx]);
+
+            for col_idx in 0..cols {
+                if col_idx >= row_cells.len() {
+                    break;
+                }
+                let item_index = start_idx + (row_idx * cols + col_idx);
+                if item_index >= end_idx {
+                    break;
+                }
+
+                let game = &app.games[item_index];
+                let is_selected = item_index == app.selected_game_idx;
+                let cell_rect = row_cells[col_idx];
+
+                let border_color = if is_selected { Color::Yellow } else { Color::DarkGray };
+                let title_style = if is_selected {
+                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                };
+
+                let card_block = Block::default()
+                    .title(Span::styled(format!(" {} ", game.title), title_style))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(border_color));
+
+                let inner = card_block.inner(cell_rect);
+                frame.render_widget(card_block, cell_rect);
+
+                let key = (game.id, "cover".to_string());
+                if let Some(protocol) = app.media_protocols.get_mut(&key) {
+                    let image_widget = StatefulImage::new(None);
+                    frame.render_stateful_widget(image_widget, inner, protocol);
+                } else {
+                    let platform_badge = match game.game_type.as_str() {
+                        "wine" => "[WIN]",
+                        "native" => "[NAT]",
+                        "steam" => "[STM]",
+                        _ => "[EMU]",
+                    };
+                    let placeholder_lines = vec![
+                        Line::from(""),
+                        Line::from(Span::styled("   🎮  GAME   ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+                        Line::from(Span::styled("  [ NO COVER ] ", Style::default().fg(Color::DarkGray))),
+                        Line::from(""),
+                        Line::from(Span::styled(format!("  type: {}  ", platform_badge), Style::default().fg(Color::DarkGray))),
+                    ];
+                    let placeholder_p = Paragraph::new(placeholder_lines).alignment(Alignment::Center);
+                    frame.render_widget(placeholder_p, inner);
+                }
+            }
+        }
+    }
+
+    let footer_text = Line::from(vec![
+        Span::styled(" [Alt+O] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" Exit Big Picture  "),
+        Span::styled(" [Arrows] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Navigate  "),
+        Span::styled(" [Space] ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::raw(" Select  "),
+        Span::styled(" [Enter] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw(" PLAY GAME "),
+    ]);
+
+    let footer_p = Paragraph::new(footer_text)
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
+    frame.render_widget(footer_p, main_chunks[2]);
 }
 
 fn extract_custom_flags(cmd: &str) -> String {

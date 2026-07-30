@@ -233,6 +233,7 @@ pub enum Action {
     StartFolderScan,
     QuickRescanPlatform,
     ToggleSelectGame,
+    ToggleBigPictureMode,
     DeleteSelectedGames,
     OpenConfirmDeleteModal,
     ConfirmDeleteGameExecution,
@@ -289,6 +290,8 @@ pub struct App {
     pub visual_preview_url: Option<String>,
     pub visual_preview_loading: bool,
     pub show_all_platforms: bool,
+    pub is_big_picture: bool,
+    pub big_picture_cols: usize,
     pub status_msg: String,
     pub should_quit: bool,
     pub pending_wine_tool: Option<WineToolCommand>,
@@ -329,6 +332,8 @@ impl App {
             visual_preview_url: None,
             visual_preview_loading: false,
             show_all_platforms,
+            is_big_picture: false,
+            big_picture_cols: 4,
             status_msg: if steam_added > 0 {
                 format!(
                     "Detectados {} juegos de Steam automáticamente!",
@@ -594,6 +599,14 @@ impl App {
                     ViewMode::Table => "Vista: TABLA DETALLADA".to_string(),
                 };
                 self.trigger_async_cover_fetch();
+            }
+            Action::ToggleBigPictureMode => {
+                self.is_big_picture = !self.is_big_picture;
+                if self.is_big_picture {
+                    self.status_msg = "[MODE] Switched to BIG PICTURE Mode (Press Alt+O to exit)".to_string();
+                } else {
+                    self.status_msg = "[MODE] Switched to LIBRARY Management Mode".to_string();
+                }
             }
             Action::ToggleShowAllPlatforms => {
                 self.show_all_platforms = !self.show_all_platforms;

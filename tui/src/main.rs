@@ -503,24 +503,60 @@ async fn main() -> Result<()> {
                             KeyCode::Tab => {
                                 app.update(Action::TogglePane).await;
                             }
+                            KeyCode::Char('o') | KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::ALT) => {
+                                app.update(Action::ToggleBigPictureMode).await;
+                            }
                             KeyCode::Right => {
-                                if app.focused_pane == FocusedPane::Platforms {
+                                if app.is_big_picture {
+                                    if app.selected_game_idx + 1 < app.games.len() {
+                                        app.selected_game_idx += 1;
+                                        app.trigger_async_cover_fetch();
+                                    }
+                                } else if app.focused_pane == FocusedPane::Platforms {
                                     app.focused_pane = FocusedPane::Games;
                                 }
                             }
                             KeyCode::Left => {
-                                if app.focused_pane == FocusedPane::Games {
+                                if app.is_big_picture {
+                                    if app.selected_game_idx > 0 {
+                                        app.selected_game_idx -= 1;
+                                        app.trigger_async_cover_fetch();
+                                    }
+                                } else if app.focused_pane == FocusedPane::Games {
                                     app.focused_pane = FocusedPane::Platforms;
                                 }
                             }
-                            KeyCode::Up => match app.focused_pane {
-                                FocusedPane::Platforms => app.update(Action::PrevPlatform).await,
-                                FocusedPane::Games => app.update(Action::PrevGame).await,
-                            },
-                            KeyCode::Down => match app.focused_pane {
-                                FocusedPane::Platforms => app.update(Action::NextPlatform).await,
-                                FocusedPane::Games => app.update(Action::NextGame).await,
-                            },
+                            KeyCode::Up => {
+                                if app.is_big_picture {
+                                    let cols = app.big_picture_cols.max(1);
+                                    if app.selected_game_idx >= cols {
+                                        app.selected_game_idx -= cols;
+                                        app.trigger_async_cover_fetch();
+                                    }
+                                } else {
+                                    match app.focused_pane {
+                                        FocusedPane::Platforms => app.update(Action::PrevPlatform).await,
+                                        FocusedPane::Games => app.update(Action::PrevGame).await,
+                                    }
+                                }
+                            }
+                            KeyCode::Down => {
+                                if app.is_big_picture {
+                                    let cols = app.big_picture_cols.max(1);
+                                    if app.selected_game_idx + cols < app.games.len() {
+                                        app.selected_game_idx += cols;
+                                        app.trigger_async_cover_fetch();
+                                    } else if !app.games.is_empty() {
+                                        app.selected_game_idx = app.games.len() - 1;
+                                        app.trigger_async_cover_fetch();
+                                    }
+                                } else {
+                                    match app.focused_pane {
+                                        FocusedPane::Platforms => app.update(Action::NextPlatform).await,
+                                        FocusedPane::Games => app.update(Action::NextGame).await,
+                                    }
+                                }
+                            }
                             KeyCode::Enter => {
                                 // 1. Cleanly suspend TUI & leave alternate screen
                                 disable_raw_mode()?;
