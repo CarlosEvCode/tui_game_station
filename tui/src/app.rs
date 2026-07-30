@@ -405,11 +405,6 @@ impl App {
     }
 
     pub fn trigger_async_cover_fetch(&mut self) {
-        if self.is_big_picture {
-            self.preload_visible_covers();
-            return;
-        }
-
         if self.games.is_empty() || self.selected_game_idx >= self.games.len() {
             return;
         }

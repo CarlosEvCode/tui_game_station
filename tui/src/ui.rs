@@ -552,7 +552,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Top Title Banner
-            Constraint::Min(8),    // Fullscreen Cards Grid
+            Constraint::Min(10),   // CoverFlow Stage
             Constraint::Length(3), // Floating Minimal Footer
         ])
         .split(area);
@@ -563,9 +563,12 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|p| p.name.as_str())
         .unwrap_or("All Games");
 
+    let current_game_num = if app.games.is_empty() { 0 } else { app.selected_game_idx + 1 };
+    let total_games_num = app.games.len();
+
     let top_banner = Paragraph::new(Line::from(vec![
         Span::styled(
-            " 🕹️  BIG PICTURE MODE ",
+            " 🕹️  BIG PICTURE - COVERFLOW ",
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         ),
         Span::raw("  |  "),
@@ -575,8 +578,8 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
         Span::raw("  |  "),
         Span::styled(
-            format!("Total Games: {}", app.games.len()),
-            Style::default().fg(Color::Green),
+            format!("Game {} of {}", current_game_num, total_games_num),
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         ),
     ]))
     .block(
@@ -586,106 +589,129 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     frame.render_widget(top_banner, main_chunks[0]);
 
-    let grid_area = main_chunks[1];
-    let card_w = 26u16;
-    let card_h = 10u16;
-
-    let cols = (grid_area.width / card_w).max(1) as usize;
-    let rows = (grid_area.height / card_h).max(1) as usize;
-    app.big_picture_cols = cols;
-
-    let items_per_page = cols * rows;
-    if items_per_page == 0 {
-        return;
-    }
-
-    let current_page = app.selected_game_idx / items_per_page;
-    let start_idx = current_page * items_per_page;
-    let end_idx = (start_idx + items_per_page).min(app.games.len());
-
-    let row_constraints = vec![Constraint::Length(card_h); rows];
-    let grid_rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(row_constraints)
-        .split(grid_area);
+    let stage_area = main_chunks[1];
 
     if app.games.is_empty() {
         let empty_p = Paragraph::new("\n  No games found in current platform.\n  Press [Alt+O] to return to Library Mode.")
             .style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(empty_p, grid_area);
+        frame.render_widget(empty_p, stage_area);
     } else {
-        for row_idx in 0..rows {
-            if row_idx >= grid_rows.len() {
-                break;
-            }
-            let col_constraints = vec![Constraint::Length(card_w); cols];
-            let row_cells = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(col_constraints)
-                .split(grid_rows[row_idx]);
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(22), // Left Side (Previous Game)
+                Constraint::Percentage(56), // Center Stage (FEATURED HD GAME)
+                Constraint::Percentage(22), // Right Side (Next Game)
+            ])
+            .split(stage_area);
 
-            for col_idx in 0..cols {
-                if col_idx >= row_cells.len() {
-                    break;
-                }
-                let item_index = start_idx + (row_idx * cols + col_idx);
-                if item_index >= end_idx {
-                    break;
-                }
+        let sel_idx = app.selected_game_idx;
 
-                let game = &app.games[item_index];
-                let is_selected = item_index == app.selected_game_idx;
-                let cell_rect = row_cells[col_idx];
+        // 1. LEFT SIDE: Previous Game Preview
+        if sel_idx > 0 {
+            let prev_game = &app.games[sel_idx - 1];
+            let left_block = Block::default()
+                .title(Span::styled(" ◀ Previous ", Style::default().fg(Color::DarkGray)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            let inner = left_block.inner(cols[0]);
+            frame.render_widget(left_block, cols[0]);
 
-                let border_color = if is_selected { Color::Yellow } else { Color::DarkGray };
-                let title_style = if is_selected {
-                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-                };
+            let lines = vec![
+                Line::from(""),
+                Line::from(Span::styled("◀ PREV GAME", Style::default().fg(Color::DarkGray))),
+                Line::from(""),
+                Line::from(Span::styled(&prev_game.title, Style::default().fg(Color::Gray))),
+            ];
+            let p = Paragraph::new(lines).alignment(Alignment::Center);
+            frame.render_widget(p, inner);
+        }
 
-                let card_block = Block::default()
-                    .title(Span::styled(format!(" {} ", game.title), title_style))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(border_color));
+        // 2. CENTER STAGE: Featured Focused Game in CRISP HD!
+        let active_game = &app.games[sel_idx];
+        let center_block = Block::default()
+            .title(Span::styled(
+                format!(" ★ FEATURED: {} ★ ", active_game.title),
+                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow));
 
-                let inner = card_block.inner(cell_rect);
-                frame.render_widget(card_block, cell_rect);
+        let center_inner = center_block.inner(cols[1]);
+        frame.render_widget(center_block, cols[1]);
 
-                let key = (game.id, "cover".to_string());
-                if let Some(protocol) = app.media_protocols.get_mut(&key) {
-                    let image_widget = StatefulImage::new(None);
-                    frame.render_stateful_widget(image_widget, inner, protocol);
-                } else {
-                    let platform_badge = match game.game_type.as_str() {
-                        "wine" => "[WIN]",
-                        "native" => "[NAT]",
-                        "steam" => "[STM]",
-                        _ => "[EMU]",
-                    };
-                    let placeholder_lines = vec![
-                        Line::from(""),
-                        Line::from(Span::styled("   🎮  GAME   ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-                        Line::from(Span::styled("  [ NO COVER ] ", Style::default().fg(Color::DarkGray))),
-                        Line::from(""),
-                        Line::from(Span::styled(format!("  type: {}  ", platform_badge), Style::default().fg(Color::DarkGray))),
-                    ];
-                    let placeholder_p = Paragraph::new(placeholder_lines).alignment(Alignment::Center);
-                    frame.render_widget(placeholder_p, inner);
-                }
-            }
+        let center_split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(8),    // HD Native Cover Graphic Box
+                Constraint::Length(4), // Details & Badges Box
+            ])
+            .split(center_inner);
+
+        // Render Featured HD Native Cover Image
+        let key = (active_game.id, "cover".to_string());
+        if let Some(protocol) = app.media_protocols.get_mut(&key) {
+            let image_widget = StatefulImage::new(None);
+            frame.render_stateful_widget(image_widget, center_split[0], protocol);
+        } else {
+            let no_img = Paragraph::new("\n\n  [ Loading HD Cover Artwork... ]\n  Press [w] to open SteamGridDB Media Manager")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Yellow));
+            frame.render_widget(no_img, center_split[0]);
+        }
+
+        let badge = match active_game.game_type.as_str() {
+            "wine" => "Windows / Wine / Proton",
+            "native" => "Linux Native Executable",
+            "steam" => "Steam Application",
+            _ => "Emulator ROM",
+        };
+
+        let details_lines = vec![
+            Line::from(vec![
+                Span::styled("TITLE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(&active_game.title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled("TYPE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(badge, Style::default().fg(Color::Yellow)),
+                Span::raw("  |  "),
+                Span::styled("STATUS: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("Ready to Play", Style::default().fg(Color::Green)),
+            ]),
+        ];
+        let details_p = Paragraph::new(details_lines).alignment(Alignment::Center);
+        frame.render_widget(details_p, center_split[1]);
+
+        // 3. RIGHT SIDE: Next Game Preview
+        if sel_idx + 1 < app.games.len() {
+            let next_game = &app.games[sel_idx + 1];
+            let right_block = Block::default()
+                .title(Span::styled(" Next ▶ ", Style::default().fg(Color::DarkGray)))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            let inner = right_block.inner(cols[2]);
+            frame.render_widget(right_block, cols[2]);
+
+            let lines = vec![
+                Line::from(""),
+                Line::from(Span::styled("NEXT GAME ▶", Style::default().fg(Color::DarkGray))),
+                Line::from(""),
+                Line::from(Span::styled(&next_game.title, Style::default().fg(Color::Gray))),
+            ];
+            let p = Paragraph::new(lines).alignment(Alignment::Center);
+            frame.render_widget(p, inner);
         }
     }
 
+    // Floating Footer
     let footer_text = Line::from(vec![
         Span::styled(" [Alt+O] ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw(" Exit Big Picture  "),
-        Span::styled(" [Arrows] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Navigate  "),
-        Span::styled(" [Space] ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::raw(" Select  "),
+        Span::styled(" [Left / Right] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Carousel Browse  "),
         Span::styled(" [Enter] ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" PLAY GAME "),
+        Span::raw(" PLAY GAME NOW "),
     ]);
 
     let footer_p = Paragraph::new(footer_text)
