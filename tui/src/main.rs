@@ -1,4 +1,5 @@
 mod app;
+mod cli;
 mod cover_renderer;
 mod panic_hook;
 mod ui;
@@ -6,6 +7,7 @@ mod window_helper;
 
 use anyhow::Result;
 use app::{Action, App, BigPictureFocus, FocusedPane, ModalState};
+use clap::Parser;
 use game_core::models::PlatformType;
 use crossterm::{
     cursor,
@@ -19,6 +21,9 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse CLI arguments
+    let cli_args = cli::CliArgs::parse();
+
     // Install terminal recovery panic hook
     panic_hook::init_panic_hook();
 
@@ -31,6 +36,7 @@ async fn main() -> Result<()> {
 
     // Initialize application state
     let mut app = App::new()?;
+    app.apply_cli_args(&cli_args);
 
     // Main event loop
     loop {

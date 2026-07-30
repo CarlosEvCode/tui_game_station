@@ -364,6 +364,21 @@ impl App {
         Ok(app)
     }
 
+    pub fn apply_cli_args(&mut self, cli_args: &crate::cli::CliArgs) {
+        if let Some(ref target) = cli_args.platform {
+            if let Some(idx) = self.platforms.iter().position(|p| p.name.to_lowercase().contains(&target.to_lowercase())) {
+                self.selected_platform_idx = idx;
+                self.load_games_for_selected_platform();
+            }
+        }
+
+        if cli_args.big_picture {
+            self.is_big_picture = true;
+            self.preload_visible_covers();
+            self.status_msg = "[MODE] Started directly in BIG PICTURE Mode".to_string();
+        }
+    }
+
     /// Platforms list for Runner Manager (excludes Linux Native & Steam)
     pub fn get_runner_platforms(&self) -> Vec<Platform> {
         self.db
