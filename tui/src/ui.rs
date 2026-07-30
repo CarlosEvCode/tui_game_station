@@ -654,7 +654,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let text_h = 2u16;
         let gap_h = 1u16;
-        let top_padding = 2u16; // Comfortable breathing margin at top
+        let top_padding = 3u16; // Extra breathing margin at top
 
         let avail_img_h = inner_h.saturating_sub(text_h + gap_h + top_padding * 2).max(4);
         let target_img_w = ((avail_img_h as f32) * 1.33) as u16;
@@ -668,7 +668,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         };
 
         let total_content_h = img_h + gap_h + text_h;
-        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2;
+        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2 + 1;
         let left_margin = (inner_w.saturating_sub(img_w)) / 2;
 
         let img_centered_rect = Rect::new(
