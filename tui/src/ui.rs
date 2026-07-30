@@ -607,20 +607,23 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let sel_idx = app.selected_game_idx;
 
-        // 1. LEFT SIDE: Previous Game Preview (Halfblocks truecolor cover)
+        // 1. LEFT SIDE: Previous Game Preview (Halfblocks cover, dynamically centered)
         if sel_idx > 0 {
             let prev_game = &app.games[sel_idx - 1];
+            let left_stage = centered_rect(100, 85, cols[0]);
             let left_block = Block::default()
                 .title(Span::styled(format!(" ◀ {} ", prev_game.title), Style::default().fg(Color::DarkGray)))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray));
-            let inner = left_block.inner(cols[0]);
-            frame.render_widget(left_block, cols[0]);
+            let inner = left_block.inner(left_stage);
+            frame.render_widget(left_block, left_stage);
+
+            let left_img_rect = centered_rect(85, 85, inner);
 
             let key = (prev_game.id, "cover_hb".to_string());
             if let Some(protocol) = app.media_protocols.get_mut(&key) {
                 let image_widget = StatefulImage::new(None);
-                frame.render_stateful_widget(image_widget, inner, protocol);
+                frame.render_stateful_widget(image_widget, left_img_rect, protocol);
             } else {
                 let lines = vec![
                     Line::from(""),
@@ -629,11 +632,11 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                     Line::from(Span::styled(&prev_game.title, Style::default().fg(Color::Gray))),
                 ];
                 let p = Paragraph::new(lines).alignment(Alignment::Center);
-                frame.render_widget(p, inner);
+                frame.render_widget(p, left_img_rect);
             }
         }
 
-        // 2. CENTER STAGE: Featured Focused Game in CRISP HD (Perfectly Centered)!
+        // 2. CENTER STAGE: Featured Focused Game in CRISP HD (Centered Horizontally & Vertically)!
         let active_game = &app.games[sel_idx];
         let center_block = Block::default()
             .title(Span::styled(
@@ -654,15 +657,8 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             ])
             .split(center_inner);
 
-        // Horizontally center the HD cover image inside center_split[0]
-        let img_centered_rect = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(18), // Left margin
-                Constraint::Percentage(64), // Centered Image Box
-                Constraint::Percentage(18), // Right margin
-            ])
-            .split(center_split[0])[1];
+        // Dynamically center the HD cover image both Horizontally & Vertically
+        let img_centered_rect = centered_rect(65, 85, center_split[0]);
 
         // Render Featured HD Native Cover Image
         let key = (active_game.id, "cover".to_string());
@@ -699,20 +695,23 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let details_p = Paragraph::new(details_lines).alignment(Alignment::Center);
         frame.render_widget(details_p, center_split[1]);
 
-        // 3. RIGHT SIDE: Next Game Preview (Halfblocks truecolor cover)
+        // 3. RIGHT SIDE: Next Game Preview (Halfblocks cover, dynamically centered)
         if sel_idx + 1 < app.games.len() {
             let next_game = &app.games[sel_idx + 1];
+            let right_stage = centered_rect(100, 85, cols[2]);
             let right_block = Block::default()
                 .title(Span::styled(format!(" {} ▶ ", next_game.title), Style::default().fg(Color::DarkGray)))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray));
-            let inner = right_block.inner(cols[2]);
-            frame.render_widget(right_block, cols[2]);
+            let inner = right_block.inner(right_stage);
+            frame.render_widget(right_block, right_stage);
+
+            let right_img_rect = centered_rect(85, 85, inner);
 
             let key = (next_game.id, "cover_hb".to_string());
             if let Some(protocol) = app.media_protocols.get_mut(&key) {
                 let image_widget = StatefulImage::new(None);
-                frame.render_stateful_widget(image_widget, inner, protocol);
+                frame.render_stateful_widget(image_widget, right_img_rect, protocol);
             } else {
                 let lines = vec![
                     Line::from(""),
@@ -721,7 +720,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                     Line::from(Span::styled(&next_game.title, Style::default().fg(Color::Gray))),
                 ];
                 let p = Paragraph::new(lines).alignment(Alignment::Center);
-                frame.render_widget(p, inner);
+                frame.render_widget(p, right_img_rect);
             }
         }
     }
