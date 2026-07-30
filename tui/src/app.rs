@@ -365,7 +365,7 @@ impl App {
             is_big_picture: false,
             big_picture_cols: 4,
             big_picture_focus: BigPictureFocus::Carousel,
-            status_msg: "TUI Game Station listo! [/] Buscar | [?] Atajos | [v] Vista | [m] Emuladores".to_string(),
+            status_msg: "TUI Game Station ready!".to_string(),
             should_quit: false,
             pending_wine_tool: None,
             toasts: Vec::new(),
@@ -838,7 +838,7 @@ impl App {
             }
             Action::LaunchGame => {
                 if self.games.is_empty() {
-                    self.status_msg = "No hay juegos seleccionados para ejecutar.".to_string();
+                    self.status_msg = "No games available to launch.".to_string();
                     return;
                 }
 
@@ -849,15 +849,15 @@ impl App {
                     .ok()
                     .flatten();
 
-                self.status_msg = format!("Ejecutando {}...", game.title);
+                self.status_msg = format!("Launching {}...", game.title);
 
                 match GameRunner::launch_game(&game, runner.as_ref()).await {
                     Ok(status) => {
                         self.status_msg =
-                            format!("Juego finalizado con código: {:?}", status.code());
+                            format!("Game exited with code: {:?}", status.code());
                     }
                     Err(err) => {
-                        self.status_msg = format!("Error al ejecutar juego: {}", err);
+                        self.status_msg = format!("Error launching game: {}", err);
                     }
                 }
             }
@@ -871,7 +871,7 @@ impl App {
                     .unwrap_or_else(|| PathBuf::from("/home"))
                     .join("Juegos");
                 self.status_msg = format!(
-                    "Escaneando carpeta: {:?} para {}...",
+                    "Scanning folder: {:?} for {}...",
                     default_dir, platform.name
                 );
 
@@ -879,34 +879,34 @@ impl App {
                     match Scanner::scan_folder(&self.db, &platform, &default_dir, true, false) {
                         Ok(added) => {
                             self.status_msg = format!(
-                                "Escaneo finalizado: {} juegos agregados/actualizados.",
+                                "Scan finished: {} game(s) added/updated.",
                                 added
                             );
                             self.load_platforms();
                         }
                         Err(err) => {
-                            self.status_msg = format!("Error durante el escaneo: {}", err);
+                            self.status_msg = format!("Error during scan: {}", err);
                         }
                     }
                 } else {
                     self.status_msg = format!(
-                        "Carpeta no encontrada: {:?}. Crea la carpeta ~/Juegos",
+                        "Folder not found: {:?}. Please create folder ~/Juegos",
                         default_dir
                     );
                 }
             }
             Action::ScanSteamGames => {
-                self.status_msg = "Buscando juegos de Steam instalados...".to_string();
+                self.status_msg = "Scanning for installed Steam games...".to_string();
                 match SteamScanner::scan_steam_games(&self.db) {
                     Ok(added) => {
                         self.status_msg = format!(
-                            "Escaneo de Steam completado: {} juegos en biblioteca.",
+                            "Steam scan completed: {} game(s) in library.",
                             added
                         );
                         self.load_platforms();
                     }
                     Err(err) => {
-                        self.status_msg = format!("Error detectando Steam: {}", err);
+                        self.status_msg = format!("Error detecting Steam: {}", err);
                     }
                 }
             }
