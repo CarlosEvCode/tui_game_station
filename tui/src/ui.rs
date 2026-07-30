@@ -654,8 +654,9 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let text_h = 2u16;
         let gap_h = 1u16;
+        let top_padding = 2u16; // Comfortable breathing margin at top
 
-        let avail_img_h = inner_h.saturating_sub(text_h + gap_h + 1).max(4);
+        let avail_img_h = inner_h.saturating_sub(text_h + gap_h + top_padding * 2).max(4);
         let target_img_w = ((avail_img_h as f32) * 1.33) as u16;
 
         let (img_w, img_h) = if target_img_w <= inner_w.saturating_sub(2) {
