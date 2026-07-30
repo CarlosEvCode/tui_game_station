@@ -2345,9 +2345,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::PlatformSelector { selected_idx } => {
-            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(12);
-            let needed_w = (max_name_len as u16 + 14).max(30);
-            let needed_h = (app.platforms.len() as u16 + 3).clamp(5, 14);
+            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(10);
+            let needed_w = (max_name_len as u16 + 12).max(28);
+            let needed_h = (app.platforms.len() as u16 + 2).max(4);
 
             let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
@@ -2370,8 +2370,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let list = List::new(items).block(
                 Block::default()
-                    .title(Span::styled(" 🎮 Select Platform ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
-                    .title_bottom(Span::styled(" ↑↓ Nav | ↵ Select | Esc ", Style::default().fg(Color::Yellow)))
+                    .title(Span::styled(" 🎮 Platform ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title_bottom(Span::styled(" ↵Select | Esc ", Style::default().fg(Color::Yellow)))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Yellow)),
             );

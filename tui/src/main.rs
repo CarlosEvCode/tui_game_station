@@ -304,6 +304,9 @@ async fn main() -> Result<()> {
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ConfirmDeleteGameExecution).await;
                                 }
+                                ModalState::PlatformSelector { .. } => {
+                                    app.update(Action::ConfirmPlatformSelectorModal).await;
+                                }
                                 ModalState::AddGameForm {
                                     ref game_type,
                                     selected_field,
