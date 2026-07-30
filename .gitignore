@@ -1,7 +1,27 @@
+# Build outputs
 /target
+/tui_game_station
+tui_game_station
+*.exe
+*.so
+*.dylib
+*.rlib
+
+# Backup & editor files
 **/*.rs.bk
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Databases & local data
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.sqlite
+*.log
+
+# OS generated files
 .DS_Store
+Thumbs.db
