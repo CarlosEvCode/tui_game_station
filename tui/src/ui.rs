@@ -2345,9 +2345,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::PlatformSelector { selected_idx } => {
-            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(15);
-            let needed_w = (max_name_len as u16 + 24).max(46);
-            let needed_h = ((app.platforms.len() as u16) + 4).clamp(6, 16);
+            let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(12);
+            let needed_w = (max_name_len as u16 + 14).max(30);
+            let needed_h = (app.platforms.len() as u16 + 3).clamp(5, 14);
 
             let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
@@ -2356,36 +2356,27 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             for (idx, p) in app.platforms.iter().enumerate() {
                 let is_sel = idx == selected_idx;
                 let count = app.db.get_games_for_platform(p.id).map(|g| g.len()).unwrap_or(0);
-                let text = format!(" {} ({}) ", p.name, count);
+                let text = format!("{} ({})", p.name, count);
                 let style = if is_sel {
                     Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
                 };
                 items.push(ListItem::new(Line::from(vec![
-                    Span::styled(if is_sel { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                    Span::styled(if is_sel { "▶ " } else { "  " }, Style::default().fg(Color::Yellow)),
                     Span::styled(text, style),
                 ])));
             }
 
             let list = List::new(items).block(
                 Block::default()
-                    .title(Span::styled(" 🎮 Select Platform 🎮 ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title(Span::styled(" 🎮 Select Platform ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .title_bottom(Span::styled(" ↑↓ Nav | ↵ Select | Esc ", Style::default().fg(Color::Yellow)))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Yellow)),
             );
 
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(3), Constraint::Length(1)])
-                .split(popup_area);
-
-            frame.render_widget(list, chunks[0]);
-
-            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Select | [Esc] Close ")
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(help, chunks[1]);
+            frame.render_widget(list, popup_area);
         }
         ModalState::None => {}
     }
