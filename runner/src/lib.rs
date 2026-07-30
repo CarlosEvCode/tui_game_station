@@ -11,9 +11,17 @@ pub struct GameRunner;
 impl GameRunner {
     /// Format and build executable command line string for a game.
     pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
-        let mut env_vars = HashMap::new();
+        let mut base_envs = HashMap::new();
 
-        if game.game_type == "wine" {
+        if let Some(env_str) = &game.env_vars {
+            for token in env_str.split_whitespace() {
+                if let Some((k, v)) = token.split_once('=') {
+                    base_envs.insert(k.to_string(), v.to_string());
+                }
+            }
+        }
+
+        let (mut exe, mut args, envs) = if game.game_type == "wine" {
             let file_path = game.file_path.clone().unwrap_or_default();
             let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
                 if let Some(ref wdir) = game.working_dir {
@@ -29,61 +37,91 @@ impl GameRunner {
 
             if let Some(cmd) = &game.custom_command {
                 if !cmd.trim().is_empty() {
-                    let mut envs = env_vars.clone();
+                    let mut local_envs = base_envs.clone();
                     if cmd.contains("proton") {
-                        envs.insert("STEAM_COMPAT_DATA_PATH".to_string(), wine_prefix.clone());
+                        local_envs.insert("STEAM_COMPAT_DATA_PATH".to_string(), wine_prefix.clone());
                         let steam_dir = dirs::home_dir().map(|h| h.join(".local/share/Steam")).unwrap_or_default();
-                        envs.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH".to_string(), steam_dir.to_string_lossy().to_string());
+                        local_envs.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH".to_string(), steam_dir.to_string_lossy().to_string());
                     } else {
-                        envs.insert("WINEPREFIX".to_string(), wine_prefix.clone());
+                        local_envs.insert("WINEPREFIX".to_string(), wine_prefix.clone());
                     }
-                    let (exe, args, mut parsed_envs) = parse_command_string(cmd, game)?;
-                    parsed_envs.extend(envs);
-                    return Ok((exe, args, parsed_envs));
+                    let (e, a, mut pe) = parse_command_string(cmd, game)?;
+                    pe.extend(local_envs);
+                    (e, a, pe)
+                } else {
+                    let mut local_envs = base_envs.clone();
+                    local_envs.insert("WINEPREFIX".to_string(), wine_prefix);
+                    let cmd = format!("wine \"{}\"", file_path);
+                    let (e, a, mut pe) = parse_command_string(&cmd, game)?;
+                    pe.extend(local_envs);
+                    (e, a, pe)
                 }
+            } else {
+                let mut local_envs = base_envs.clone();
+                local_envs.insert("WINEPREFIX".to_string(), wine_prefix);
+                let cmd = format!("wine \"{}\"", file_path);
+                let (e, a, mut pe) = parse_command_string(&cmd, game)?;
+                pe.extend(local_envs);
+                (e, a, pe)
             }
-
-            // Default fallback if no custom_command specified for Windows game:
-            env_vars.insert("WINEPREFIX".to_string(), wine_prefix);
-            let cmd = format!("wine \"{}\"", file_path);
-            return parse_command_string(&cmd, game);
-        }
-
-        if let Some(cmd) = &game.custom_command {
-            return parse_command_string(cmd, game);
-        }
-
-        if game.game_type == "steam" {
+        } else if let Some(cmd) = &game.custom_command {
+            let (e, a, mut pe) = parse_command_string(cmd, game)?;
+            pe.extend(base_envs.clone());
+            (e, a, pe)
+        } else if game.game_type == "steam" {
             let appid = game.steam_appid.unwrap_or(0);
             let cmd = format!("steam steam://rungameid/{}", appid);
-            return parse_command_string(&cmd, game);
-        }
-
-        if let Some(r) = runner {
+            let (e, a, mut pe) = parse_command_string(&cmd, game)?;
+            pe.extend(base_envs.clone());
+            (e, a, pe)
+        } else if let Some(r) = runner {
             let mut template = r.command_template.clone();
-
             let file_path = game.file_path.clone().unwrap_or_default();
             template = template.replace("{rom}", &file_path);
             template = template.replace("{file_path}", &file_path);
 
-            if let Some(exe) = &r.executable_path {
-                template = template.replace("{executable_path}", exe);
+            if let Some(ex) = &r.executable_path {
+                template = template.replace("{executable_path}", ex);
             } else if template.contains("{executable_path}") {
                 anyhow::bail!("No se ha configurado la ruta del ejecutable/AppImage para el runner '{}'. Presiona [m] para configurarlo.", r.name);
             }
 
+            let mut local_envs = base_envs.clone();
             if let Some(prefix) = &game.wine_prefix {
-                env_vars.insert("WINEPREFIX".to_string(), prefix.clone());
+                local_envs.insert("WINEPREFIX".to_string(), prefix.clone());
             }
 
-            return parse_command_string(&template, game);
+            let (e, a, mut pe) = parse_command_string(&template, game)?;
+            pe.extend(local_envs);
+            (e, a, pe)
+        } else if let Some(path) = &game.file_path {
+            let (e, a, mut pe) = parse_command_string(&format!("\"{}\"", path), game)?;
+            pe.extend(base_envs.clone());
+            (e, a, pe)
+        } else {
+            anyhow::bail!("No suitable runner or executable command found for game: {}", game.title)
+        };
+
+        // Apply Gamescope wrapper if enabled (outermost wrapper)
+        if envs.get("GAMESCOPE").map(|v| v == "1").unwrap_or(false) {
+            args.insert(0, "--".to_string());
+            args.insert(0, exe.clone());
+            exe = "gamescope".to_string();
         }
 
-        if let Some(path) = &game.file_path {
-            return parse_command_string(&format!("\"{}\"", path), game);
+        // Apply GameMode wrapper if enabled
+        if envs.get("GAMEMODE").map(|v| v == "1").unwrap_or(false) {
+            args.insert(0, exe.clone());
+            exe = "gamemoderun".to_string();
         }
 
-        anyhow::bail!("No suitable runner or executable command found for game: {}", game.title)
+        // Apply MangoHud wrapper if enabled
+        if envs.get("MANGOHUD").map(|v| v == "1").unwrap_or(false) {
+            args.insert(0, exe.clone());
+            exe = "mangohud".to_string();
+        }
+
+        Ok((exe, args, envs))
     }
 
     /// Launch game process asynchronously, isolating stdout/stderr to a log file to avoid TUI terminal corruption.

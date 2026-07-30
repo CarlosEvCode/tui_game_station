@@ -75,6 +75,13 @@ pub enum ModalState {
         wine_prefix: String,
         steam_appid: String,
         custom_command: String,
+        gamemode: bool,
+        mangohud: bool,
+        gamescope: bool,
+        esync: bool,
+        fsync: bool,
+        dxvk: bool,
+        vkd3d: bool,
         cursor_pos: usize,
     },
     EditGameForm {
@@ -87,6 +94,13 @@ pub enum ModalState {
         wine_prefix: String,
         steam_appid: String,
         custom_command: String,
+        gamemode: bool,
+        mangohud: bool,
+        gamescope: bool,
+        esync: bool,
+        fsync: bool,
+        dxvk: bool,
+        vkd3d: bool,
         cursor_pos: usize,
     },
     ConfigureApiKeyInput {
@@ -119,7 +133,7 @@ pub enum ModalState {
         chosen_icon_idx: Option<usize>,
     },
     ManageRunnersStep1Platform {
-        selected_runner_idx: usize,
+        selected_platform_idx: usize,
     },
     ManageRunnersStep2Config {
         runner_info: game_core::models::UniqueRunnerInfo,
@@ -142,6 +156,9 @@ pub enum ModalState {
         installed_runners: Vec<game_core::runner_detector::InstalledWineRunner>,
         selected_idx: usize,
         parent_modal: Option<Box<ModalState>>,
+    },
+    WineToolsMenu {
+        selected_idx: usize,
     },
     EditCustomArgsInput {
         input: String,
@@ -168,6 +185,11 @@ pub enum Action {
     DeleteInstalledWineRunner,
     OpenCustomArgsEditor,
     SaveCustomArgsInput,
+    OpenWinecfg,
+    OpenWinetricks,
+    KillWineProcesses,
+    OpenWineToolsMenu,
+    SelectWineTool,
     FormNavLeft,
     FormNavRight,
     TogglePane,
@@ -799,16 +821,16 @@ impl App {
             // Runner Manager Actions
             Action::OpenManageRunnersModal => {
                 self.modal_state = ModalState::ManageRunnersStep1Platform {
-                    selected_runner_idx: 0,
+                    selected_platform_idx: 0,
                 };
             }
             Action::RunnerModalConfirmPlatform => {
                 if let ModalState::ManageRunnersStep1Platform {
-                    selected_runner_idx,
+                    selected_platform_idx,
                 } = self.modal_state
                 {
                     let unique_runners = self.db.get_unique_runners().unwrap_or_default();
-                    if let Some(r) = unique_runners.get(selected_runner_idx) {
+                    if let Some(r) = unique_runners.get(selected_platform_idx) {
                         let exe_path = r.executable_path.clone().unwrap_or_default();
                         self.modal_state = ModalState::ManageRunnersStep2Config {
                             runner_info: r.clone(),
@@ -1242,6 +1264,167 @@ impl App {
                     }
                 }
             }
+            Action::OpenWinecfg => {
+                if let Some(game) = self.games.get(self.selected_game_idx) {
+                    if game.game_type == "wine" {
+                        let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
+                            if let Some(ref wdir) = game.working_dir {
+                                if !wdir.trim().is_empty() {
+                                    return std::path::PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                                }
+                            }
+                            let data_dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
+                            data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+                        });
+                        let _ = std::fs::create_dir_all(&wine_prefix);
+                        self.status_msg = format!("Opening winecfg for prefix: {}...", wine_prefix);
+                        tokio::spawn(async move {
+                            let _ = tokio::process::Command::new("winecfg")
+                                .env("WINEPREFIX", &wine_prefix)
+                                .spawn();
+                        });
+                    } else {
+                        self.status_msg = "[Warning] winecfg is only applicable to Wine/Windows games.".to_string();
+                    }
+                }
+            }
+            Action::OpenWinetricks => {
+                if let Some(game) = self.games.get(self.selected_game_idx) {
+                    if game.game_type == "wine" {
+                        let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
+                            if let Some(ref wdir) = game.working_dir {
+                                if !wdir.trim().is_empty() {
+                                    return std::path::PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                                }
+                            }
+                            let data_dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
+                            data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+                        });
+                        let _ = std::fs::create_dir_all(&wine_prefix);
+                        self.status_msg = format!("Opening winetricks for prefix: {}...", wine_prefix);
+                        tokio::spawn(async move {
+                            let _ = tokio::process::Command::new("winetricks")
+                                .env("WINEPREFIX", &wine_prefix)
+                                .spawn();
+                        });
+                    } else {
+                        self.status_msg = "[Warning] winetricks is only applicable to Wine/Windows games.".to_string();
+                    }
+                }
+            }
+            Action::KillWineProcesses => {
+                if let Some(game) = self.games.get(self.selected_game_idx) {
+                    if game.game_type == "wine" {
+                        let wine_prefix = game.wine_prefix.clone().unwrap_or_default();
+                        self.status_msg = format!("Killing Wine processes for prefix: {}...", wine_prefix);
+                        tokio::spawn(async move {
+                            let _ = tokio::process::Command::new("wineserver")
+                                .arg("-k")
+                                .env("WINEPREFIX", &wine_prefix)
+                                .output()
+                                .await;
+                        });
+                    } else {
+                        self.status_msg = "[Warning] Kill Wine is only applicable to Wine/Windows games.".to_string();
+                    }
+                }
+            }
+            Action::OpenWineToolsMenu => {
+                if self.games.get(self.selected_game_idx).map(|g| g.game_type.as_str()) == Some("wine") {
+                    self.modal_state = ModalState::WineToolsMenu { selected_idx: 0 };
+                } else {
+                    self.status_msg = "[Warning] Wine tools are only available for Wine/Windows games.".to_string();
+                }
+            }
+            Action::SelectWineTool => {
+                if let ModalState::WineToolsMenu { selected_idx } = self.modal_state {
+                    self.modal_state = ModalState::None;
+                    match selected_idx {
+                        0 => {
+                            if let Some(game) = self.games.get(self.selected_game_idx) {
+                                if game.game_type == "wine" {
+                                    let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
+                                        if let Some(ref wdir) = game.working_dir {
+                                            if !wdir.trim().is_empty() {
+                                                return std::path::PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                                            }
+                                        }
+                                        let data_dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
+                                        data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+                                    });
+                                    let _ = std::fs::create_dir_all(&wine_prefix);
+                                    self.status_msg = format!("Opening winecfg for prefix: {}...", wine_prefix);
+                                    tokio::spawn(async move {
+                                        let _ = tokio::process::Command::new("winecfg")
+                                            .env("WINEPREFIX", &wine_prefix)
+                                            .spawn();
+                                    });
+                                }
+                            }
+                        }
+                        1 => {
+                            if let Some(game) = self.games.get(self.selected_game_idx) {
+                                if game.game_type == "wine" {
+                                    let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
+                                        if let Some(ref wdir) = game.working_dir {
+                                            if !wdir.trim().is_empty() {
+                                                return std::path::PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                                            }
+                                        }
+                                        let data_dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
+                                        data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+                                    });
+                                    let _ = std::fs::create_dir_all(&wine_prefix);
+                                    self.status_msg = format!("Opening winetricks for prefix: {}...", wine_prefix);
+                                    tokio::spawn(async move {
+                                        let _ = tokio::process::Command::new("winetricks")
+                                            .env("WINEPREFIX", &wine_prefix)
+                                            .spawn();
+                                    });
+                                }
+                            }
+                        }
+                        2 => {
+                            if let Some(game) = self.games.get(self.selected_game_idx) {
+                                if game.game_type == "wine" {
+                                    let wine_prefix = game.wine_prefix.clone().unwrap_or_default();
+                                    self.status_msg = format!("Killing Wine processes for prefix: {}...", wine_prefix);
+                                    tokio::spawn(async move {
+                                        let _ = tokio::process::Command::new("wineserver")
+                                            .arg("-k")
+                                            .env("WINEPREFIX", &wine_prefix)
+                                            .output()
+                                            .await;
+                                    });
+                                }
+                            }
+                        }
+                        3 => {
+                            if let Some(game) = self.games.get(self.selected_game_idx) {
+                                if game.game_type == "wine" {
+                                    let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
+                                        if let Some(ref wdir) = game.working_dir {
+                                            if !wdir.trim().is_empty() {
+                                                return std::path::PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                                            }
+                                        }
+                                        let data_dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
+                                        data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+                                    });
+                                    let _ = std::fs::create_dir_all(&wine_prefix);
+                                    self.status_msg = format!("Opening prefix folder: {}...", wine_prefix);
+                                    tokio::spawn(async move {
+                                        let _ = tokio::process::Command::new("xdg-open")
+                                            .arg(&wine_prefix)
+                                            .spawn();
+                                    });
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Action::OpenWineRunnerPicker => {
                 let installed_runners = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
                 if installed_runners.is_empty() {
@@ -1562,6 +1745,15 @@ impl App {
                     let title_str = game.title.clone();
                     let cpos = title_str.len();
 
+                    let env_str = game.env_vars.as_deref().unwrap_or_default();
+                    let gamemode = env_str.contains("GAMEMODE=1");
+                    let mangohud = env_str.contains("MANGOHUD=1");
+                    let gamescope = env_str.contains("GAMESCOPE=1");
+                    let esync = env_str.contains("WINEESYNC=1");
+                    let fsync = env_str.contains("WINEFSYNC=1");
+                    let dxvk = env_str.contains("DXVK_ASYNC=1");
+                    let vkd3d = env_str.contains("VKD3D_CONFIG=enable_async");
+
                     self.modal_state = ModalState::EditGameForm {
                         game_id: game.id,
                         game_type: gtype,
@@ -1572,6 +1764,13 @@ impl App {
                         custom_command: game.custom_command.clone().unwrap_or_default(),
                         wine_prefix: game.wine_prefix.clone().unwrap_or_default(),
                         steam_appid: game.steam_appid.map(|id| id.to_string()).unwrap_or_default(),
+                        gamemode,
+                        mangohud,
+                        gamescope,
+                        esync,
+                        fsync,
+                        dxvk,
+                        vkd3d,
                         cursor_pos: cpos,
                     };
                 }
@@ -1585,6 +1784,13 @@ impl App {
                     ref custom_command,
                     ref wine_prefix,
                     ref steam_appid,
+                    gamemode,
+                    mangohud,
+                    gamescope,
+                    esync,
+                    fsync,
+                    dxvk,
+                    vkd3d,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -1611,6 +1817,16 @@ impl App {
                             Some(wine_prefix.trim().to_string())
                         };
                         game.steam_appid = steam_appid.trim().parse::<i64>().ok();
+
+                        let mut env_flags = Vec::new();
+                        if gamemode { env_flags.push("GAMEMODE=1"); }
+                        if mangohud { env_flags.push("MANGOHUD=1"); }
+                        if gamescope { env_flags.push("GAMESCOPE=1"); }
+                        if esync { env_flags.push("WINEESYNC=1"); }
+                        if fsync { env_flags.push("WINEFSYNC=1"); }
+                        if dxvk { env_flags.push("DXVK_ASYNC=1"); }
+                        if vkd3d { env_flags.push("VKD3D_CONFIG=enable_async"); }
+                        game.env_vars = if env_flags.is_empty() { None } else { Some(env_flags.join(" ")) };
 
                         let target_slug = match game.game_type.as_str() {
                             "wine" => Some("windows"),
@@ -1643,6 +1859,9 @@ impl App {
                     }
                     ModalState::EditCustomArgsInput { parent_modal, .. } => {
                         self.modal_state = *parent_modal;
+                    }
+                    ModalState::WineToolsMenu { .. } => {
+                        self.modal_state = ModalState::None;
                     }
                     _ => {
                         self.modal_state = ModalState::None;
@@ -1677,11 +1896,11 @@ impl App {
                         }
                     }
                     ModalState::ManageRunnersStep1Platform {
-                        ref mut selected_runner_idx,
+                        ref mut selected_platform_idx,
                     } => {
                         if total_unique_runners > 0 {
-                            *selected_runner_idx =
-                                (*selected_runner_idx + 1) % total_unique_runners;
+                            *selected_platform_idx =
+                                (*selected_platform_idx + 1) % total_unique_runners;
                         }
                     }
                     ModalState::ManageRunnersStep2Config { .. } => {}
@@ -1746,6 +1965,11 @@ impl App {
                             *selected_idx = (*selected_idx + 1) % installed_runners.len();
                         }
                     }
+                    ModalState::WineToolsMenu {
+                        ref mut selected_idx,
+                    } => {
+                        *selected_idx = (*selected_idx + 1) % 4;
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -1789,13 +2013,13 @@ impl App {
                         }
                     }
                     ModalState::ManageRunnersStep1Platform {
-                        ref mut selected_runner_idx,
+                        ref mut selected_platform_idx,
                     } => {
                         if total_unique_runners > 0 {
-                            if *selected_runner_idx == 0 {
-                                *selected_runner_idx = total_unique_runners - 1;
+                            if *selected_platform_idx == 0 {
+                                *selected_platform_idx = total_unique_runners - 1;
                             } else {
-                                *selected_runner_idx -= 1;
+                                *selected_platform_idx -= 1;
                             }
                         }
                     }
@@ -1888,6 +2112,15 @@ impl App {
                             }
                         }
                     }
+                    ModalState::WineToolsMenu {
+                        ref mut selected_idx,
+                    } => {
+                        if *selected_idx == 0 {
+                            *selected_idx = 3;
+                        } else {
+                            *selected_idx -= 1;
+                        }
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -1920,6 +2153,13 @@ impl App {
                             wine_prefix: String::new(),
                             steam_appid: String::new(),
                             custom_command: String::new(),
+                            gamemode: false,
+                            mangohud: false,
+                            gamescope: false,
+                            esync: false,
+                            fsync: false,
+                            dxvk: false,
+                            vkd3d: false,
                             cursor_pos: 0,
                         };
                     }
@@ -1957,7 +2197,76 @@ impl App {
                 }
             }
             Action::ModalToggleCheckbox => {
-                if let ModalState::ScanFolderForm {
+                let toggle = |field: usize, gm: &mut bool, mh: &mut bool, gs: &mut bool,
+                              es: &mut bool, fs: &mut bool, dx: &mut bool, vk: &mut bool| {
+                    match field {
+                        3 => *gm = !*gm,
+                        4 => *mh = !*mh,
+                        5 => *gs = !*gs,
+                        6 => *es = !*es,
+                        7 => *fs = !*fs,
+                        8 => *dx = !*dx,
+                        9 => *vk = !*vk,
+                        _ => {}
+                    }
+                };
+                let toggle_wine = |field: usize, gm: &mut bool, mh: &mut bool, gs: &mut bool,
+                                   es: &mut bool, fs: &mut bool, dx: &mut bool, vk: &mut bool| {
+                    match field {
+                        6 => *gm = !*gm,
+                        7 => *mh = !*mh,
+                        8 => *gs = !*gs,
+                        9 => *es = !*es,
+                        10 => *fs = !*fs,
+                        11 => *dx = !*dx,
+                        12 => *vk = !*vk,
+                        _ => {}
+                    }
+                };
+
+                if let ModalState::AddGameForm {
+                    ref mut gamemode,
+                    ref mut mangohud,
+                    ref mut gamescope,
+                    ref mut esync,
+                    ref mut fsync,
+                    ref mut dxvk,
+                    ref mut vkd3d,
+                    selected_field,
+                    game_type: ref gtype,
+                    ..
+                } = self.modal_state
+                {
+                    match gtype {
+                        PlatformType::Wine => {
+                            toggle_wine(selected_field, gamemode, mangohud, gamescope, esync, fsync, dxvk, vkd3d);
+                        }
+                        _ => {
+                            toggle(selected_field, gamemode, mangohud, gamescope, esync, fsync, dxvk, vkd3d);
+                        }
+                    }
+                } else if let ModalState::EditGameForm {
+                    ref mut gamemode,
+                    ref mut mangohud,
+                    ref mut gamescope,
+                    ref mut esync,
+                    ref mut fsync,
+                    ref mut dxvk,
+                    ref mut vkd3d,
+                    selected_field,
+                    game_type: ref gtype,
+                    ..
+                } = self.modal_state
+                {
+                    match gtype {
+                        PlatformType::Wine => {
+                            toggle_wine(selected_field, gamemode, mangohud, gamescope, esync, fsync, dxvk, vkd3d);
+                        }
+                        _ => {
+                            toggle(selected_field, gamemode, mangohud, gamescope, esync, fsync, dxvk, vkd3d);
+                        }
+                    }
+                } else if let ModalState::ScanFolderForm {
                     ref mut recursive,
                     selected_field,
                     ..
@@ -2019,10 +2328,10 @@ impl App {
                     ..
                 } => {
                     let total_fields = match gtype {
-                        PlatformType::Emulator => 4,
-                        PlatformType::Native => 5,
-                        PlatformType::Wine => 7,
-                        PlatformType::Steam => 3,
+                        PlatformType::Emulator => 7,
+                        PlatformType::Native => 8,
+                        PlatformType::Wine => 14,
+                        PlatformType::Steam => 7,
                     };
                     *selected_field = (*selected_field + 1) % total_fields;
                     if *selected_field == 0 {
@@ -2053,10 +2362,10 @@ impl App {
                     ..
                 } => {
                     let total_fields = match gtype {
-                        PlatformType::Emulator => 4,
-                        PlatformType::Native => 5,
-                        PlatformType::Wine => 7,
-                        PlatformType::Steam => 3,
+                        PlatformType::Emulator => 7,
+                        PlatformType::Native => 8,
+                        PlatformType::Wine => 14,
+                        PlatformType::Steam => 7,
                     };
                     if *selected_field == 0 {
                         *selected_field = total_fields - 1;
@@ -3045,6 +3354,13 @@ impl App {
                     ref wine_prefix,
                     ref steam_appid,
                     ref custom_command,
+                    gamemode,
+                    mangohud,
+                    gamescope,
+                    esync,
+                    fsync,
+                    dxvk,
+                    vkd3d,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -3083,6 +3399,15 @@ impl App {
 
                     let steam_id = steam_appid.parse::<i64>().ok();
 
+                    let mut env_flags = Vec::new();
+                    if gamemode { env_flags.push("GAMEMODE=1"); }
+                    if mangohud { env_flags.push("MANGOHUD=1"); }
+                    if gamescope { env_flags.push("GAMESCOPE=1"); }
+                    if esync { env_flags.push("WINEESYNC=1"); }
+                    if fsync { env_flags.push("WINEFSYNC=1"); }
+                    if dxvk { env_flags.push("DXVK_ASYNC=1"); }
+                    if vkd3d { env_flags.push("VKD3D_CONFIG=enable_async"); }
+
                     let game = Game {
                         id: 0,
                         platform_id,
@@ -3104,7 +3429,7 @@ impl App {
                         } else {
                             Some(custom_command.clone())
                         },
-                        env_vars: None,
+                        env_vars: if env_flags.is_empty() { None } else { Some(env_flags.join(" ")) },
                         wine_prefix: if wine_prefix.trim().is_empty() {
                             if !working_dir.trim().is_empty() {
                                 let p = std::path::PathBuf::from(working_dir.trim()).join("prefix");

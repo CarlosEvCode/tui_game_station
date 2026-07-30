@@ -516,6 +516,8 @@ fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
         Span::raw("Media "),
         Span::styled(" [e] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw("Edit "),
+        Span::styled(" [c] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("Wine "),
         Span::styled(" [m] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw("Runners "),
         Span::styled(" [a] ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -1179,14 +1181,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let help = Paragraph::new(help_str).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, modal_chunks[2]);
         }
-        ModalState::ManageRunnersStep1Platform { selected_runner_idx } => {
+        ModalState::ManageRunnersStep1Platform { selected_platform_idx } => {
             let unique_runners = app.db.get_unique_runners().unwrap_or_default();
 
             let items: Vec<ListItem> = unique_runners
                 .iter()
                 .enumerate()
                 .map(|(idx, r)| {
-                    let is_selected = idx == selected_runner_idx;
+                    let is_selected = idx == selected_platform_idx;
                     let status_badge = if r.is_configured {
                         " [Active / Configured]"
                     } else {
@@ -1460,6 +1462,41 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
+        ModalState::WineToolsMenu { selected_idx } => {
+            let items = [
+                ("Open winecfg", "Graphical Wine configuration"),
+                ("Open winetricks", "Install Windows libraries"),
+                ("Kill Wine processes", "Terminate wineserver"),
+                ("Open Prefix folder", "Browse prefix in file manager"),
+            ];
+
+            let list_items: Vec<ListItem> = items.iter().enumerate().map(|(idx, (title, desc))| {
+                let is_selected = idx == selected_idx;
+                let style = if is_selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                ListItem::new(format!("  {}: {} ({})", idx + 1, title, desc)).style(style)
+            }).collect();
+
+            let list = List::new(list_items).block(
+                Block::default()
+                    .title(Span::styled(" Wine Tools ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(4), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+            let help = Paragraph::new(" [Up/Down] Select Tool | [Enter] Execute | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
         ModalState::EditCustomArgsInput { ref input, .. } => {
             let p = Paragraph::new(vec![
                 Line::from(vec![
@@ -1579,6 +1616,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref wine_prefix,
             ref steam_appid,
             ref custom_command,
+            gamemode,
+            mangohud,
+            gamescope,
+            esync,
+            fsync,
+            dxvk,
+            vkd3d,
             cursor_pos,
         } => {
             let gtype_name = match game_type {
@@ -1597,6 +1641,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 } else {
                     Style::default().fg(Color::White)
                 }
+            };
+
+            let mk_cb = |checked: bool, label: &str, idx: usize| -> Line {
+                let mark = if checked { "[X]" } else { "[ ]" };
+                let s = field_style(idx);
+                Line::from(vec![
+                    Span::styled(format!("{}. {} ", idx + 1, mark), s),
+                    Span::styled(label.to_string(), field_style(idx)),
+                ])
             };
 
             let title_line = if selected_field == 0 {
@@ -1627,8 +1680,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::styled("3. ROM Path: ", field_style(2)),
                         Span::raw(if file_path.is_empty() { "< Press [Enter] to select ROM >" } else { file_path }),
                     ]));
+                    lines.push(Line::from(""));
+                    lines.push(mk_cb(gamemode, "GameMode", 3));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 5));
+                    lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE GAME ]", field_style(3)),
+                        Span::styled("[ SAVE GAME ]", field_style(6)),
                     ]));
                 }
                 PlatformType::Native => {
@@ -1645,8 +1703,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::styled("4. Custom Args: ", field_style(3)),
                         Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
+                    lines.push(Line::from(""));
+                    lines.push(mk_cb(gamemode, "GameMode", 4));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 5));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 6));
+                    lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE GAME ]", field_style(4)),
+                        Span::styled("[ SAVE GAME ]", field_style(7)),
                     ]));
                 }
                 PlatformType::Wine => {
@@ -1683,7 +1746,22 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE GAME ]", field_style(6)),
+                        Span::styled("-- Wrappers & Toggles --", Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(mk_cb(gamemode, "GameMode", 6));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 7));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 8));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("-- Wine / Proton Options --", Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(mk_cb(esync, "Esync (eventfd sync)", 9));
+                    lines.push(mk_cb(fsync, "Fsync (futex2 sync)", 10));
+                    lines.push(mk_cb(dxvk, "DXVK Async", 11));
+                    lines.push(mk_cb(vkd3d, "VKD3D-Proton Async", 12));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE GAME ]", field_style(13)),
                     ]));
                 }
                 PlatformType::Steam => {
@@ -1693,7 +1771,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::raw(if steam_appid.is_empty() { "< Enter AppID >" } else { steam_appid }),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE GAME ]", field_style(2)),
+                        Span::styled("3. Custom Args: ", field_style(2)),
+                        Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
+                    ]));
+                    lines.push(Line::from(""));
+                    lines.push(mk_cb(gamemode, "GameMode", 3));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 5));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE GAME ]", field_style(6)),
                     ]));
                 }
             }
@@ -1712,7 +1799,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Left/Right] Move Cursor / Switch Runner | [Enter] Select / Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Enter] Toggle / Select | [Space] Toggle Checkbox | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -1725,6 +1812,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref wine_prefix,
             ref steam_appid,
             ref custom_command,
+            gamemode,
+            mangohud,
+            gamescope,
+            esync,
+            fsync,
+            dxvk,
+            vkd3d,
             cursor_pos,
             ..
         } => {
@@ -1744,6 +1838,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 } else {
                     Style::default().fg(Color::White)
                 }
+            };
+
+            let mk_cb = |checked: bool, label: &str, idx: usize| -> Line {
+                let mark = if checked { "[X]" } else { "[ ]" };
+                let s = field_style(idx);
+                Line::from(vec![
+                    Span::styled(format!("{}. {} ", idx + 1, mark), s),
+                    Span::styled(label.to_string(), field_style(idx)),
+                ])
             };
 
             let title_line = if selected_field == 0 {
@@ -1774,8 +1877,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
                     lines.push(Line::from(""));
+                    lines.push(mk_cb(gamemode, "GameMode", 3));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 5));
+                    lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE CHANGES ]", field_style(3)),
+                        Span::styled("[ SAVE CHANGES ]", field_style(6)),
                     ]));
                 }
                 PlatformType::Native => {
@@ -1793,8 +1900,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
                     lines.push(Line::from(""));
+                    lines.push(mk_cb(gamemode, "GameMode", 4));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 5));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 6));
+                    lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE CHANGES ]", field_style(4)),
+                        Span::styled("[ SAVE CHANGES ]", field_style(7)),
                     ]));
                 }
                 PlatformType::Wine => {
@@ -1831,7 +1942,22 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE CHANGES ]", field_style(6)),
+                        Span::styled("-- Wrappers & Toggles --", Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(mk_cb(gamemode, "GameMode", 6));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 7));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 8));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("-- Wine / Proton Options --", Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(mk_cb(esync, "Esync (eventfd sync)", 9));
+                    lines.push(mk_cb(fsync, "Fsync (futex2 sync)", 10));
+                    lines.push(mk_cb(dxvk, "DXVK Async", 11));
+                    lines.push(mk_cb(vkd3d, "VKD3D-Proton Async", 12));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(vec![
+                        Span::styled("[ SAVE CHANGES ]", field_style(13)),
                     ]));
                 }
                 PlatformType::Steam => {
@@ -1845,8 +1971,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::raw(if custom_command.is_empty() { "< Optional >" } else { custom_command }),
                     ]));
                     lines.push(Line::from(""));
+                    lines.push(mk_cb(gamemode, "GameMode", 3));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 5));
+                    lines.push(Line::from(""));
                     lines.push(Line::from(vec![
-                        Span::styled("[ SAVE CHANGES ]", field_style(3)),
+                        Span::styled("[ SAVE CHANGES ]", field_style(6)),
                     ]));
                 }
             }
@@ -1865,7 +1995,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Left/Right] Move Cursor / Switch Runner | [Enter] Select / Save | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Enter] Toggle / Select | [Space] Toggle Checkbox | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

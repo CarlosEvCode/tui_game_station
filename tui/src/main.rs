@@ -161,7 +161,11 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Char(' ') => {
-                                if let ModalState::ScanFolderForm { .. } = app.modal_state {
+                                let is_form = matches!(app.modal_state,
+                                    ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. });
+                                if is_form {
+                                    app.update(Action::ModalToggleCheckbox).await;
+                                } else if let ModalState::ScanFolderForm { .. } = app.modal_state {
                                     app.update(Action::ModalToggleCheckbox).await;
                                 } else if let ModalState::VisualMediaSelector { active_tab, .. } = app.modal_state {
                                     if active_tab > 0 {
@@ -216,6 +220,9 @@ async fn main() -> Result<()> {
                                 ModalState::SelectWineRunnerPicker { .. } => {
                                     app.update(Action::SelectWineRunnerFromPicker).await;
                                 }
+                                ModalState::WineToolsMenu { .. } => {
+                                    app.update(Action::SelectWineTool).await;
+                                }
                                 ModalState::EditCustomArgsInput { .. } => {
                                     app.update(Action::SaveCustomArgsInput).await;
                                 }
@@ -223,60 +230,84 @@ async fn main() -> Result<()> {
                                     ref game_type,
                                     selected_field,
                                     ..
-                                } => match game_type {
-                                    PlatformType::Wine => match selected_field {
-                                        1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
-                                        4 => app.update(Action::OpenWineRunnerPicker).await,
-                                        5 => app.update(Action::OpenCustomArgsEditor).await,
-                                        6 => app.update(Action::SaveModalGame).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                    PlatformType::Native => match selected_field {
-                                        1 | 2 => app.update(Action::OpenFilePicker).await,
-                                        3 => app.update(Action::OpenCustomArgsEditor).await,
-                                        4 => app.update(Action::SaveModalGame).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                    PlatformType::Emulator => match selected_field {
-                                        1 => app.update(Action::OpenFilePicker).await,
-                                        2 => app.update(Action::OpenCustomArgsEditor).await,
-                                        3 => app.update(Action::SaveModalGame).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                    PlatformType::Steam => match selected_field {
-                                        2 => app.update(Action::SaveModalGame).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                },
+                                } => {
+                                    let on_checkbox = match game_type {
+                                        PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
+                                        PlatformType::Native | PlatformType::Emulator | PlatformType::Steam =>
+                                            selected_field >= 3 && selected_field <= 5,
+                                    };
+                                    if on_checkbox {
+                                        app.update(Action::ModalToggleCheckbox).await;
+                                    } else {
+                                        match game_type {
+                                            PlatformType::Wine => match selected_field {
+                                                1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
+                                                4 => app.update(Action::OpenWineRunnerPicker).await,
+                                                5 => app.update(Action::OpenCustomArgsEditor).await,
+                                                13 => app.update(Action::SaveModalGame).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                            PlatformType::Native => match selected_field {
+                                                1 | 2 => app.update(Action::OpenFilePicker).await,
+                                                3 => app.update(Action::OpenCustomArgsEditor).await,
+                                                7 => app.update(Action::SaveModalGame).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                            PlatformType::Emulator => match selected_field {
+                                                1 => app.update(Action::OpenFilePicker).await,
+                                                2 => app.update(Action::OpenCustomArgsEditor).await,
+                                                6 => app.update(Action::SaveModalGame).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                            PlatformType::Steam => match selected_field {
+                                                2 => app.update(Action::OpenCustomArgsEditor).await,
+                                                6 => app.update(Action::SaveModalGame).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                        }
+                                    }
+                                }
                                 ModalState::EditGameForm {
                                     ref game_type,
                                     selected_field,
                                     ..
-                                } => match game_type {
-                                    PlatformType::Wine => match selected_field {
-                                        1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
-                                        4 => app.update(Action::OpenWineRunnerPicker).await,
-                                        5 => app.update(Action::OpenCustomArgsEditor).await,
-                                        6 => app.update(Action::SaveEditGameModal).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                    PlatformType::Native => match selected_field {
-                                        1 | 2 => app.update(Action::OpenFilePicker).await,
-                                        3 => app.update(Action::OpenCustomArgsEditor).await,
-                                        4 => app.update(Action::SaveEditGameModal).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                    PlatformType::Emulator => match selected_field {
-                                        1 => app.update(Action::OpenFilePicker).await,
-                                        2 => app.update(Action::OpenCustomArgsEditor).await,
-                                        3 => app.update(Action::SaveEditGameModal).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                    PlatformType::Steam => match selected_field {
-                                        2 => app.update(Action::SaveEditGameModal).await,
-                                        _ => app.update(Action::ModalNextField).await,
-                                    },
-                                },
+                                } => {
+                                    let on_checkbox = match game_type {
+                                        PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
+                                        PlatformType::Native | PlatformType::Emulator | PlatformType::Steam =>
+                                            selected_field >= 3 && selected_field <= 5,
+                                    };
+                                    if on_checkbox {
+                                        app.update(Action::ModalToggleCheckbox).await;
+                                    } else {
+                                        match game_type {
+                                            PlatformType::Wine => match selected_field {
+                                                1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
+                                                4 => app.update(Action::OpenWineRunnerPicker).await,
+                                                5 => app.update(Action::OpenCustomArgsEditor).await,
+                                                13 => app.update(Action::SaveEditGameModal).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                            PlatformType::Native => match selected_field {
+                                                1 | 2 => app.update(Action::OpenFilePicker).await,
+                                                3 => app.update(Action::OpenCustomArgsEditor).await,
+                                                7 => app.update(Action::SaveEditGameModal).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                            PlatformType::Emulator => match selected_field {
+                                                1 => app.update(Action::OpenFilePicker).await,
+                                                2 => app.update(Action::OpenCustomArgsEditor).await,
+                                                6 => app.update(Action::SaveEditGameModal).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                            PlatformType::Steam => match selected_field {
+                                                2 => app.update(Action::OpenCustomArgsEditor).await,
+                                                6 => app.update(Action::SaveEditGameModal).await,
+                                                _ => app.update(Action::ModalNextField).await,
+                                            },
+                                        }
+                                    }
+                                }
                                 ModalState::ScanFolderForm { selected_field, .. } => match selected_field {
                                     0 => app.update(Action::OpenFilePicker).await,
                                     2 => app.update(Action::ModalToggleCheckbox).await,
@@ -400,6 +431,9 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('a') => {
                                 app.update(Action::OpenAddGameModal).await;
+                            }
+                            KeyCode::Char('c') => {
+                                app.update(Action::OpenWineToolsMenu).await;
                             }
                             KeyCode::Char('e') => {
                                 app.update(Action::OpenEditGameModal).await;
