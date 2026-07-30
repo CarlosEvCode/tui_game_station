@@ -356,6 +356,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .title(" Media & Details ")
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(Color::Gray)),
         );
         frame.render_widget(empty_p, area);
@@ -384,6 +385,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Cyan));
 
     let inner_cover_area = cover_block.inner(card_vertical_chunks[0]);
@@ -440,6 +442,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
         Block::default()
             .title(Span::styled(" Game Details ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Yellow)),
     );
 
@@ -523,31 +526,39 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
 fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
     let line = Line::from(vec![
-        Span::styled(" / ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Buscar "),
-        Span::styled(" ? ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw(" Ayuda "),
-        Span::styled(" v ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Vista "),
-        Span::styled(" m ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Emuladores "),
-        Span::styled(" c ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Wine "),
-        Span::styled(" a ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Agregar "),
-        Span::styled(" s ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Ajustes "),
-        Span::styled(" Alt+O ", Style::default().fg(Color::Black).bg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::raw(" BigPicture "),
-        Span::styled(" ↵ ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" Lanzar Juego "),
+        Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Buscar ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [?] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("Ayuda ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [v] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Vista ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [m] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Emuladores ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [c] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Wine ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [a] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Agregar ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [s] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Ajustes ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [Alt+O] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::styled("BigPicture ", Style::default().fg(Color::Gray)),
+        Span::raw("│ "),
+        Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled("Lanzar Juego", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
     ]);
 
     let paragraph = Paragraph::new(line).block(
         Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Rgb(90, 130, 210))),
+            .border_style(Style::default().fg(Color::DarkGray)),
     );
 
     frame.render_widget(paragraph, area);
