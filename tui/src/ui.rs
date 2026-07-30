@@ -167,13 +167,43 @@ fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list_widget, area, &mut state);
 }
 
-fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
-    let is_focused = app.focused_pane == FocusedPane::Games && app.modal_state == ModalState::None;
-    let border_color = if is_focused {
-        Color::Yellow
+fn get_game_type_badge(game: &game_core::models::Game, platforms: &[game_core::models::Platform]) -> String {
+    if game.game_type.to_lowercase() == "emulator" {
+        if let Some(p) = platforms.iter().find(|p| p.id == game.platform_id) {
+            match p.slug.to_lowercase().as_str() {
+                "3ds" => "3DS".to_string(),
+                "nds" | "ds" => "DS".to_string(),
+                "ps1" | "psx" => "PS1".to_string(),
+                "ps2" => "PS2".to_string(),
+                "ps3" => "PS3".to_string(),
+                "psp" => "PSP".to_string(),
+                "psvita" | "vita" => "VITA".to_string(),
+                "snes" => "SNES".to_string(),
+                "nes" => "NES".to_string(),
+                "gba" => "GBA".to_string(),
+                "gbc" => "GBC".to_string(),
+                "gb" => "GB".to_string(),
+                "n64" => "N64".to_string(),
+                "gc" | "gamecube" => "GC".to_string(),
+                "wii" => "WII".to_string(),
+                "wiiu" => "WIIU".to_string(),
+                "switch" => "SWITCH".to_string(),
+                "megadrive" | "genesis" => "GENESIS".to_string(),
+                "dreamcast" | "dc" => "DC".to_string(),
+                "saturn" => "SATURN".to_string(),
+                _ => p.slug.to_uppercase(),
+            }
+        } else {
+            "EMU".to_string()
+        }
     } else {
-        Color::Gray
-    };
+        game.game_type.to_uppercase()
+    }
+}
+
+fn render_games_table(frame: &mut Frame, app: &mut App, area: Rect) {
+    let is_focused = app.focused_pane == FocusedPane::Games;
+    let border_color = if is_focused { Color::Yellow } else { Color::DarkGray };
 
     let header = Row::new(vec!["Title", "Ext", "Size", "Type"])
         .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
@@ -209,7 +239,7 @@ fn render_games_table(frame: &mut Frame, app: &App, area: Rect) {
             let title = format!("{}{}{}", pointer, mark, g.title);
             let ext = g.file_extension.clone().unwrap_or_else(|| "-".to_string());
             let size_mb = g.file_size.map(|s| format!("{:.1} MB", s as f64 / (1024.0 * 1024.0))).unwrap_or_else(|| "-".to_string());
-            let gtype = g.game_type.to_uppercase();
+            let gtype = get_game_type_badge(g, &app.platforms);
 
             Row::new(vec![title, ext, size_mb, gtype]).style(style)
         })
@@ -306,7 +336,8 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
             let pointer = if is_selected && is_focused { "▶ " } else if is_selected { "► " } else { "  " };
             let mark = if is_checked { "[x] " } else { "" };
             let appid_info = g.steam_appid.map(|id| format!(" (AppID: {})", id)).unwrap_or_default();
-            let content = format!("{}{}{}[{}] {}{}", pointer, mark, if is_checked { "" } else { "" }, g.game_type.to_uppercase(), g.title, appid_info);
+            let gtype = get_game_type_badge(g, &app.platforms);
+            let content = format!("{}{}{}[{}] {}{}", pointer, mark, if is_checked { "" } else { "" }, gtype, g.title, appid_info);
 
             ListItem::new(content).style(style)
         })
@@ -431,12 +462,13 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     ]));
 
     if let Some(p) = current_platform {
+        let gtype = get_game_type_badge(game, &app.platforms);
         details_lines.push(Line::from(vec![
             Span::styled("Platform: ", Style::default().fg(Color::DarkGray)),
             Span::styled(&p.name, Style::default().fg(Color::Cyan)),
             Span::raw(" | "),
             Span::styled("Type: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(game.game_type.to_uppercase(), Style::default().fg(Color::Green)),
+            Span::styled(gtype, Style::default().fg(Color::Green)),
         ]));
     }
 
