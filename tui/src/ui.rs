@@ -607,7 +607,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let sel_idx = app.selected_game_idx;
 
-        // 1. LEFT SIDE: Previous Game Preview (Halfblocks cover, dynamically centered)
+        // 1. LEFT SIDE: Previous Game Preview (Halfblocks cover, 2D dead-centered)
         if sel_idx > 0 {
             let prev_game = &app.games[sel_idx - 1];
             let left_stage = centered_rect(100, 85, cols[0]);
@@ -618,7 +618,18 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let inner = left_block.inner(left_stage);
             frame.render_widget(left_block, left_stage);
 
-            let left_img_rect = centered_rect(85, 85, inner);
+            let max_h = inner.height.saturating_sub(2).max(4);
+            let target_w = ((max_h as f32) * 1.33) as u16;
+            let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
+                (target_w, max_h)
+            } else {
+                let fit_w = inner.width.saturating_sub(2).max(4);
+                let fit_h = ((fit_w as f32) / 1.33) as u16;
+                (fit_w, fit_h.min(max_h))
+            };
+            let offset_x = (inner.width.saturating_sub(img_w)) / 2;
+            let offset_y = (inner.height.saturating_sub(img_h)) / 2;
+            let left_img_rect = Rect::new(inner.x + offset_x, inner.y + offset_y, img_w, img_h);
 
             let key = (prev_game.id, "cover_hb".to_string());
             if let Some(protocol) = app.media_protocols.get_mut(&key) {
@@ -720,7 +731,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let details_p = Paragraph::new(details_lines).alignment(Alignment::Center);
         frame.render_widget(details_p, details_rect);
 
-        // 3. RIGHT SIDE: Next Game Preview (Halfblocks cover, dynamically centered)
+        // 3. RIGHT SIDE: Next Game Preview (Halfblocks cover, 2D dead-centered)
         if sel_idx + 1 < app.games.len() {
             let next_game = &app.games[sel_idx + 1];
             let right_stage = centered_rect(100, 85, cols[2]);
@@ -731,7 +742,18 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let inner = right_block.inner(right_stage);
             frame.render_widget(right_block, right_stage);
 
-            let right_img_rect = centered_rect(85, 85, inner);
+            let max_h = inner.height.saturating_sub(2).max(4);
+            let target_w = ((max_h as f32) * 1.33) as u16;
+            let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
+                (target_w, max_h)
+            } else {
+                let fit_w = inner.width.saturating_sub(2).max(4);
+                let fit_h = ((fit_w as f32) / 1.33) as u16;
+                (fit_w, fit_h.min(max_h))
+            };
+            let offset_x = (inner.width.saturating_sub(img_w)) / 2;
+            let offset_y = (inner.height.saturating_sub(img_h)) / 2;
+            let right_img_rect = Rect::new(inner.x + offset_x, inner.y + offset_y, img_w, img_h);
 
             let key = (next_game.id, "cover_hb".to_string());
             if let Some(protocol) = app.media_protocols.get_mut(&key) {
