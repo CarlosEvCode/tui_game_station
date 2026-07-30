@@ -871,7 +871,12 @@ fn extract_runner_display_name(cmd: &str) -> String {
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &mut App) {
     let popup_area = centered_rect(75, 70, frame.area());
-    if !matches!(app.modal_state, ModalState::ConfirmDeleteGame { .. } | ModalState::EditCustomArgsInput { .. }) {
+    if !matches!(
+        app.modal_state,
+        ModalState::ConfirmDeleteGame { .. }
+            | ModalState::EditCustomArgsInput { .. }
+            | ModalState::PlatformSelector { .. }
+    ) {
         frame.render_widget(Clear, popup_area);
     }
 
