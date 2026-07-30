@@ -2,6 +2,7 @@ mod app;
 mod cover_renderer;
 mod panic_hook;
 mod ui;
+mod window_helper;
 
 use anyhow::Result;
 use app::{Action, App, BigPictureFocus, FocusedPane, ModalState};
@@ -565,10 +566,14 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::Enter => {
+                                window_helper::minimize_active_window();
+
                                 disable_raw_mode()?;
                                 execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
 
                                 app.update(Action::LaunchGame).await;
+
+                                window_helper::restore_active_window();
 
                                 enable_raw_mode()?;
                                 execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
