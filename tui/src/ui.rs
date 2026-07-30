@@ -1497,7 +1497,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
-        ModalState::EditCustomArgsInput { ref input, .. } => {
+        ModalState::EditCustomArgsInput { ref input, cursor_pos, .. } => {
+            let cpos = cursor_pos.min(input.len());
+            let avail = 54usize;
+            let scroll = if cpos > avail { cpos - avail } else { 0 };
+            let end = (scroll + avail * 2).min(input.len());
+            let visible = &input[scroll..end];
+            let cursor_in_visible = cpos - scroll;
+            let cursor_in_visible = cursor_in_visible.min(visible.len());
+            let (before, after) = visible.split_at(cursor_in_visible);
+
             let p = Paragraph::new(vec![
                 Line::from(vec![
                     Span::styled(" Enter Custom Command / Launcher Arguments: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -1505,8 +1514,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 Line::from(""),
                 Line::from(vec![
                     Span::styled(" > ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                    Span::raw(input),
-                    Span::styled("█", Style::default().fg(Color::Yellow)),
+                    Span::raw(before),
+                    Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(after),
                 ]),
                 Line::from(""),
                 Line::from(vec![
@@ -1520,7 +1530,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .border_style(Style::default().fg(Color::Yellow)),
             );
 
-            let popup_area = centered_rect(65, 30, frame.area());
+            let popup_area = centered_rect(75, 30, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let chunks = Layout::default()
@@ -1530,7 +1540,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [Enter] Save Arguments | [Esc] Cancel")
+            let help = Paragraph::new(" [Enter] Save | [Esc] Cancel | [Left/Right] Move cursor | [Backspace] Delete")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }

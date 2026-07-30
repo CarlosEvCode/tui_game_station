@@ -723,8 +723,9 @@ impl Database {
                 custom_command = ?4,
                 wine_prefix = ?5,
                 steam_appid = ?6,
+                env_vars = ?7,
                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?7",
+             WHERE id = ?8",
             params![
                 game.title,
                 game.file_path,
@@ -732,6 +733,7 @@ impl Database {
                 game.custom_command,
                 game.wine_prefix,
                 game.steam_appid,
+                game.env_vars,
                 game.id,
             ],
         )?;

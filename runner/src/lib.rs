@@ -45,9 +45,10 @@ impl GameRunner {
                     } else {
                         local_envs.insert("WINEPREFIX".to_string(), wine_prefix.clone());
                     }
-                    let (e, a, mut pe) = parse_command_string(cmd, game)?;
-                    pe.extend(local_envs);
-                    (e, a, pe)
+                    let mut shell_cmd = cmd.clone();
+                    shell_cmd = shell_cmd.replace("{file_path}", &file_path);
+                    shell_cmd = shell_cmd.replace("{wineprefix}", &wine_prefix);
+                    (String::from("sh"), vec!["-c".to_string(), shell_cmd], local_envs)
                 } else {
                     let mut local_envs = base_envs.clone();
                     local_envs.insert("WINEPREFIX".to_string(), wine_prefix);

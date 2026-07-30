@@ -168,6 +168,7 @@ pub enum ModalState {
     },
     EditCustomArgsInput {
         input: String,
+        cursor_pos: usize,
         parent_modal: Box<ModalState>,
     },
 }
@@ -1430,15 +1431,17 @@ impl App {
                 | ModalState::EditGameForm { ref custom_command, .. } = self.modal_state
                 {
                     let args = custom_command.clone();
+                    let cpos = args.len();
                     let parent = Box::new(self.modal_state.clone());
                     self.modal_state = ModalState::EditCustomArgsInput {
                         input: args,
+                        cursor_pos: cpos,
                         parent_modal: parent,
                     };
                 }
             }
             Action::SaveCustomArgsInput => {
-                if let ModalState::EditCustomArgsInput { ref input, ref parent_modal } = self.modal_state.clone() {
+                if let ModalState::EditCustomArgsInput { ref input, ref parent_modal, .. } = self.modal_state.clone() {
                     let mut parent = parent_modal.clone();
                     if let ModalState::AddGameForm { ref mut custom_command, .. }
                     | ModalState::EditGameForm { ref mut custom_command, .. } = *parent
@@ -1460,6 +1463,9 @@ impl App {
                     ref mut cursor_pos,
                     ..
                 } => {
+                    *cursor_pos = cursor_pos.saturating_sub(1);
+                }
+                ModalState::EditCustomArgsInput { ref mut cursor_pos, .. } => {
                     *cursor_pos = cursor_pos.saturating_sub(1);
                 }
                 ModalState::AddGameForm {
@@ -1517,6 +1523,9 @@ impl App {
                     ..
                 } => {
                     *cursor_pos = (*cursor_pos + 1).min(title.len());
+                }
+                ModalState::EditCustomArgsInput { ref mut cursor_pos, ref input, .. } => {
+                    *cursor_pos = (*cursor_pos + 1).min(input.len());
                 }
                 ModalState::AddGameForm {
                     game_type: PlatformType::Wine,
@@ -2460,8 +2469,10 @@ impl App {
                     *cursor_pos = pos + 1;
                     candidates.clear();
                     *selected_candidate_idx = 0;
-                } else if let ModalState::EditCustomArgsInput { ref mut input, .. } = self.modal_state {
-                    input.push(ch);
+                } else if let ModalState::EditCustomArgsInput { ref mut input, ref mut cursor_pos, .. } = self.modal_state {
+                    let pos = (*cursor_pos).min(input.len());
+                    input.insert(pos, ch);
+                    *cursor_pos = pos + 1;
                 }
             }
             Action::ModalBackspace => {
@@ -2590,8 +2601,12 @@ impl App {
                         candidates.clear();
                         *selected_candidate_idx = 0;
                     }
-                } else if let ModalState::EditCustomArgsInput { ref mut input, .. } = self.modal_state {
-                    input.pop();
+                } else if let ModalState::EditCustomArgsInput { ref mut input, ref mut cursor_pos, .. } = self.modal_state {
+                    let pos = (*cursor_pos).min(input.len());
+                    if pos > 0 {
+                        input.remove(pos - 1);
+                        *cursor_pos = pos - 1;
+                    }
                 }
             }
             Action::StartFolderScan => {

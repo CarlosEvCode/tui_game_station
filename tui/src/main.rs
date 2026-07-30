@@ -103,7 +103,9 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavLeft).await;
                                 }
-                                ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. } => {
+                                ModalState::EditCustomArgsInput { .. }
+                                | ModalState::AddGameForm { .. }
+                                | ModalState::EditGameForm { .. } => {
                                     app.update(Action::FormNavLeft).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
@@ -117,7 +119,9 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavRight).await;
                                 }
-                                ModalState::AddGameForm { .. } | ModalState::EditGameForm { .. } => {
+                                ModalState::EditCustomArgsInput { .. }
+                                | ModalState::AddGameForm { .. }
+                                | ModalState::EditGameForm { .. } => {
                                     app.update(Action::FormNavRight).await;
                                 }
                                 ModalState::ProtonDownloader { .. } => {
@@ -449,28 +453,6 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::ManageRunnersStep2Config { .. } => {
                                         app.update(Action::OpenFilePicker).await;
-                                    }
-                                    ModalState::AddGameForm { selected_field, game_type, .. } => {
-                                        match (game_type, *selected_field) {
-                                            (PlatformType::Emulator, 2) => app.update(Action::OpenFilePicker).await,
-                                            (PlatformType::Native, 1) => app.update(Action::OpenFilePicker).await,
-                                            (PlatformType::Native, 2) => app.update(Action::OpenFolderPicker).await,
-                                            (PlatformType::Wine, 1) => app.update(Action::OpenFilePicker).await,
-                                            (PlatformType::Wine, 2) => app.update(Action::OpenFolderPicker).await,
-                                            (PlatformType::Wine, 3) => app.update(Action::OpenFolderPicker).await,
-                                            _ => app.update(Action::ModalInputChar('f')).await,
-                                        }
-                                    }
-                                    ModalState::EditGameForm { selected_field, game_type, .. } => {
-                                        match (game_type, *selected_field) {
-                                            (PlatformType::Emulator, 1) => app.update(Action::OpenFilePicker).await,
-                                            (PlatformType::Native, 1) => app.update(Action::OpenFilePicker).await,
-                                            (PlatformType::Native, 2) => app.update(Action::OpenFolderPicker).await,
-                                            (PlatformType::Wine, 1) => app.update(Action::OpenFilePicker).await,
-                                            (PlatformType::Wine, 2) => app.update(Action::OpenFolderPicker).await,
-                                            (PlatformType::Wine, 3) => app.update(Action::OpenFolderPicker).await,
-                                            _ => app.update(Action::ModalInputChar('f')).await,
-                                        }
                                     }
                                     _ => {
                                         app.update(Action::ModalInputChar('f')).await;
