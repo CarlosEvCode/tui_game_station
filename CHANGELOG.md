@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.1.0...v1.2.0) (2026-07-31)
+
+
+### Features
+
+* Add --update and --uninstall CLI flags, native uninstaller, and documentation ([b0cdde0](https://github.com/CarlosEvCode/tui_game_station/commit/b0cdde03b14aa34f6a1c8b90f75a0fbd50dd9792))
+* Improve Proton & Wine release scraping and dynamic target launcher detection ([d564fa4](https://github.com/CarlosEvCode/tui_game_station/commit/d564fa4b06e7464402767ce40a089c2ca0135d62))
+* **tui:** Improve runner management UX, dynamic platform visibility, and missing emulator warnings ([317daf2](https://github.com/CarlosEvCode/tui_game_station/commit/317daf2e7845b2967ca043cf4e3d7ecbcb6f90ce))
+
 ## [1.1.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.0.0...v1.1.0) (2026-07-30)
 
 
