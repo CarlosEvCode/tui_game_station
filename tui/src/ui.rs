@@ -422,10 +422,10 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     let current_platform = app.platforms.get(app.selected_platform_idx);
 
     let (media_type, title_prefix, top_percentage) = match app.view_mode {
-        ViewMode::CoverCard => ("cover", "Cover", 55),
-        ViewMode::BannerCard => ("banner", "Hero Banner", 35),
-        ViewMode::IconCard => ("icon", "Icon", 25),
-        ViewMode::Table => ("cover", "Cover", 55),
+        ViewMode::CoverCard => ("cover", "Cover", 75),
+        ViewMode::BannerCard => ("banner", "Hero Banner", 55),
+        ViewMode::IconCard => ("icon", "Icon", 47),
+        ViewMode::Table => ("cover", "Cover", 75),
     };
 
     let card_vertical_chunks = Layout::default()
@@ -446,11 +446,37 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(Clear, card_vertical_chunks[0]);
     frame.render_widget(cover_block, card_vertical_chunks[0]);
 
+    let cell_ratio: f32 = match media_type {
+        "banner" => 3.2,
+        "icon" => 2.0,
+        _ => 1.333,
+    };
+
+    let v_pad = 2u16;
+    let max_h = inner_cover_area.height.saturating_sub(v_pad * 2).max(4);
+    let target_w = ((max_h as f32) * cell_ratio) as u16;
+    let (img_w, img_h) = if target_w <= inner_cover_area.width.saturating_sub(2) {
+        (target_w.max(2), max_h)
+    } else {
+        let fit_w = inner_cover_area.width.saturating_sub(2).max(2);
+        let fit_h = ((fit_w as f32) / cell_ratio) as u16;
+        (fit_w, fit_h.min(max_h).max(2))
+    };
+
+    let offset_x = (inner_cover_area.width.saturating_sub(img_w)) / 2;
+    let offset_y = (inner_cover_area.height.saturating_sub(img_h)) / 2 + 1;
+    let centered_media_rect = Rect::new(
+        inner_cover_area.x + offset_x,
+        inner_cover_area.y + offset_y,
+        img_w,
+        img_h,
+    );
+
     if let Some(protocol) = app.media_protocols.get_mut(&(game_id, media_type.to_string())) {
         let image_widget = StatefulImage::new(None);
-        frame.render_stateful_widget(image_widget, inner_cover_area, protocol);
+        frame.render_stateful_widget(image_widget, centered_media_rect, protocol);
     } else {
-        render_cover_placeholder(frame, app, game_id, media_type, inner_cover_area);
+        render_cover_placeholder(frame, app, game_id, media_type, centered_media_rect);
     }
 
     // 2. Render Game Details Panel
