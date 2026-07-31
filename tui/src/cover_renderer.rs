@@ -1,8 +1,11 @@
+use image::imageops::FilterType;
 use image::DynamicImage;
 use image::ImageReader;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use std::path::Path;
+
+const MIN_SOURCE_DIM: u32 = 256;
 
 #[derive(Clone)]
 pub struct CoverManager {
@@ -25,12 +28,7 @@ impl CoverManager {
             return None;
         }
 
-        let dyn_img: DynamicImage = ImageReader::open(path)
-            .ok()?
-            .with_guessed_format()
-            .ok()?
-            .decode()
-            .ok()?;
+        let dyn_img = Self::decode_image(path)?;
         let mut picker = self.picker.clone();
         Some(picker.new_resize_protocol(dyn_img))
     }
@@ -40,14 +38,31 @@ impl CoverManager {
             return None;
         }
 
+        let dyn_img = Self::decode_image(path)?;
+        let mut picker = self.halfblocks_picker.clone();
+        Some(picker.new_resize_protocol(dyn_img))
+    }
+
+    fn decode_image(path: &Path) -> Option<DynamicImage> {
         let dyn_img: DynamicImage = ImageReader::open(path)
             .ok()?
             .with_guessed_format()
             .ok()?
             .decode()
             .ok()?;
-        let mut picker = self.halfblocks_picker.clone();
-        Some(picker.new_resize_protocol(dyn_img))
+        Some(Self::ensure_min_resolution(dyn_img))
+    }
+
+    fn ensure_min_resolution(img: DynamicImage) -> DynamicImage {
+        let (w, h) = (img.width(), img.height());
+        let max_dim = w.max(h);
+        if max_dim >= MIN_SOURCE_DIM {
+            return img;
+        }
+        let scale = MIN_SOURCE_DIM as f32 / max_dim as f32;
+        let new_w = (w as f32 * scale).round().max(1.0) as u32;
+        let new_h = (h as f32 * scale).round().max(1.0) as u32;
+        image::imageops::resize(&img, new_w, new_h, FilterType::CatmullRom).into()
     }
 
     pub fn load_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
