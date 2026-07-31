@@ -211,7 +211,6 @@ impl Database {
         // and delete any duplicate runner entries per platform.
         let canonical_rules = [
             ("%azahar%", "Azahar"),
-            ("%citra%", "Citra"),
             ("%dolphin%", "Dolphin"),
             ("%duckstation%", "DuckStation"),
             ("%pcsx2%", "PCSX2"),
@@ -219,12 +218,6 @@ impl Database {
             ("%cemu%", "Cemu"),
             ("%ryujinx%", "Ryujinx"),
             ("%melonds%", "melonDS"),
-            ("%desmume%", "DeSmuME"),
-            ("%mgba%", "mGBA"),
-            ("%snes9x%", "Snes9x"),
-            ("%mupen64plus%", "Mupen64Plus"),
-            ("%mesen%", "Mesen"),
-            ("%sameboy%", "SameBoy"),
             ("%redream%", "Redream"),
             ("%vita3k%", "Vita3K"),
             ("%mame%", "MAME"),
@@ -237,6 +230,12 @@ impl Database {
             )?;
         }
 
+        // Purge obsolete emulators and system wine from runners table
+        self.conn.execute(
+            "DELETE FROM runners WHERE LOWER(TRIM(name)) IN ('citra', 'desmume', 'mesen', 'sameboy', 'snes9x', 'mgba', 'mupen64plus', 'wine', 'wine system')",
+            [],
+        )?;
+
         self.conn.execute(
             "DELETE FROM runners WHERE id NOT IN (
                 SELECT MIN(id) FROM runners GROUP BY platform_id, LOWER(TRIM(name))
@@ -248,7 +247,6 @@ impl Database {
         // This makes the [w] action download the actual file after GitHub redirects.
         let runners = [
             ("3ds", "Azahar", "appimage", Some("https://github.com/AzaharPlus/AzaharPlus/releases/download/AZAHAR_PLUS_2126_0_A/azaharplus-2126.0-A-linux.AppImage"), Some("azahar.AppImage")),
-            ("3ds", "Citra", "system", None, None),
             ("ps1", "DuckStation", "appimage", Some("https://github.com/stenzek/duckstation/releases/latest/download/DuckStation-x64.AppImage"), Some("DuckStation-x64.AppImage")),
             ("ps2", "PCSX2", "appimage", Some("https://github.com/PCSX2/pcsx2/releases/latest/download/pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"), Some("pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage")),
             ("gamecube", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
@@ -259,13 +257,7 @@ impl Database {
             ("dreamcast", "Redream", "appimage", None, None),
             ("switch", "Ryujinx", "appimage", None, None),
             ("nds", "melonDS", "appimage", Some("https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"), Some("melonDS-1.1-appimage-x86_64.zip")),
-            ("nds", "DeSmuME", "system", None, None),
-            ("gba", "mGBA", "appimage", None, None),
-            ("nes", "Mesen", "appimage", None, None),
             ("vita", "Vita3K", "appimage", None, None),
-            ("n64", "Mupen64Plus", "system", None, None),
-            ("snes", "Snes9x", "appimage", None, None),
-            ("gb", "SameBoy", "appimage", None, None),
         ];
 
         for (platform_slug, name, runner_type, download_url, download_filename) in runners {
@@ -317,7 +309,7 @@ impl Database {
                     MAX(r.is_configured) as is_cfg
              FROM runners r
              JOIN platforms p ON r.platform_id = p.id
-             WHERE p.slug NOT IN ('linux', 'steam')
+             WHERE p.slug NOT IN ('linux', 'steam', 'windows')
              GROUP BY LOWER(TRIM(r.name))
              ORDER BY is_cfg DESC, r.name ASC",
         )?;
@@ -337,15 +329,10 @@ impl Database {
                 "PCSX2" => "PS2".to_string(),
                 "DuckStation" => "PS1".to_string(),
                 "PPSSPP" => "PSP".to_string(),
-                "Azahar" | "Citra" => "3DS".to_string(),
+                "Azahar" => "3DS".to_string(),
                 "Cemu" => "Wii U".to_string(),
                 "Ryujinx" => "Switch".to_string(),
-                "melonDS" | "DeSmuME" => "NDS".to_string(),
-                "mGBA" => "GBA".to_string(),
-                "Snes9x" => "SNES".to_string(),
-                "Mupen64Plus" => "N64".to_string(),
-                "Mesen" => "NES".to_string(),
-                "SameBoy" => "GB, GBC".to_string(),
+                "melonDS" => "NDS".to_string(),
                 "Redream" => "DC".to_string(),
                 "Vita3K" => "PS Vita".to_string(),
                 "MAME" => "Arcade".to_string(),
