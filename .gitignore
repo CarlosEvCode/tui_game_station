@@ -22,6 +22,9 @@ tui_game_station
 *.sqlite
 *.log
 
+# Internal & maintainer docs
+docs/AUR_MAINTENANCE.md
+
 # OS generated files
 .DS_Store
 Thumbs.db

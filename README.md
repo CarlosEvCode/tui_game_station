@@ -43,6 +43,20 @@ tui-game-station --update
 
 ---
 
+### Arch Linux (AUR)
+
+For Arch Linux and Arch-based distributions (Manjaro, EndeavourOS, Garuda):
+
+```bash
+# Using yay
+yay -S tui-game-station-bin
+
+# Using paru
+paru -S tui-game-station-bin
+```
+
+---
+
 ### Uninstallation
 
 To remove TUI Game Station from your system:
