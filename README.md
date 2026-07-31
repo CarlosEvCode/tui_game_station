@@ -25,14 +25,36 @@ TUI Game Station is a terminal-based gaming launcher and dashboard for Linux sys
 
 ---
 
-## Quick Installation
+## Quick Installation & Updates
 
-### One-Line Shell Installer (Recommended)
+### One-Line Installer & Updater (Recommended)
 
-Install the latest pre-compiled release directly via shell:
+Install or update TUI Game Station to the latest pre-compiled release directly via shell:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CarlosEvCode/tui_game_station/main/install.sh | sh
+```
+
+You can also update directly from your installed application:
+
+```bash
+tui-game-station --update
+```
+
+---
+
+### Uninstallation
+
+To remove TUI Game Station from your system:
+
+```bash
+tui-game-station --uninstall
+```
+
+To purge user database and local settings as well:
+
+```bash
+tui-game-station --uninstall --purge
 ```
 
 ---

@@ -14,6 +14,22 @@ cat << "EOF"
 EOF
 echo ""
 
+# Parse arguments
+for arg in "$@"; do
+    if [ "$arg" == "--uninstall" ]; then
+        echo "--> Uninstalling TUI Game Station..."
+        rm -f "/usr/local/bin/${BINARY_NAME}" "$HOME/.local/bin/${BINARY_NAME}" 2>/dev/null || true
+        for subarg in "$@"; do
+            if [ "$subarg" == "--purge" ] || [ "$subarg" == "-p" ]; then
+                echo "--> Purging data at $HOME/.config/tui_game_station..."
+                rm -rf "$HOME/.config/tui_game_station"
+            fi
+        done
+        echo "[OK] TUI Game Station uninstalled successfully."
+        exit 0
+    fi
+done
+
 # Detect OS
 OS="$(uname -s)"
 if [ "$OS" != "Linux" ]; then

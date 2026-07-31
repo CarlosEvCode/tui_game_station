@@ -26,6 +26,71 @@ async fn main() -> Result<()> {
     // Parse CLI arguments
     let cli_args = cli::CliArgs::parse();
 
+    if cli_args.update {
+        println!("--> Fetching and applying latest TUI Game Station update...");
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("curl -fsSL https://raw.githubusercontent.com/CarlosEvCode/tui_game_station/main/install.sh | sh")
+            .status()?;
+        if !status.success() {
+            eprintln!("Update failed.");
+        }
+        return Ok(());
+    }
+
+    if cli_args.uninstall {
+        println!("--> Uninstalling TUI Game Station...");
+        let exe_path = std::env::current_exe().ok();
+        let home = std::env::var("HOME").unwrap_or_default();
+
+        let target_local = format!("{}/.local/bin/tui-game-station", home);
+        let target_global = "/usr/local/bin/tui-game-station";
+
+        let mut removed = false;
+
+        if std::path::Path::new(&target_local).exists() {
+            println!("--> Removing {}...", target_local);
+            if std::fs::remove_file(&target_local).is_ok() {
+                removed = true;
+            }
+        }
+        if std::path::Path::new(target_global).exists() {
+            println!("--> Removing {}...", target_global);
+            if std::fs::remove_file(target_global).is_ok() {
+                removed = true;
+            }
+        }
+
+        if let Some(ref path) = exe_path {
+            if path.exists() && !removed {
+                if std::fs::remove_file(path).is_ok() {
+                    removed = true;
+                }
+            }
+        }
+
+        if !removed {
+            println!("Notice: tui-game-station executable was not found in standard installation paths.");
+        }
+
+        if cli_args.purge {
+            let config_dir = format!("{}/.config/tui_game_station", home);
+            if std::path::Path::new(&config_dir).exists() {
+                println!("--> Purging configuration and database at {}...", config_dir);
+                let _ = std::fs::remove_dir_all(&config_dir);
+            }
+        } else {
+            let config_dir = format!("{}/.config/tui_game_station", home);
+            if std::path::Path::new(&config_dir).exists() {
+                println!("\nNote: User data and database remain saved at {}.", config_dir);
+                println!("To purge user data as well, run: tui-game-station --uninstall --purge");
+            }
+        }
+
+        println!("\n[OK] TUI Game Station uninstalled successfully.");
+        return Ok(());
+    }
+
     // Install terminal recovery panic hook
     panic_hook::init_panic_hook();
 
