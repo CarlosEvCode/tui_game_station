@@ -1920,7 +1920,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             download_event: _,
         } => {
             let launchers = scraper::proton::TargetLauncher::all();
-            let current_launcher = launchers.get(selected_launcher_idx).copied().unwrap_or(scraper::proton::TargetLauncher::Steam);
+            let current_launcher = launchers.get(selected_launcher_idx).copied().unwrap_or(scraper::proton::TargetLauncher::TUIGameStation);
             let valid_tools = current_launcher.valid_repos();
             let current_tool = valid_tools.get(selected_tool_idx).copied().unwrap_or(scraper::proton::ProtonRepo::GEProton);
 
@@ -1961,7 +1961,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             };
                             let sub_dir = l.installation_dir(scraper::proton::ProtonRepo::GEProton);
                             let path_str = sub_dir.to_str().unwrap_or("");
-                            ListItem::new(format!("  {}  ({})", l.display_name(), path_str)).style(style)
+                            ListItem::new(format!("  {}. {:22}  ({})", idx + 1, l.display_name(), path_str)).style(style)
                         })
                         .collect();
 

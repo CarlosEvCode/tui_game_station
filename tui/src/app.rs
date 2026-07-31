@@ -1440,7 +1440,7 @@ impl App {
                                     self.status_msg = format!("Fetching releases for {}...", tool.display_name());
                                 }
 
-                                if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(tool, 1, 10).await {
+                                if let Ok(fetched) = scraper::proton::ProtonDownloaderClient::fetch_releases(tool, 1, 12).await {
                                     if let ModalState::ProtonDownloader {
                                         ref mut releases,
                                         ref mut is_loading,
