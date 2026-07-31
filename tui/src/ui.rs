@@ -729,9 +729,9 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(22), // Left Side (Previous Game)
-                Constraint::Percentage(56), // Center Stage (FEATURED HD GAME)
-                Constraint::Percentage(22), // Right Side (Next Game)
+                Constraint::Percentage(23), // Left Side (Previous Game Preview)
+                Constraint::Percentage(54), // Center Stage (FEATURED HD GAME)
+                Constraint::Percentage(23), // Right Side (Next Game Preview)
             ])
             .split(stage_area);
 
@@ -797,9 +797,9 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let text_h = 2u16;
         let gap_h = 1u16;
-        let top_padding = 3u16; // Extra breathing margin at top
+        let padding_h = 3u16;
 
-        let avail_img_h = inner_h.saturating_sub(text_h + gap_h + top_padding * 2).max(4);
+        let avail_img_h = inner_h.saturating_sub(text_h + gap_h + padding_h).max(4);
         let target_img_w = ((avail_img_h as f32) * 1.33) as u16;
 
         let (img_w, img_h) = if target_img_w <= inner_w.saturating_sub(2) {
@@ -811,7 +811,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         };
 
         let total_content_h = img_h + gap_h + text_h;
-        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2 + 1;
+        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2 + 2;
         let left_margin = (inner_w.saturating_sub(img_w)) / 2;
 
         let img_centered_rect = Rect::new(
@@ -823,7 +823,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let details_rect = Rect::new(
             center_inner.x,
-            center_inner.y + top_margin + img_h + gap_h,
+            center_inner.y + top_margin + img_h,
             inner_w,
             text_h,
         );
