@@ -373,6 +373,14 @@ impl Database {
         Ok(())
     }
 
+    pub fn toggle_runner_configured(&self, runner_name: &str, is_configured: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET is_configured = ?2 WHERE name = ?1",
+            params![runner_name, if is_configured { 1 } else { 0 }],
+        )?;
+        Ok(())
+    }
+
     // ----------------------------------------------------
     // App Settings Queries
     // ----------------------------------------------------
@@ -500,9 +508,8 @@ impl Database {
         let mut active = Vec::new();
         for p in all {
             let game_count = self.get_game_count_for_platform(p.id)?;
-            let runner = self.get_runner_for_platform(p.id)?;
 
-            if game_count > 0 || runner.is_some() {
+            if game_count > 0 {
                 active.push(p);
             }
         }
@@ -548,7 +555,10 @@ impl Database {
 
     pub fn get_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
         let runners = self.get_runners_for_platform(platform_id)?;
-        Ok(runners.into_iter().find(|r| r.executable_path.is_some()))
+        if let Some(r) = runners.iter().find(|r| r.is_default).cloned() {
+            return Ok(Some(r));
+        }
+        Ok(runners.into_iter().next())
     }
 
     pub fn update_runner_config(

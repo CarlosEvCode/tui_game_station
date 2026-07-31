@@ -1824,9 +1824,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .map(|(idx, r)| {
                     let is_selected = idx == selected_platform_idx;
                     let status_badge = if r.is_configured {
-                        " [Active / Configured]"
+                        " [Configured]"
                     } else {
-                        " [Unconfigured]"
+                        ""
                     };
 
                     let style = if is_selected {
@@ -2235,6 +2235,58 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
+        ModalState::ConfirmDeleteRunner {
+            ref runner_info,
+            selected_option,
+        } => {
+            let popup_area = centered_rect_fixed(60, 8, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let msg = format!("Are you sure you want to delete the AppImage / executable file for '{}' from disk?", runner_info.name);
+
+            let no_style = if selected_option == 0 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let yes_style = if selected_option == 1 {
+                Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let content = vec![
+                Line::from(Span::styled(msg, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("   [ NO ]   ", no_style),
+                    Span::raw("          "),
+                    Span::styled("   [ YES, DELETE ]   ", yes_style),
+                ]),
+            ];
+
+            let block = Paragraph::new(content)
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true })
+                .block(
+                    Block::default()
+                        .title(Span::styled(" Confirm Runner Deletion ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Red)),
+                );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(5), Constraint::Length(1)])
+                .split(popup_area);
+
+            frame.render_widget(block, chunks[0]);
+
+            let help = Paragraph::new(" [Left/Right/Tab] Select Option | [Enter] Confirm | [Esc] Cancel")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
         ModalState::ManageRunnersStep2Config {
             ref runner_info,
             ref exe_path_input,
@@ -2283,10 +2335,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(""));
 
             // Build action buttons list dynamically
-            let is_downloaded = runner_info
+            let has_executable = runner_info
                 .executable_path
                 .as_ref()
-                .map(|p| std::path::Path::new(p).exists())
+                .map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists())
                 .unwrap_or(false);
 
             struct ActionBtn {
@@ -2295,20 +2347,18 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             }
 
             let mut btns = vec![
-                ActionBtn { label: "[ Browse File ]", fg: Color::Cyan },
+                ActionBtn { label: "[ Browse ]", fg: Color::Cyan },
             ];
 
             if runner_info.download_url.is_some() {
-                btns.push(ActionBtn { label: "[ Download AppImage ]", fg: Color::LightBlue });
+                btns.push(ActionBtn { label: "[ Download ]", fg: Color::LightBlue });
             }
 
-            btns.push(ActionBtn { label: "[ SAVE RUNNER ]", fg: Color::Green });
+            btns.push(ActionBtn { label: "[ Save ]", fg: Color::Green });
 
-            if is_downloaded {
-                btns.push(ActionBtn { label: "[ Delete from Disk ]", fg: Color::Red });
+            if has_executable {
+                btns.push(ActionBtn { label: "[ Delete ]", fg: Color::Red });
             }
-
-            btns.push(ActionBtn { label: "[ Deactivate ]", fg: Color::DarkGray });
 
             let mut actions_line = vec![Span::raw("  ")];
 

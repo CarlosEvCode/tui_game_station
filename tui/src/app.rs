@@ -188,6 +188,10 @@ pub enum ModalState {
         display_title: String,
         selected_option: usize,
     },
+    ConfirmDeleteRunner {
+        runner_info: game_core::models::UniqueRunnerInfo,
+        selected_option: usize,
+    },
     PlatformSelector {
         selected_idx: usize,
     },
@@ -297,9 +301,13 @@ pub enum Action {
     RunnerModalConfirmPlatform,
     SaveRunnerConfig,
     ResetRunnerConfig,
+    ToggleRunnerActiveState,
     StartRunnerDownload,
     UpdateDownloadProgress(DownloadEvent),
     DeleteRunnerDownload,
+    OpenConfirmDeleteRunnerModal,
+    ToggleConfirmDeleteRunnerOption,
+    ConfirmDeleteRunnerExecution,
 
     Quit,
     SetStatus(String),
@@ -907,6 +915,26 @@ impl App {
                     .ok()
                     .flatten();
 
+                if game.game_type == "emulator" {
+                    let is_valid = match &runner {
+                        Some(r) => match &r.executable_path {
+                            Some(p) => !p.trim().is_empty() && PathBuf::from(p).exists(),
+                            None => false,
+                        },
+                        None => false,
+                    };
+
+                    if !is_valid {
+                        let name = runner.as_ref().map(|r| r.name.as_str()).unwrap_or("emulator");
+                        self.status_msg = format!("Configure emulator '{}' [m]", name);
+                        self.show_toast(
+                            format!("Emulator '{}' not configured. Press [m] to set up.", name),
+                            crate::toast::ToastKind::Warning,
+                        );
+                        return;
+                    }
+                }
+
                 self.status_msg = format!("Launching {}...", game.title);
 
                 match GameRunner::launch_game(&game, runner.as_ref()).await {
@@ -915,7 +943,7 @@ impl App {
                             format!("Game exited with code: {:?}", status.code());
                     }
                     Err(err) => {
-                        self.status_msg = format!("Error launching game: {}", err);
+                        self.status_msg = format!("[Error] {}", err);
                     }
                 }
             }
@@ -1151,33 +1179,67 @@ impl App {
                     }
                 }
             }
-            Action::ResetRunnerConfig => {
+            Action::ResetRunnerConfig | Action::ToggleRunnerActiveState => {
                 if let ModalState::ManageRunnersStep2Config {
                     ref runner_info,
                     ..
                 } = self.modal_state.clone()
                 {
-                    match self.db.reset_runner_by_name(&runner_info.name) {
+                    let new_state = !runner_info.is_configured;
+                    match self.db.toggle_runner_configured(&runner_info.name, new_state) {
                         Ok(_) => {
                             self.status_msg = format!(
-                                "Emulator '{}' ({}) deactivated successfully.",
-                                runner_info.name, runner_info.console_initials
+                                "Emulator '{}' ({}) {} successfully.",
+                                runner_info.name,
+                                runner_info.console_initials,
+                                if new_state { "activated" } else { "deactivated" }
                             );
                             self.modal_state = ModalState::None;
                             self.load_platforms();
                         }
                         Err(err) => {
-                            self.status_msg = format!("Error deactivating runner: {}", err);
+                            self.status_msg = format!("Error updating runner state: {}", err);
                         }
                     }
                 }
             }
-            Action::DeleteRunnerDownload => {
+            Action::OpenConfirmDeleteRunnerModal => {
                 if let ModalState::ManageRunnersStep2Config {
                     ref runner_info,
                     ..
                 } = self.modal_state.clone()
                 {
+                    self.modal_state = ModalState::ConfirmDeleteRunner {
+                        runner_info: runner_info.clone(),
+                        selected_option: 0,
+                    };
+                }
+            }
+            Action::ToggleConfirmDeleteRunnerOption => {
+                if let ModalState::ConfirmDeleteRunner { ref mut selected_option, .. } = self.modal_state {
+                    *selected_option = if *selected_option == 0 { 1 } else { 0 };
+                }
+            }
+            Action::ConfirmDeleteRunnerExecution | Action::DeleteRunnerDownload => {
+                if let ModalState::ConfirmDeleteRunner { runner_info, selected_option } = self.modal_state.clone() {
+                    if selected_option == 1 {
+                        if let Some(exe_path) = &runner_info.executable_path {
+                            let path = PathBuf::from(exe_path);
+                            if path.exists() {
+                                let _ = std::fs::remove_file(&path);
+                            }
+                        }
+                        let _ = self.db.reset_runner_by_name(&runner_info.name);
+                        self.status_msg = format!(
+                            "[Deleted] Emulator '{}' executable deleted from disk.",
+                            runner_info.name
+                        );
+                        self.modal_state = ModalState::None;
+                        self.load_platforms();
+                    } else {
+                        self.modal_state = ModalState::None;
+                    }
+                } else if let ModalState::ManageRunnersStep2Config { ref runner_info, .. } = self.modal_state.clone() {
                     if let Some(exe_path) = &runner_info.executable_path {
                         let path = PathBuf::from(exe_path);
                         if path.exists() {
@@ -1185,7 +1247,7 @@ impl App {
                         }
                         let _ = self.db.reset_runner_by_name(&runner_info.name);
                         self.status_msg = format!(
-                            "[Deleted] Emulator '{}' executable deleted from disk and deactivated.",
+                            "[Deleted] Emulator '{}' executable deleted from disk.",
                             runner_info.name
                         );
                         self.modal_state = ModalState::None;
@@ -1927,11 +1989,22 @@ impl App {
                         } else {
                             self.status_msg =
                                 format!("[OK] Download of '{}' completed successfully!", name);
+
+                            // Sync DB immediately on main thread for downloaded AppImage
+                            if let Ok(td) = RunnerDownloader::get_runner_dir("emulators") {
+                                let fn_name = format!("{}.AppImage", name.to_lowercase());
+                                let exe = if name == "melonDS" { td.join("melonDS-x86_64.AppImage") } else { td.join(fn_name) };
+                                if exe.exists() {
+                                    let _ = self.db.update_runner_by_name(&name, &exe.to_string_lossy());
+                                }
+                            }
+
                             let sel = self.selected_game_idx;
                             self.load_platforms();
                             if sel < self.games.len() {
                                 self.selected_game_idx = sel;
                             }
+
                             if matches!(self.modal_state, ModalState::ProtonDownloader { .. }) {
                                 let installed_runners = game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
                                 self.modal_state = ModalState::ManageWineRunners {
@@ -1940,20 +2013,8 @@ impl App {
                                 };
                             }
 
-                            if let ModalState::ManageRunnersStep2Config {
-                                ref mut runner_info,
-                                ref mut exe_path_input,
-                                ..
-                            } = self.modal_state
-                            {
-                                if runner_info.name == name {
-                                    if let Ok(unique_runners) = self.db.get_unique_runners() {
-                                        if let Some(updated) = unique_runners.into_iter().find(|r| r.name == name) {
-                                            *exe_path_input = updated.executable_path.clone().unwrap_or_default();
-                                            *runner_info = updated;
-                                        }
-                                    }
-                                }
+                            if matches!(self.modal_state, ModalState::ManageRunnersStep2Config { .. }) {
+                                self.modal_state = ModalState::None;
                             }
                         }
                     }

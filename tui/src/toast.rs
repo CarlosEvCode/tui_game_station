@@ -61,10 +61,10 @@ pub fn render_toasts(frame: &mut Frame, toasts: &[Toast], area: Rect) {
 
     for toast in active_toasts {
         let (border_color, icon, icon_color) = match toast.kind {
-            ToastKind::Info => (Color::Cyan, "ℹ ", Color::Cyan),
-            ToastKind::Success => (Color::Green, "✔ ", Color::Green),
-            ToastKind::Warning => (Color::Yellow, "⚠ ", Color::Yellow),
-            ToastKind::Error => (Color::Red, "✖ ", Color::Red),
+            ToastKind::Info => (Color::Cyan, "i ", Color::Cyan),
+            ToastKind::Success => (Color::Green, "OK ", Color::Green),
+            ToastKind::Warning => (Color::Yellow, "! ", Color::Yellow),
+            ToastKind::Error => (Color::Red, "X ", Color::Red),
         };
 
         let toast_h = 3u16;

@@ -88,12 +88,17 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                 *selected_row = 1;
                 let rel_x = x.saturating_sub(popup_area.x + 2);
                 let w = popup_area.width.saturating_sub(4);
-                let is_downloaded = runner_info.executable_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false);
+                let has_executable = runner_info
+                    .executable_path
+                    .as_ref()
+                    .map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists())
+                    .unwrap_or(false);
                 let mut actions = vec!["browse"];
                 if runner_info.download_url.is_some() { actions.push("download"); }
                 actions.push("save");
-                if is_downloaded { actions.push("delete"); }
-                actions.push("deactivate");
+                if has_executable {
+                    actions.push("delete");
+                }
 
                 let step_w = w / (actions.len() as u16).max(1);
                 let clicked_action = ((rel_x / step_w.max(1)) as usize).min(actions.len() - 1);
@@ -104,8 +109,8 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                     "browse" => app.update(Action::OpenFilePicker).await,
                     "download" => app.update(Action::StartRunnerDownload).await,
                     "save" => app.update(Action::SaveRunnerConfig).await,
-                    "delete" => app.update(Action::DeleteRunnerDownload).await,
-                    "deactivate" => app.update(Action::ResetRunnerConfig).await,
+                    "toggle_active" => app.update(Action::ToggleRunnerActiveState).await,
+                    "delete" => app.update(Action::OpenConfirmDeleteRunnerModal).await,
                     _ => {}
                 }
             }

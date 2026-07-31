@@ -174,6 +174,9 @@ async fn main() -> Result<()> {
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ToggleConfirmDeleteOption).await;
                                 }
+                                ModalState::ConfirmDeleteRunner { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteRunnerOption).await;
+                                }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
                                 | ModalState::ManageRunnersStep1Platform { .. }
@@ -206,6 +209,9 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ToggleConfirmDeleteOption).await;
+                                }
+                                ModalState::ConfirmDeleteRunner { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                 }
                                 ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } => {
                                     *selected_row = 1;
@@ -261,6 +267,9 @@ async fn main() -> Result<()> {
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ToggleConfirmDeleteOption).await;
                                 }
+                                ModalState::ConfirmDeleteRunner { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteRunnerOption).await;
+                                }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
@@ -289,10 +298,10 @@ async fn main() -> Result<()> {
                                     if *selected_row == 0 {
                                         if *cursor_pos < exe_path_input.len() { *cursor_pos += 1; }
                                     } else {
-                                        let is_downloaded = runner_info.executable_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false);
-                                        let mut total_btns = 3;
+                                        let has_executable = runner_info.executable_path.as_ref().map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists()).unwrap_or(false);
+                                        let mut total_btns = 2;
                                         if runner_info.download_url.is_some() { total_btns += 1; }
-                                        if is_downloaded { total_btns += 1; }
+                                        if has_executable { total_btns += 1; }
                                         if *selected_action_idx + 1 < total_btns {
                                             *selected_action_idx += 1;
                                         }
@@ -308,6 +317,9 @@ async fn main() -> Result<()> {
                                 }
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ToggleConfirmDeleteOption).await;
+                                }
+                                ModalState::ConfirmDeleteRunner { .. } => {
+                                    app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectNext).await;
@@ -505,6 +517,9 @@ async fn main() -> Result<()> {
                                 ModalState::ConfirmDeleteGame { .. } => {
                                     app.update(Action::ConfirmDeleteGameExecution).await;
                                 }
+                                ModalState::ConfirmDeleteRunner { .. } => {
+                                    app.update(Action::ConfirmDeleteRunnerExecution).await;
+                                }
                                 ModalState::PlatformSelector { .. } => {
                                     app.update(Action::ConfirmPlatformSelectorModal).await;
                                 }
@@ -606,20 +621,21 @@ async fn main() -> Result<()> {
                                             *selected_row = 1;
                                         }
                                     } else {
-                                        let is_downloaded = runner_info.executable_path.as_ref().map(|p| std::path::Path::new(p).exists()).unwrap_or(false);
+                                        let has_executable = runner_info.executable_path.as_ref().map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists()).unwrap_or(false);
                                         let mut actions = vec!["browse"];
                                         if runner_info.download_url.is_some() { actions.push("download"); }
                                         actions.push("save");
-                                        if is_downloaded { actions.push("delete"); }
-                                        actions.push("deactivate");
+                                        if has_executable {
+                                            actions.push("delete");
+                                        }
 
                                         let act = actions.get(selected_action_idx).copied().unwrap_or("save");
                                         match act {
                                             "browse" => app.update(Action::OpenFilePicker).await,
                                             "download" => app.update(Action::StartRunnerDownload).await,
                                             "save" => app.update(Action::SaveRunnerConfig).await,
-                                            "delete" => app.update(Action::DeleteRunnerDownload).await,
-                                            "deactivate" => app.update(Action::ResetRunnerConfig).await,
+                                            "toggle_active" => app.update(Action::ToggleRunnerActiveState).await,
+                                            "delete" => app.update(Action::OpenConfirmDeleteRunnerModal).await,
                                             _ => {}
                                         }
                                     }

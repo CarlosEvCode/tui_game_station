@@ -82,9 +82,13 @@ impl GameRunner {
             template = template.replace("{file_path}", &file_path);
 
             if let Some(ex) = &r.executable_path {
-                template = template.replace("{executable_path}", ex);
-            } else if template.contains("{executable_path}") {
-                anyhow::bail!("No se ha configurado la ruta del ejecutable/AppImage para el runner '{}'. Presiona [m] para configurarlo.", r.name);
+                if !ex.trim().is_empty() && std::path::Path::new(ex).exists() {
+                    template = template.replace("{executable_path}", ex);
+                } else {
+                    anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}). Presiona [m] para configurar o descargar.", r.name, ex);
+                }
+            } else {
+                anyhow::bail!("El emulador '{}' no tiene configurado su ejecutable/AppImage. Presiona [m] para configurar o descargar.", r.name);
             }
 
             let mut local_envs = base_envs.clone();
