@@ -1,6 +1,9 @@
+pub mod dat_downloader;
+pub mod dat_parser;
 pub mod db;
 pub mod hash;
 pub mod models;
 pub mod runner_detector;
 pub mod scanner;
+pub mod serial_extractor;
 pub mod steam_scanner;
