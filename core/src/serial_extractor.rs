@@ -66,45 +66,56 @@ impl SerialExtractor {
 
     /// Extract PlayStation (PS1, PS2, PSP) Disc Serial (e.g. SCUS-94424, SLUS-00782).
     fn extract_playstation(file: &mut File) -> Option<String> {
-        file.seek(SeekFrom::Start(0)).ok()?;
-        let mut buffer = vec![0u8; 30 * 1024 * 1024]; // Read up to 30MB
-        let bytes_read = file.read(&mut buffer).ok()?;
-        buffer.truncate(bytes_read);
-
         let prefixes: [&[u8]; 15] = [
             b"SLUS", b"SCUS", b"SLES", b"SCES", b"SLPS", b"SCPS", b"SLED", b"SCED",
             b"ULUS", b"ULEU", b"ULJS", b"UCUS", b"UCES", b"NPUG", b"NPEH",
         ];
 
-        for prefix in prefixes {
-            let mut pos = 0;
-            while pos + 4 <= buffer.len() {
-                if let Some(found) = buffer[pos..].windows(4).position(|w| w.eq_ignore_ascii_case(prefix)) {
-                    let abs_pos = pos + found;
-                    let slice = &buffer[abs_pos..abs_pos + 20.min(buffer.len() - abs_pos)];
-                    let text = String::from_utf8_lossy(slice);
+        let chunk_size = 4 * 1024 * 1024;
+        let max_bytes = 30 * 1024 * 1024;
+        let mut bytes_read_total = 0;
 
-                    let mut num_str = String::new();
-                    for ch in text.chars().skip(4) {
-                        if ch.is_ascii_digit() {
-                            num_str.push(ch);
-                        } else if ch == '_' || ch == '-' || ch == '.' || ch == ' ' {
-                            continue;
-                        } else if !num_str.is_empty() {
-                            break;
+        while bytes_read_total < max_bytes {
+            file.seek(SeekFrom::Start(bytes_read_total as u64)).ok()?;
+            let mut buffer = vec![0u8; chunk_size];
+            let n = file.read(&mut buffer).ok()?;
+            if n == 0 {
+                break;
+            }
+            buffer.truncate(n);
+
+            for prefix in prefixes {
+                let mut pos = 0;
+                while pos + 4 <= buffer.len() {
+                    if let Some(found) = buffer[pos..].windows(4).position(|w| w.eq_ignore_ascii_case(prefix)) {
+                        let abs_pos = pos + found;
+                        let slice = &buffer[abs_pos..abs_pos + 20.min(buffer.len() - abs_pos)];
+                        let text = String::from_utf8_lossy(slice);
+
+                        let mut num_str = String::new();
+                        for ch in text.chars().skip(4) {
+                            if ch.is_ascii_digit() {
+                                num_str.push(ch);
+                            } else if ch == '_' || ch == '-' || ch == '.' || ch == ' ' {
+                                continue;
+                            } else if !num_str.is_empty() {
+                                break;
+                            }
                         }
-                    }
 
-                    if num_str.len() >= 4 && num_str.len() <= 6 {
-                        let pref_str = String::from_utf8_lossy(prefix).to_uppercase();
-                        return Some(format!("{}-{}", pref_str, num_str));
-                    }
+                        if num_str.len() >= 4 && num_str.len() <= 6 {
+                            let pref_str = String::from_utf8_lossy(prefix).to_uppercase();
+                            return Some(format!("{}-{}", pref_str, num_str));
+                        }
 
-                    pos = abs_pos + 4;
-                } else {
-                    break;
+                        pos = abs_pos + 4;
+                    } else {
+                        break;
+                    }
                 }
             }
+
+            bytes_read_total += n;
         }
 
         None

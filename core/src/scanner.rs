@@ -8,6 +8,16 @@ use crate::db::Database;
 use crate::hash::HashCalculator;
 use crate::models::{Game, Platform};
 
+#[derive(Debug, Clone)]
+pub struct ScanProgressEvent {
+    pub current: usize,
+    pub total: usize,
+    pub current_title: String,
+    pub finished: bool,
+    pub added_count: usize,
+    pub error_msg: Option<String>,
+}
+
 pub struct Scanner;
 
 impl Scanner {
@@ -19,6 +29,7 @@ impl Scanner {
         recursive: bool,
         calculate_hashes: bool,
         use_dat_auto_id: bool,
+        progress_tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
     ) -> Result<usize> {
         let folder = folder_path.as_ref();
         if !folder.exists() || !folder.is_dir() {
@@ -60,7 +71,9 @@ impl Scanner {
             paths
         };
 
-        for path in paths {
+        let total_paths = paths.len();
+
+        for (idx, path) in paths.into_iter().enumerate() {
             let ext = extension_for(&path);
 
             let file_name = path
@@ -119,6 +132,17 @@ impl Scanner {
                 clean_game_title(&stem)
             };
 
+            if let Some(tx) = progress_tx {
+                let _ = tx.send(ScanProgressEvent {
+                    current: idx + 1,
+                    total: total_paths,
+                    current_title: title.clone(),
+                    finished: false,
+                    added_count: count,
+                    error_msg: None,
+                });
+            }
+
             let game = Game {
                 id: 0,
                 platform_id: platform.id,
@@ -156,6 +180,17 @@ impl Scanner {
             if db.insert_game(&game).is_ok() {
                 count += 1;
             }
+        }
+
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(ScanProgressEvent {
+                current: total_paths,
+                total: total_paths,
+                current_title: "Scan Completed".to_string(),
+                finished: true,
+                added_count: count,
+                error_msg: None,
+            });
         }
 
         Ok(count)

@@ -559,34 +559,38 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(status_paragraph, bar_chunks[0]);
 
     if let Some(ref progress) = app.download_progress {
-        let downloaded_mb = progress.downloaded_bytes as f64 / (1024.0 * 1024.0);
-        let total_mb = progress.total_bytes as f64 / (1024.0 * 1024.0);
-        let is_extracting = progress.percentage >= 99.9;
-        let prefix = if is_extracting {
-            " Extracting Archive: "
+        let is_scanning = progress.runner_name.contains("Scan") || progress.runner_name.contains("Identif");
+        let (prefix, label) = if is_scanning {
+            (
+                " Task Progress: ",
+                format!("{:.1}% ({}/{} items)", progress.percentage, progress.downloaded_bytes, progress.total_bytes)
+            )
         } else {
-            " Downloading Archive: "
+            let downloaded_mb = progress.downloaded_bytes as f64 / (1024.0 * 1024.0);
+            let total_mb = progress.total_bytes as f64 / (1024.0 * 1024.0);
+            let is_extracting = progress.percentage >= 99.9;
+            let pfx = if is_extracting { " Extracting Archive: " } else { " Downloading Archive: " };
+            (pfx, format!("{:.1}% ({:.1}/{:.1} MB)", progress.percentage, downloaded_mb, total_mb))
         };
-        let label = format!("{:.1}% ({:.1}/{:.1} MB)", progress.percentage, downloaded_mb, total_mb);
 
         let gauge = Gauge::default()
             .block(
                 Block::default()
                     .title(Span::styled(
                         format!("{}{}", prefix, progress.runner_name),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(Color::Green)),
+                    .border_style(Style::default().fg(Color::Cyan)),
             )
             .gauge_style(
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(Color::Cyan)
                     .bg(Color::DarkGray)
                     .add_modifier(Modifier::BOLD),
             )
-            .percent(progress.percentage as u16)
+            .percent((progress.percentage as u16).min(100))
             .label(label);
 
         frame.render_widget(gauge, bar_chunks[1]);

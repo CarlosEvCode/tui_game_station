@@ -326,6 +326,7 @@ pub struct App {
     pub modal_state: ModalState,
     pub download_progress: Option<DownloadProgressState>,
     pub download_rx: Option<mpsc::Receiver<DownloadEvent>>,
+    pub scan_rx: Option<mpsc::Receiver<game_core::scanner::ScanProgressEvent>>,
     pub cover_tx: mpsc::Sender<LoadedCoverEvent>,
     pub cover_rx: mpsc::Receiver<LoadedCoverEvent>,
     pub preview_tx: mpsc::Sender<LoadedPreviewEvent>,
@@ -372,6 +373,7 @@ impl App {
             modal_state: ModalState::None,
             download_progress: None,
             download_rx: None,
+            scan_rx: None,
             cover_tx,
             cover_rx,
             preview_tx,
@@ -700,6 +702,35 @@ impl App {
                 self.visual_preview_loading = false;
             }
         }
+
+        // Receive live scan progress events non-blocking
+        let mut scan_done = false;
+        let mut scan_added = 0;
+        if let Some(ref mut rx) = self.scan_rx {
+            while let Ok(evt) = rx.try_recv() {
+                if evt.finished {
+                    scan_done = true;
+                    scan_added = evt.added_count;
+                } else {
+                    self.download_progress = Some(DownloadProgressState {
+                        runner_id: 0,
+                        runner_name: format!("Scanning: {}", evt.current_title),
+                        downloaded_bytes: evt.current as u64,
+                        total_bytes: evt.total as u64,
+                        percentage: (evt.current as f64 / evt.total.max(1) as f64) * 100.0,
+                        is_finished: false,
+                        error_msg: None,
+                    });
+                    self.status_msg = format!("[Identificando {}/{}] {}", evt.current, evt.total, evt.current_title);
+                }
+            }
+        }
+        if scan_done {
+            self.download_progress = None;
+            self.scan_rx = None;
+            self.status_msg = format!("[OK] Escaneo completado: {} ROMs importadas/actualizadas.", scan_added);
+            self.load_platforms();
+        }
     }
 
     pub fn update_visual_media_preview(&mut self) {
@@ -968,20 +999,41 @@ impl App {
                 );
 
                 if default_dir.exists() {
-                    let slug = platform.slug.clone();
-                    let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
-                    match Scanner::scan_folder(&self.db, &platform, &default_dir, true, false, true) {
-                        Ok(added) => {
-                            self.status_msg = format!(
-                                "Scan finished: {} game(s) added/updated.",
-                                added
-                            );
-                            self.load_platforms();
+                    let (scan_tx, scan_rx) = mpsc::channel::<game_core::scanner::ScanProgressEvent>(100);
+                    self.scan_rx = Some(scan_rx);
+                    self.download_progress = Some(DownloadProgressState {
+                        runner_id: 0,
+                        runner_name: format!("Scanning: {}", platform.name),
+                        downloaded_bytes: 0,
+                        total_bytes: 1,
+                        percentage: 0.0,
+                        is_finished: false,
+                        error_msg: None,
+                    });
+                    self.status_msg = format!("Scanning & Identifying ROMs for {}...", platform.name);
+
+                    let db_path = dirs::data_dir()
+                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                        .join("tui_game_station")
+                        .join("game_station.db");
+
+                    tokio::spawn(async move {
+                        let slug = platform.slug.clone();
+                        let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+
+                        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+                        let scan_tx_clone = scan_tx.clone();
+
+                        tokio::task::spawn_blocking(move || {
+                            if let Ok(db) = Database::open(&db_path) {
+                                let _ = Scanner::scan_folder(&db, &platform, &default_dir, true, false, true, Some(&sync_tx));
+                            }
+                        });
+
+                        while let Ok(evt) = sync_rx.recv() {
+                            let _ = scan_tx_clone.send(evt).await;
                         }
-                        Err(err) => {
-                            self.status_msg = format!("Error during scan: {}", err);
-                        }
-                    }
+                    });
                 } else {
                     self.status_msg = format!(
                         "Folder not found: {:?}. Please create folder ~/Juegos",
@@ -3057,29 +3109,44 @@ impl App {
                     let mut scan_platform = platform.clone();
                     scan_platform.default_extensions = selected_extensions;
 
-                    let _ = self
-                        .db
-                        .save_scan_folder(platform.id, folder_path.trim(), recursive);
-                    self.status_msg = format!("Scanning ROMs folder for {}...", platform.name);
+                    let (scan_tx, scan_rx) = mpsc::channel::<game_core::scanner::ScanProgressEvent>(100);
+                    self.scan_rx = Some(scan_rx);
+                    self.download_progress = Some(DownloadProgressState {
+                        runner_id: 0,
+                        runner_name: format!("Scanning ROMs: {}", platform.name),
+                        downloaded_bytes: 0,
+                        total_bytes: 1,
+                        percentage: 0.0,
+                        is_finished: false,
+                        error_msg: None,
+                    });
+                    self.modal_state = ModalState::None;
+                    self.status_msg = format!("Scanning & Identifying ROMs for {}...", platform.name);
 
-                    if use_dat_auto_id {
-                        let slug = platform.slug.clone();
-                        let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
-                    }
+                    let db_path = dirs::data_dir()
+                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                        .join("tui_game_station")
+                        .join("game_station.db");
 
-                    match Scanner::scan_folder(&self.db, &scan_platform, &path, recursive, false, use_dat_auto_id) {
-                        Ok(added) => {
-                            self.status_msg = format!(
-                                "[OK] Scan completed: {} ROMs imported/updated from '{}'.",
-                                added, folder_path
-                            );
-                            self.modal_state = ModalState::None;
-                            self.load_platforms();
+                    tokio::spawn(async move {
+                        if use_dat_auto_id {
+                            let slug = scan_platform.slug.clone();
+                            let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
                         }
-                        Err(err) => {
-                            self.status_msg = format!("Error during scan: {}", err);
+
+                        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+                        let scan_tx_clone = scan_tx.clone();
+
+                        tokio::task::spawn_blocking(move || {
+                            if let Ok(db) = Database::open(&db_path) {
+                                let _ = Scanner::scan_folder(&db, &scan_platform, &path, recursive, false, use_dat_auto_id, Some(&sync_tx));
+                            }
+                        });
+
+                        while let Ok(evt) = sync_rx.recv() {
+                            let _ = scan_tx_clone.send(evt).await;
                         }
-                    }
+                    });
                 }
             }
             Action::QuickRescanPlatform => {
@@ -3089,23 +3156,41 @@ impl App {
                     {
                         let path = PathBuf::from(&saved_path);
                         if path.exists() {
-                            let slug = platform.slug.clone();
-                            let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
-                            self.status_msg =
-                                format!("Quick re-scanning '{}' saved folder...", platform.name);
-                            match Scanner::scan_folder(&self.db, &platform, &path, true, false, true) {
-                                Ok(added) => {
-                                    self.status_msg = format!(
-                                        "[OK] Quick re-scan finished: {} ROMs updated from '{}'.",
-                                        added, saved_path
-                                    );
-                                    self.load_platforms();
+                            let (scan_tx, scan_rx) = mpsc::channel::<game_core::scanner::ScanProgressEvent>(100);
+                            self.scan_rx = Some(scan_rx);
+                            self.download_progress = Some(DownloadProgressState {
+                                runner_id: 0,
+                                runner_name: format!("Quick Re-scanning: {}", platform.name),
+                                downloaded_bytes: 0,
+                                total_bytes: 1,
+                                percentage: 0.0,
+                                is_finished: false,
+                                error_msg: None,
+                            });
+                            self.status_msg = format!("Re-scanning & Identifying ROMs for {}...", platform.name);
+
+                            let db_path = dirs::data_dir()
+                                .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                                .join("tui_game_station")
+                                .join("game_station.db");
+
+                            tokio::spawn(async move {
+                                let slug = platform.slug.clone();
+                                let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+
+                                let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+                                let scan_tx_clone = scan_tx.clone();
+
+                                tokio::task::spawn_blocking(move || {
+                                    if let Ok(db) = Database::open(&db_path) {
+                                        let _ = Scanner::scan_folder(&db, &platform, &path, true, false, true, Some(&sync_tx));
+                                    }
+                                });
+
+                                while let Ok(evt) = sync_rx.recv() {
+                                    let _ = scan_tx_clone.send(evt).await;
                                 }
-                                Err(err) => {
-                                    self.status_msg =
-                                        format!("Error during quick re-scan: {}", err);
-                                }
-                            }
+                            });
                         } else {
                             self.status_msg =
                                 format!("[Error] Saved folder not found: '{}'", saved_path);
