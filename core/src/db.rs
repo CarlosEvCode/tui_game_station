@@ -299,6 +299,18 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_platform_slug_by_runner_name(&self, runner_name: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.slug FROM platforms p JOIN runners r ON r.platform_id = p.id WHERE r.name = ?1 LIMIT 1"
+        )?;
+        let mut rows = stmt.query(params![runner_name])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn get_unique_runners(&self) -> Result<Vec<crate::models::UniqueRunnerInfo>> {
         let mut stmt = self.conn.prepare(
             "SELECT r.name, r.runner_type,

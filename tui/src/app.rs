@@ -1166,6 +1166,7 @@ impl App {
 
                     match self.db.update_runner_by_name(&runner_info.name, trimmed_path) {
                         Ok(_) => {
+                            self.trigger_async_dat_download_by_runner(&runner_info.name);
                             self.status_msg = format!(
                                 "[OK] Emulator '{}' ({}) configured successfully!",
                                 runner_info.name, runner_info.console_initials
@@ -1188,6 +1189,9 @@ impl App {
                     let new_state = !runner_info.is_configured;
                     match self.db.toggle_runner_configured(&runner_info.name, new_state) {
                         Ok(_) => {
+                            if new_state {
+                                self.trigger_async_dat_download_by_runner(&runner_info.name);
+                            }
                             self.status_msg = format!(
                                 "Emulator '{}' ({}) {} successfully.",
                                 runner_info.name,
@@ -3865,6 +3869,26 @@ impl App {
             Action::SetStatus(msg) => {
                 self.status_msg = msg;
             }
+        }
+    }
+
+    pub fn trigger_async_dat_download_by_runner(&mut self, runner_name: &str) {
+        if let Ok(Some(slug)) = self.db.get_platform_slug_by_runner_name(runner_name) {
+            self.trigger_async_dat_download(&slug);
+        }
+    }
+
+    pub fn trigger_async_dat_download(&mut self, platform_slug: &str) {
+        if game_core::dat_downloader::DatDownloader::get_dat_relative_path(platform_slug).is_none() {
+            return;
+        }
+
+        let slug = platform_slug.to_string();
+        if !game_core::dat_downloader::DatDownloader::is_dat_cached(&slug) {
+            self.status_msg = format!("[DAT] Downloading database for {} in background...", slug.to_uppercase());
+            tokio::spawn(async move {
+                let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+            });
         }
     }
 }
