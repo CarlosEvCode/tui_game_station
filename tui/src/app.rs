@@ -968,6 +968,8 @@ impl App {
                 );
 
                 if default_dir.exists() {
+                    let slug = platform.slug.clone();
+                    let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
                     match Scanner::scan_folder(&self.db, &platform, &default_dir, true, false, true) {
                         Ok(added) => {
                             self.status_msg = format!(
@@ -3060,6 +3062,11 @@ impl App {
                         .save_scan_folder(platform.id, folder_path.trim(), recursive);
                     self.status_msg = format!("Scanning ROMs folder for {}...", platform.name);
 
+                    if use_dat_auto_id {
+                        let slug = platform.slug.clone();
+                        let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+                    }
+
                     match Scanner::scan_folder(&self.db, &scan_platform, &path, recursive, false, use_dat_auto_id) {
                         Ok(added) => {
                             self.status_msg = format!(
@@ -3082,6 +3089,8 @@ impl App {
                     {
                         let path = PathBuf::from(&saved_path);
                         if path.exists() {
+                            let slug = platform.slug.clone();
+                            let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
                             self.status_msg =
                                 format!("Quick re-scanning '{}' saved folder...", platform.name);
                             match Scanner::scan_folder(&self.db, &platform, &path, true, false, true) {

@@ -741,10 +741,13 @@ impl Database {
             "INSERT INTO games (
                 platform_id, title, sort_title, game_type, file_path, working_dir,
                 custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
-                file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
             ON CONFLICT(file_path) DO UPDATE SET
                 title = excluded.title,
+                serial = excluded.serial,
+                file_hash_md5 = excluded.file_hash_md5,
+                file_hash_crc32 = excluded.file_hash_crc32,
                 file_size = excluded.file_size,
                 updated_at = CURRENT_TIMESTAMP",
             params![
@@ -765,6 +768,7 @@ impl Database {
                 game.file_hash_crc32,
                 game.file_hash_md5,
                 game.file_hash_sha1,
+                game.serial,
             ],
         )?;
 
