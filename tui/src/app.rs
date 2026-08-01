@@ -22,7 +22,7 @@ pub struct WineToolCommand {
 pub struct LoadedCoverEvent {
     pub game_id: i64,
     pub media_type: String,
-    pub protocol: StatefulProtocol,
+    pub protocol: Option<StatefulProtocol>,
 }
 
 pub struct LoadedPreviewEvent {
@@ -600,11 +600,13 @@ impl App {
                 }
             };
 
-            if let Some(path) = cover_path {
-                if let Some(protocol) = manager.load_native_protocol_from_file(&path) {
-                    let _ = tx.send(LoadedCoverEvent { game_id, media_type: media_type_str, protocol }).await;
-                }
-            }
+            let protocol = if let Some(path) = cover_path {
+                manager.load_native_protocol_from_file(&path)
+            } else {
+                None
+            };
+
+            let _ = tx.send(LoadedCoverEvent { game_id, media_type: media_type_str, protocol }).await;
         });
     }
 
@@ -662,11 +664,12 @@ impl App {
                     }
                 };
 
-                if let Some(path) = cover_path {
-                    if let Some(protocol) = manager.load_halfblocks_protocol_from_file(&path) {
-                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover_hb".to_string(), protocol }).await;
-                    }
-                }
+                let protocol = if let Some(path) = cover_path {
+                    manager.load_halfblocks_protocol_from_file(&path)
+                } else {
+                    None
+                };
+                let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover_hb".to_string(), protocol }).await;
             });
         }
     }
@@ -685,7 +688,9 @@ impl App {
         // Receive loaded cover events from background task non-blocking
         while let Ok(loaded) = self.cover_rx.try_recv() {
             self.pending_cover_requests.remove(&loaded.game_id);
-            self.media_protocols.insert((loaded.game_id, loaded.media_type), loaded.protocol);
+            if let Some(proto) = loaded.protocol {
+                self.media_protocols.insert((loaded.game_id, loaded.media_type), proto);
+            }
         }
 
         // Receive loaded preview events for Visual Media Selector
@@ -3257,19 +3262,18 @@ impl App {
                                         "  [OK] Cover={:?}, Banner={:?}, Icon={:?}",
                                         res.cover_path, res.banner_path, res.icon_path
                                     ));
-                                    if let Some(path) = res.cover_path {
-                                        if let Some(protocol) =
-                                            manager.load_protocol_from_file(&path)
-                                        {
-                                            let _ = tx
-                                                .send(LoadedCoverEvent {
-                                                    game_id: game.id,
-                                                    media_type: "cover".to_string(),
-                                                    protocol,
-                                                })
-                                                .await;
-                                        }
-                                    }
+                                    let protocol = if let Some(path) = res.cover_path {
+                                        manager.load_protocol_from_file(&path)
+                                    } else {
+                                        None
+                                    };
+                                    let _ = tx
+                                        .send(LoadedCoverEvent {
+                                            game_id: game.id,
+                                            media_type: "cover".to_string(),
+                                            protocol,
+                                        })
+                                        .await;
                                 }
                                 Err(err) => {
                                     log_lines.push(format!(
@@ -3635,7 +3639,7 @@ impl App {
                                         let _ = db.record_media_status(game_id, "cover", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                     }
                                     if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol }).await;
+                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "cover".to_string(), protocol: Some(protocol) }).await;
                                     }
                                 }
                             });
@@ -3664,7 +3668,7 @@ impl App {
                                         let _ = db.record_media_status(game_id, "banner", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                     }
                                     if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "banner".to_string(), protocol }).await;
+                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "banner".to_string(), protocol: Some(protocol) }).await;
                                     }
                                 }
                             });
@@ -3693,7 +3697,7 @@ impl App {
                                         let _ = db.record_media_status(game_id, "icon", "downloaded", Some(&dest.to_string_lossy()), Some(&url));
                                     }
                                     if let Some(protocol) = manager.load_protocol_from_file(&dest) {
-                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "icon".to_string(), protocol }).await;
+                                        let _ = tx.send(LoadedCoverEvent { game_id, media_type: "icon".to_string(), protocol: Some(protocol) }).await;
                                     }
                                 }
                             });
