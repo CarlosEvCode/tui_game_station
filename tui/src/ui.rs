@@ -1200,22 +1200,21 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(""));
 
             let supports_dat = game_core::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug);
-            let dat_check = if !supports_dat {
-                "[N/A] Disabled for this platform (Clean Filenames Used)"
-            } else if use_dat_auto_id {
-                "[X] Yes (DAT / Serial Auto-ID)"
+            let action_field_idx = if supports_dat {
+                let dat_check = if use_dat_auto_id { "[X] Yes (DAT / Serial Auto-ID)" } else { "[ ] No (Raw filenames)" };
+                lines.push(Line::from(vec![
+                    Span::styled("4. Automatic DAT Identification: ", field_style(3)),
+                    Span::styled(dat_check, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw(" (Press [Space] to toggle)"),
+                ]));
+                lines.push(Line::from(""));
+                4
             } else {
-                "[ ] No (Use raw filenames)"
+                3
             };
-            lines.push(Line::from(vec![
-                Span::styled("4. Automatic DAT Identification: ", field_style(3)),
-                Span::styled(dat_check, Style::default().fg(if supports_dat { Color::Cyan } else { Color::DarkGray }).add_modifier(Modifier::BOLD)),
-                Span::raw(if supports_dat { " (Press [Space] to toggle)" } else { " (Not needed)" }),
-            ]));
-            lines.push(Line::from(""));
 
             lines.push(Line::from(vec![
-                Span::styled("[ START SCANNING ROMS ]", field_style(4)),
+                Span::styled("[ START SCANNING ROMS ]", field_style(action_field_idx)),
             ]));
 
             let p = Paragraph::new(lines).block(

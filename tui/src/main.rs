@@ -607,12 +607,20 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                 }
-                                ModalState::ScanFolderForm { selected_field, .. } => match selected_field {
-                                    0 => app.update(Action::OpenFilePicker).await,
-                                    2 => app.update(Action::ModalToggleCheckbox).await,
-                                    3 => app.update(Action::ModalToggleCheckbox).await,
-                                    4 => app.update(Action::StartFolderScan).await,
-                                    _ => app.update(Action::ModalNextField).await,
+                                ModalState::ScanFolderForm { ref platform, selected_field, .. } => {
+                                    let supports_dat = game_core::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug);
+                                    let action_field_idx = if supports_dat { 4 } else { 3 };
+                                    if selected_field == 0 {
+                                        app.update(Action::OpenFilePicker).await;
+                                    } else if selected_field == 2 {
+                                        app.update(Action::ModalToggleCheckbox).await;
+                                    } else if supports_dat && selected_field == 3 {
+                                        app.update(Action::ModalToggleCheckbox).await;
+                                    } else if selected_field == action_field_idx {
+                                        app.update(Action::StartFolderScan).await;
+                                    } else {
+                                        app.update(Action::ModalNextField).await;
+                                    }
                                 },
                                 ModalState::ManageRunnersStep2Config { ref runner_info, ref exe_path_input, selected_row, selected_action_idx, .. } => {
                                     if selected_row == 0 {

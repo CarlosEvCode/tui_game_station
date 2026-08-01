@@ -2716,10 +2716,12 @@ impl App {
                     }
                 }
                 ModalState::ScanFolderForm {
+                    ref platform,
                     ref mut selected_field,
                     ..
                 } => {
-                    *selected_field = (*selected_field + 1) % 5;
+                    let total = if game_core::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug) { 5 } else { 4 };
+                    *selected_field = (*selected_field + 1) % total;
                 }
                 ModalState::ManageRunnersStep2Config {
                     ref mut selected_row,
@@ -2760,11 +2762,13 @@ impl App {
                     }
                 }
                 ModalState::ScanFolderForm {
+                    ref platform,
                     ref mut selected_field,
                     ..
                 } => {
+                    let total = if game_core::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug) { 5 } else { 4 };
                     if *selected_field == 0 {
-                        *selected_field = 4;
+                        *selected_field = total - 1;
                     } else {
                         *selected_field -= 1;
                     }
