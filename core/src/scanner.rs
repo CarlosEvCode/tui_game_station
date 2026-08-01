@@ -18,6 +18,7 @@ impl Scanner {
         folder_path: P,
         recursive: bool,
         calculate_hashes: bool,
+        use_dat_auto_id: bool,
     ) -> Result<usize> {
         let folder = folder_path.as_ref();
         if !folder.exists() || !folder.is_dir() {
@@ -26,6 +27,21 @@ impl Scanner {
                 folder
             );
         }
+
+        let dat_parser = if use_dat_auto_id {
+            let dat_path = crate::dat_downloader::DatDownloader::get_local_dat_path(&platform.slug);
+            if dat_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&dat_path) {
+                    Some(crate::dat_parser::DatParser::parse(&content))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let mut count = 0;
         let mut walker = WalkDir::new(folder);
@@ -59,19 +75,6 @@ impl Scanner {
                 .unwrap_or(&file_name)
                 .to_string();
 
-            // Cemu's unpacked format is a game directory containing a `code/`
-            // directory and `meta/meta.xml`.  Treat its RPX as one game,
-            // use its metadata title, and avoid importing updates/DLC as games.
-            let title = if platform.slug == "wii_u" && ext == ".rpx" {
-                match wii_u_directory_title(&path) {
-                    Some(Some(title)) => title,
-                    Some(None) => continue,
-                    None => clean_game_title(&stem),
-                }
-            } else {
-                clean_game_title(&stem)
-            };
-
             let (crc32, md5, sha1, size) = if calculate_hashes {
                 if let Ok(hashes) = HashCalculator::calculate_hashes(&path) {
                     (
@@ -86,6 +89,34 @@ impl Scanner {
             } else {
                 let size = std::fs::metadata(&path).map(|m| m.len() as i64).ok();
                 (None, None, None, size)
+            };
+
+            let extracted_serial = crate::serial_extractor::SerialExtractor::extract_serial(&path, &platform.slug);
+
+            let dat_title = if let Some(ref parser) = dat_parser {
+                if let Some(ref s) = extracted_serial {
+                    parser.resolve_by_serial(s).cloned()
+                } else if let Some(ref m) = md5 {
+                    parser.resolve_by_hash(m).cloned()
+                } else if let Some(ref c) = crc32 {
+                    parser.resolve_by_hash(c).cloned()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let title = if let Some(dt) = dat_title {
+                dt
+            } else if platform.slug == "wii_u" && ext == ".rpx" {
+                match wii_u_directory_title(&path) {
+                    Some(Some(title)) => title,
+                    Some(None) => continue,
+                    None => clean_game_title(&stem),
+                }
+            } else {
+                clean_game_title(&stem)
             };
 
             let game = Game {
@@ -107,7 +138,7 @@ impl Scanner {
                 file_hash_crc32: crc32,
                 file_hash_md5: md5,
                 file_hash_sha1: sha1,
-                serial: None,
+                serial: extracted_serial,
                 release_year: None,
                 developer: None,
                 publisher: None,

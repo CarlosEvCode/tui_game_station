@@ -1147,6 +1147,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref folder_path,
             ref extensions_input,
             recursive,
+            use_dat_auto_id,
             selected_field,
         } => {
             let runner_info = app.db.get_runner_for_platform(platform.id).ok().flatten();
@@ -1194,8 +1195,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ]));
             lines.push(Line::from(""));
 
+            let dat_check = if use_dat_auto_id { "[X] Yes (DAT / Serial Auto-ID)" } else { "[ ] No (Use raw filenames)" };
             lines.push(Line::from(vec![
-                Span::styled("[ START SCANNING ROMS ]", field_style(3)),
+                Span::styled("4. Automatic DAT Identification: ", field_style(3)),
+                Span::styled(dat_check, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw(" (Press [Space] to toggle)"),
+            ]));
+            lines.push(Line::from(""));
+
+            lines.push(Line::from(vec![
+                Span::styled("[ START SCANNING ROMS ]", field_style(4)),
             ]));
 
             let p = Paragraph::new(lines).block(

@@ -70,6 +70,7 @@ pub enum ModalState {
         folder_path: String,
         extensions_input: String,
         recursive: bool,
+        use_dat_auto_id: bool,
         selected_field: usize,
     },
     AddGameForm {
@@ -962,7 +963,7 @@ impl App {
                 );
 
                 if default_dir.exists() {
-                    match Scanner::scan_folder(&self.db, &platform, &default_dir, true, false) {
+                    match Scanner::scan_folder(&self.db, &platform, &default_dir, true, false, true) {
                         Ok(added) => {
                             self.status_msg = format!(
                                 "Scan finished: {} game(s) added/updated.",
@@ -2503,6 +2504,7 @@ impl App {
                             folder_path: saved_folder,
                             extensions_input: default_exts,
                             recursive: true,
+                            use_dat_auto_id: true,
                             selected_field: 0,
                         };
                     }
@@ -2581,12 +2583,15 @@ impl App {
                     }
                 } else if let ModalState::ScanFolderForm {
                     ref mut recursive,
+                    ref mut use_dat_auto_id,
                     selected_field,
                     ..
                 } = self.modal_state
                 {
                     if selected_field == 2 {
                         *recursive = !*recursive;
+                    } else if selected_field == 3 {
+                        *use_dat_auto_id = !*use_dat_auto_id;
                     }
                 } else if let ModalState::VisualMediaSelector {
                     active_tab,
@@ -2655,7 +2660,7 @@ impl App {
                     ref mut selected_field,
                     ..
                 } => {
-                    *selected_field = (*selected_field + 1) % 4;
+                    *selected_field = (*selected_field + 1) % 5;
                 }
                 ModalState::ManageRunnersStep2Config {
                     ref mut selected_row,
@@ -2700,7 +2705,7 @@ impl App {
                     ..
                 } => {
                     if *selected_field == 0 {
-                        *selected_field = 3;
+                        *selected_field = 4;
                     } else {
                         *selected_field -= 1;
                     }
@@ -3012,6 +3017,7 @@ impl App {
                     ref folder_path,
                     ref extensions_input,
                     recursive,
+                    use_dat_auto_id,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -3041,9 +3047,6 @@ impl App {
                         return;
                     }
 
-                    // The extension field in the scan form is intentionally per-scan:
-                    // it can narrow a platform's registry defaults without changing the
-                    // globally supported formats stored in SQLite.
                     let mut scan_platform = platform.clone();
                     scan_platform.default_extensions = selected_extensions;
 
@@ -3052,7 +3055,7 @@ impl App {
                         .save_scan_folder(platform.id, folder_path.trim(), recursive);
                     self.status_msg = format!("Scanning ROMs folder for {}...", platform.name);
 
-                    match Scanner::scan_folder(&self.db, &scan_platform, &path, recursive, false) {
+                    match Scanner::scan_folder(&self.db, &scan_platform, &path, recursive, false, use_dat_auto_id) {
                         Ok(added) => {
                             self.status_msg = format!(
                                 "[OK] Scan completed: {} ROMs imported/updated from '{}'.",
@@ -3076,7 +3079,7 @@ impl App {
                         if path.exists() {
                             self.status_msg =
                                 format!("Quick re-scanning '{}' saved folder...", platform.name);
-                            match Scanner::scan_folder(&self.db, &platform, &path, true, false) {
+                            match Scanner::scan_folder(&self.db, &platform, &path, true, false, true) {
                                 Ok(added) => {
                                     self.status_msg = format!(
                                         "[OK] Quick re-scan finished: {} ROMs updated from '{}'.",

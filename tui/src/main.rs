@@ -610,7 +610,8 @@ async fn main() -> Result<()> {
                                 ModalState::ScanFolderForm { selected_field, .. } => match selected_field {
                                     0 => app.update(Action::OpenFilePicker).await,
                                     2 => app.update(Action::ModalToggleCheckbox).await,
-                                    3 => app.update(Action::StartFolderScan).await,
+                                    3 => app.update(Action::ModalToggleCheckbox).await,
+                                    4 => app.update(Action::StartFolderScan).await,
                                     _ => app.update(Action::ModalNextField).await,
                                 },
                                 ModalState::ManageRunnersStep2Config { ref runner_info, ref exe_path_input, selected_row, selected_action_idx, .. } => {
