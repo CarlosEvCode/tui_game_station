@@ -2563,7 +2563,7 @@ impl App {
                             folder_path: saved_folder,
                             extensions_input: default_exts,
                             recursive: true,
-                            use_dat_auto_id: true,
+                            use_dat_auto_id: game_core::dat_downloader::DatDownloader::supports_dat_identification(&p.slug),
                             selected_field: 0,
                         };
                     }
