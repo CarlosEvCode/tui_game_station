@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.0...v1.4.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* **updater:** Ensure GitHub self-updater version tag matching and auto-injection ([715470d](https://github.com/CarlosEvCode/tui_game_station/commit/715470d0d971602a745c242d1a4a83e103931495))
+
 ## [1.4.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.3.0...v1.4.0) (2026-08-02)
 
 
