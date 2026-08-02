@@ -530,7 +530,6 @@ impl App {
             self.selected_game_idx = 0;
         }
 
-        self.trigger_async_cover_fetch();
         self.trigger_auto_bulk_media_fetch();
     }
 
@@ -3321,14 +3320,17 @@ impl App {
 
                             tokio::spawn(async move {
                                 let slug = platform.slug.clone();
-                                let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+                                let supports_dat = game_core::dat_downloader::DatDownloader::supports_dat_identification(&slug);
+                                if supports_dat {
+                                    let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+                                }
 
                                 let (sync_tx, sync_rx) = std::sync::mpsc::channel();
                                 let scan_tx_clone = scan_tx.clone();
 
                                 tokio::task::spawn_blocking(move || {
                                     if let Ok(db) = Database::open(&db_path) {
-                                        let _ = Scanner::scan_folder(&db, &platform, &path, true, false, true, Some(&sync_tx));
+                                        let _ = Scanner::scan_folder(&db, &platform, &path, true, false, supports_dat, Some(&sync_tx));
                                     }
                                 });
 

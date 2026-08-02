@@ -39,7 +39,7 @@ impl Scanner {
             );
         }
 
-        let dat_parser = if use_dat_auto_id {
+        let dat_parser = if use_dat_auto_id && crate::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug) {
             let dat_path = crate::dat_downloader::DatDownloader::get_local_dat_path(&platform.slug);
             if dat_path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&dat_path) {
