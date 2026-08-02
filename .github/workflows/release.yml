@@ -50,10 +50,17 @@ jobs:
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Extract Version Tag
+      - name: Extract Version Tag & Inject into Cargo.toml
         run: |
           TAG="${{ needs.release-please.outputs.tag_name }}"
+          VERSION=${TAG#v}
           echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          echo "Injecting release version: $VERSION into Cargo.toml files"
+          sed -i "0,/^version = .*/s//version = \"$VERSION\"/" Cargo.toml
+          sed -i "0,/^version = .*/s//version = \"$VERSION\"/" tui/Cargo.toml
+          sed -i "0,/^version = .*/s//version = \"$VERSION\"/" core/Cargo.toml
+          sed -i "0,/^version = .*/s//version = \"$VERSION\"/" runner/Cargo.toml
+          sed -i "0,/^version = .*/s//version = \"$VERSION\"/" scraper/Cargo.toml
 
       - name: Build Release Binary
         run: |
