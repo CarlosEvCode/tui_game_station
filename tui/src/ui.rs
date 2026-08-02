@@ -559,8 +559,12 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(status_paragraph, bar_chunks[0]);
 
     if let Some(ref progress) = app.download_progress {
-        let is_scanning = progress.runner_name.contains("Scan") || progress.runner_name.contains("Identif");
-        let (prefix, label) = if is_scanning {
+        let is_item_progress = progress.runner_name.contains("Scan")
+            || progress.runner_name.contains("Identif")
+            || progress.runner_name.contains("SteamGridDB")
+            || progress.runner_name.contains("Media")
+            || (progress.total_bytes > 0 && progress.total_bytes < 50_000);
+        let (prefix, label) = if is_item_progress {
             (
                 " Task Progress: ",
                 format!("{:.1}% ({}/{} items)", progress.percentage, progress.downloaded_bytes, progress.total_bytes)

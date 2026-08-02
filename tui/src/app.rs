@@ -2042,6 +2042,10 @@ impl App {
                     progress.percentage = event.percentage;
                     progress.is_finished = event.finished;
                     progress.error_msg = event.error.clone();
+                    if let Some(ref name) = event.task_name {
+                        progress.runner_name = name.clone();
+                        self.status_msg = format!("[Media Fetch] {}", name);
+                    }
 
                     if event.finished {
                         let name = progress.runner_name.clone();
@@ -3341,6 +3345,7 @@ impl App {
                                 "[DEBUG] Game ID={}, Title='{}'",
                                 game.id, game.title
                             ));
+                            let item_title = format!("SteamGridDB Media ({}/{}) - {}", idx + 1, total_games, game.title);
                             let _ = progress_tx
                                 .send(DownloadEvent {
                                     downloaded: (idx + 1) as u64,
@@ -3348,6 +3353,7 @@ impl App {
                                     percentage: (((idx + 1) as f64 / total_games as f64) * 100.0),
                                     finished: false,
                                     error: None,
+                                    task_name: Some(item_title),
                                 })
                                 .await;
 
@@ -3389,6 +3395,7 @@ impl App {
                                 percentage: 100.0,
                                 finished: true,
                                 error: None,
+                                task_name: Some(format!("SteamGridDB Media ({}/{} Completed)", total_games, total_games)),
                             })
                             .await;
 

@@ -14,6 +14,7 @@ pub struct DownloadEvent {
     pub percentage: f64,
     pub finished: bool,
     pub error: Option<String>,
+    pub task_name: Option<String>,
 }
 
 pub struct RunnerDownloader;
@@ -145,6 +146,7 @@ impl RunnerDownloader {
                     percentage,
                     finished: false,
                     error: None,
+                    task_name: None,
                 })
                 .await;
         }
@@ -174,6 +176,7 @@ impl RunnerDownloader {
                 percentage: 100.0,
                 finished: true,
                 error,
+                task_name: None,
             })
             .await;
     }

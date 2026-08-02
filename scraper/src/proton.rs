@@ -530,6 +530,7 @@ impl ProtonDownloaderClient {
             percentage: 100.0,
             finished: true,
             error: None,
+            task_name: None,
         })
         .await
         .ok();
