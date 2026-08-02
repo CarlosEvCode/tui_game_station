@@ -531,6 +531,108 @@ impl App {
         }
 
         self.trigger_async_cover_fetch();
+        self.trigger_auto_bulk_media_fetch();
+    }
+
+    pub fn trigger_auto_bulk_media_fetch(&mut self) {
+        if self.games.is_empty() || self.download_progress.is_some() {
+            return;
+        }
+
+        let api_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
+        if api_key.as_ref().map(|k| k.trim().is_empty()).unwrap_or(true) {
+            return;
+        }
+
+        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join("covers");
+        let target_games: Vec<Game> = self
+            .games
+            .iter()
+            .filter(|g| {
+                let j = media_dir.join(format!("{}.jpg", g.id));
+                let p = media_dir.join(format!("{}.png", g.id));
+                let w = media_dir.join(format!("{}.webp", g.id));
+                !j.exists() && !p.exists() && !w.exists()
+            })
+            .cloned()
+            .collect();
+
+        if target_games.is_empty() {
+            return;
+        }
+
+        let total_games = target_games.len();
+        self.download_progress = Some(DownloadProgressState {
+            runner_id: 0,
+            runner_name: format!("SteamGridDB Media (0/{}) - {}", total_games, target_games[0].title),
+            downloaded_bytes: 0,
+            total_bytes: total_games as u64,
+            percentage: 0.0,
+            is_finished: false,
+            error_msg: None,
+        });
+
+        self.status_msg = format!(
+            "Auto-fetching SteamGridDB media for {} missing game(s)...",
+            total_games
+        );
+
+        let (progress_tx, progress_rx) = mpsc::channel::<DownloadEvent>(100);
+        self.download_rx = Some(progress_rx);
+        let tx = self.cover_tx.clone();
+        let key_str = api_key.unwrap();
+        let manager = self.cover_manager.clone();
+
+        tokio::spawn(async move {
+            let client = scraper::steamgriddb::SteamGridDBClient::new(Some(key_str));
+            let db_path = dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                .join("tui_game_station")
+                .join("game_station.db");
+
+            for (idx, game) in target_games.iter().enumerate() {
+                let item_title = format!("SteamGridDB Media ({}/{}) - {}", idx + 1, total_games, game.title);
+                let _ = progress_tx
+                    .send(DownloadEvent {
+                        downloaded: (idx + 1) as u64,
+                        total: total_games as u64,
+                        percentage: (((idx + 1) as f64 / total_games as f64) * 100.0),
+                        finished: false,
+                        error: None,
+                        task_name: Some(item_title),
+                    })
+                    .await;
+
+                if let Ok(res) = client
+                    .download_all_media_for_game(Some(db_path.clone()), game.id, &game.title, false)
+                    .await
+                {
+                    let protocol = if let Some(ref path) = res.cover_path {
+                        manager.load_protocol_from_file(path)
+                    } else {
+                        None
+                    };
+                    let _ = tx
+                        .send(LoadedCoverEvent {
+                            game_id: game.id,
+                            media_type: "cover".to_string(),
+                            protocol,
+                        })
+                        .await;
+                }
+            }
+
+            let _ = progress_tx
+                .send(DownloadEvent {
+                    downloaded: total_games as u64,
+                    total: total_games as u64,
+                    percentage: 100.0,
+                    finished: true,
+                    error: None,
+                    task_name: Some(format!("SteamGridDB Media ({}/{} Completed)", total_games, total_games)),
+                })
+                .await;
+        });
     }
 
     pub fn trigger_async_cover_fetch(&mut self) {
