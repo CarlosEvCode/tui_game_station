@@ -960,10 +960,10 @@ impl App {
                     ViewMode::Table => ViewMode::CoverCard,
                 };
                 self.status_msg = match self.view_mode {
-                    ViewMode::CoverCard => "Vista: TARJETAS (Covers Poster)".to_string(),
-                    ViewMode::BannerCard => "Vista: HERO BANNERS".to_string(),
-                    ViewMode::IconCard => "Vista: ICONOS".to_string(),
-                    ViewMode::Table => "Vista: TABLA DETALLADA".to_string(),
+                    ViewMode::CoverCard => "[View Mode] Cover Cards (Vertical Poster)".to_string(),
+                    ViewMode::BannerCard => "[View Mode] Hero Banners (Horizontal)".to_string(),
+                    ViewMode::IconCard => "[View Mode] Square Icons".to_string(),
+                    ViewMode::Table => "[View Mode] Detailed Table List".to_string(),
                 };
                 self.trigger_async_cover_fetch();
             }

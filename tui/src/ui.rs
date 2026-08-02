@@ -1199,7 +1199,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(vec![
                 Span::styled("3. Scan Subfolders Recursively: ", field_style(2)),
                 Span::styled(rec_check, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(" (Press [Space] to toggle)"),
             ]));
             lines.push(Line::from(""));
 
@@ -1209,7 +1208,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 lines.push(Line::from(vec![
                     Span::styled("4. Automatic DAT Identification: ", field_style(3)),
                     Span::styled(dat_check, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                    Span::raw(" (Press [Space] to toggle)"),
                 ]));
                 lines.push(Line::from(""));
                 4
