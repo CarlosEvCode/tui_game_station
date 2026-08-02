@@ -357,6 +357,7 @@ pub struct App {
     pub search_query: String,
     pub is_search_active: bool,
     pub update_rx: Option<mpsc::Receiver<Result<Option<crate::updater::UpdateCheckResult>, String>>>,
+    pub is_manual_update_check: bool,
 }
 
 impl App {
@@ -405,6 +406,7 @@ impl App {
             search_query: String::new(),
             is_search_active: false,
             update_rx: None,
+            is_manual_update_check: false,
         };
 
         if let Some(app_dir) = dirs::data_dir() {
@@ -963,14 +965,18 @@ impl App {
                         };
                     }
                     Ok(None) => {
-                        self.status_msg = format!("[OK] App is up to date (v{}).", env!("CARGO_PKG_VERSION"));
-                        self.show_toast(
-                            format!("[OK] Up to date (v{}).", env!("CARGO_PKG_VERSION")),
-                            crate::toast::ToastKind::Success,
-                        );
+                        if self.is_manual_update_check {
+                            self.status_msg = format!("[OK] App is up to date (v{}).", env!("CARGO_PKG_VERSION"));
+                            self.show_toast(
+                                format!("[OK] Up to date (v{}).", env!("CARGO_PKG_VERSION")),
+                                crate::toast::ToastKind::Success,
+                            );
+                        }
                     }
                     Err(e) => {
-                        self.status_msg = format!("[Updater Error] Failed to check for updates: {}", e);
+                        if self.is_manual_update_check {
+                            self.status_msg = format!("[Updater Error] Failed to check for updates: {}", e);
+                        }
                     }
                 }
             }
@@ -2306,8 +2312,22 @@ impl App {
                                     crate::toast::ToastKind::Success,
                                 );
                                 if let Ok(exe) = std::env::current_exe() {
-                                    let _ = std::process::Command::new(exe).spawn();
-                                    self.should_quit = true;
+                                    let _ = crossterm::terminal::disable_raw_mode();
+                                    let _ = crossterm::execute!(
+                                        std::io::stdout(),
+                                        crossterm::terminal::LeaveAlternateScreen,
+                                        crossterm::cursor::Show
+                                    );
+                                    #[cfg(unix)]
+                                    {
+                                        use std::os::unix::process::CommandExt;
+                                        let _ = std::process::Command::new(exe).exec();
+                                    }
+                                    #[cfg(not(unix))]
+                                    {
+                                        let _ = std::process::Command::new(exe).spawn();
+                                        self.should_quit = true;
+                                    }
                                 }
                             }
                         } else if let Some(err) = event.error {
@@ -3716,6 +3736,7 @@ impl App {
                 self.status_msg = format!("[About] TUI Game Station v{}", env!("CARGO_PKG_VERSION"));
             }
             Action::CheckForUpdates { silent } => {
+                self.is_manual_update_check = !silent;
                 if !silent {
                     self.status_msg = "[Updater] Checking GitHub...".to_string();
                 }
