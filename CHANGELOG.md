@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.1...v1.4.2) (2026-08-02)
+
+
+### Bug Fixes
+
+* **updater:** Suppress automatic startup up-to-date toasts and enable seamless process exec restart ([e0d773d](https://github.com/CarlosEvCode/tui_game_station/commit/e0d773d33e92f03762638695940a32de5b4b85e9))
+
 ## [1.4.1](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.0...v1.4.1) (2026-08-02)
 
 
