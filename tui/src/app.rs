@@ -2306,29 +2306,12 @@ impl App {
                             if let Some(err) = event.error {
                                 self.status_msg = format!("[Updater Error] Update failed: {}", err);
                             } else {
-                                self.status_msg = "[OK] Update installed! Restarting...".to_string();
+                                self.status_msg = "[OK] Update installed! Please restart app.".to_string();
                                 self.show_toast(
-                                    "[OK] Update installed! Restarting...".to_string(),
+                                    "[OK] Update installed! Please restart app.".to_string(),
                                     crate::toast::ToastKind::Success,
                                 );
-                                if let Ok(exe) = std::env::current_exe() {
-                                    let _ = crossterm::terminal::disable_raw_mode();
-                                    let _ = crossterm::execute!(
-                                        std::io::stdout(),
-                                        crossterm::terminal::LeaveAlternateScreen,
-                                        crossterm::cursor::Show
-                                    );
-                                    #[cfg(unix)]
-                                    {
-                                        use std::os::unix::process::CommandExt;
-                                        let _ = std::process::Command::new(exe).exec();
-                                    }
-                                    #[cfg(not(unix))]
-                                    {
-                                        let _ = std::process::Command::new(exe).spawn();
-                                        self.should_quit = true;
-                                    }
-                                }
+                                self.should_quit = true;
                             }
                         } else if let Some(err) = event.error {
                             self.status_msg = format!("[Error] Download failed: {}", err);
