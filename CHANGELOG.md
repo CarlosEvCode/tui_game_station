@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.3.0...v1.4.0) (2026-08-02)
+
+
+### Features
+
+* **updater:** Add automatic GitHub self-updater, update progress slider, restart mechanism, and About modal ([d04738b](https://github.com/CarlosEvCode/tui_game_station/commit/d04738b5d2f399f375d553c3eaf7a07c0ff97165))
+
 ## [1.3.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.2.0...v1.3.0) (2026-08-02)
 
 
