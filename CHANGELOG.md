@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.2...v1.4.3) (2026-08-02)
+
+
+### Bug Fixes
+
+* **updater:** Shorten welcome toast message to '[Welcome] Up to date (vX.Y.Z).' ([c70f4e4](https://github.com/CarlosEvCode/tui_game_station/commit/c70f4e4c2a0a5b213e137d498db341bee23174db))
+
 ## [1.4.2](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.1...v1.4.2) (2026-08-02)
 
 
