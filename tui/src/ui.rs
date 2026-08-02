@@ -1037,8 +1037,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
     if !matches!(
         app.modal_state,
         ModalState::ConfirmDeleteGame { .. }
+            | ModalState::ConfirmDeleteRunner { .. }
             | ModalState::EditCustomArgsInput { .. }
             | ModalState::PlatformSelector { .. }
+            | ModalState::About
+            | ModalState::UpdateAvailable { .. }
+            | ModalState::FuzzySearchModal { .. }
     ) {
         frame.render_widget(Clear, popup_area);
     }
@@ -1322,12 +1326,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
                 ]));
                 lines.push(Line::from(Span::styled(
-                    "   (Press [Enter] or [Esc] to Lock Key | [Ctrl+V] to Paste)",
+                    "   [Enter/Esc] Lock Key | [Ctrl+V] Paste",
                     Style::default().fg(Color::Yellow),
                 )));
             } else {
                 let masked_text = if api_key_input.is_empty() {
-                    "< No API Key Set - Press [Enter] to Edit / Paste >".to_string()
+                    "< No API Key Set >".to_string()
                 } else {
                     "●".repeat(api_key_input.len())
                 };
@@ -1341,7 +1345,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Span::styled(masked_text, display_style),
                 ]));
                 lines.push(Line::from(Span::styled(
-                    "   * Get key at: https://www.steamgriddb.com/profile/preferences/api (Press [Enter] to Reveal & Edit)",
+                    "   * SteamGridDB URL: https://www.steamgriddb.com/profile/preferences/api",
                     Style::default().fg(Color::DarkGray),
                 )));
             }
@@ -1359,13 +1363,35 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(""));
 
             let f2_style = if selected_field == 2 {
+                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected_field == 2 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ About TUI Game Station ]", f2_style),
+            ]));
+            lines.push(Line::from(""));
+
+            let f3_style = if selected_field == 3 {
+                Style::default().fg(Color::Black).bg(Color::Blue).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Blue)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected_field == 3 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ Check for Updates ]", f3_style),
+            ]));
+            lines.push(Line::from(""));
+
+            let f4_style = if selected_field == 4 {
                 Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
             lines.push(Line::from(vec![
-                Span::styled(if selected_field == 2 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
-                Span::styled("[ SAVE SETTINGS ]", f2_style),
+                Span::styled(if selected_field == 4 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ SAVE SETTINGS ]", f4_style),
             ]));
 
             let p = Paragraph::new(lines).block(
@@ -2987,6 +3013,94 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .title_bottom(Span::styled(" [Enter] Filtrar | [Esc] Limpiar | Escriba para buscar ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+            frame.render_widget(p, popup_area);
+        }
+        ModalState::About => {
+            let popup_area = centered_rect_fixed(60, 10, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let lines = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" TUI Game Station ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(Span::styled(" Sleek terminal gaming launcher & emulator dashboard", Style::default().fg(Color::DarkGray))),
+                Line::from(vec![
+                    Span::styled(" Author:  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("CarlosEvCode"),
+                ]),
+                Line::from(vec![
+                    Span::styled(" Repo:    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled("https://github.com/CarlosEvCode/tui_game_station", Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED)),
+                ]),
+                Line::from(vec![
+                    Span::styled(" License: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw("MIT License"),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" [u] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw("Check Updates"),
+                    Span::raw("     "),
+                    Span::styled("[Esc] ", Style::default().fg(Color::DarkGray)),
+                    Span::raw("Close"),
+                ]),
+            ];
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(" ABOUT ", Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            frame.render_widget(p, popup_area);
+        }
+        ModalState::UpdateAvailable { ref new_version, ref release_notes, .. } => {
+            let needed_w = 58u16.min(frame.area().width.saturating_sub(4));
+            let needed_h = 9u16;
+            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let notes_first = release_notes
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("New release available on GitHub.")
+                .trim();
+
+            let lines = vec![
+                Line::from(vec![
+                    Span::styled("Current: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(Color::Yellow)),
+                    Span::raw("   ➔   "),
+                    Span::styled("New: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("v{}", new_version), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Changelog: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(notes_first, Style::default().fg(Color::White)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("[Enter] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("Update Now"),
+                    Span::raw("     "),
+                    Span::styled("[Esc] ", Style::default().fg(Color::DarkGray)),
+                    Span::raw("Dismiss"),
+                ]),
+            ];
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(format!(" UPDATE AVAILABLE: v{} ", new_version), Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Green)),
             );
 
             frame.render_widget(p, popup_area);

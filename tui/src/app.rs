@@ -203,6 +203,12 @@ pub enum ModalState {
         query: String,
         cursor_pos: usize,
     },
+    About,
+    UpdateAvailable {
+        new_version: String,
+        download_url: String,
+        release_notes: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +219,9 @@ pub enum BigPictureFocus {
 }
 
 pub enum Action {
+    OpenAboutModal,
+    CheckForUpdates { silent: bool },
+    StartAppUpdate { download_url: String, new_version: String },
     NextPlatform,
     PrevPlatform,
     NextGame,
@@ -347,6 +356,7 @@ pub struct App {
     pub toasts: Vec<crate::toast::Toast>,
     pub search_query: String,
     pub is_search_active: bool,
+    pub update_rx: Option<mpsc::Receiver<Result<Option<crate::updater::UpdateCheckResult>, String>>>,
 }
 
 impl App {
@@ -394,7 +404,21 @@ impl App {
             toasts: Vec::new(),
             search_query: String::new(),
             is_search_active: false,
+            update_rx: None,
         };
+
+        if let Some(app_dir) = dirs::data_dir() {
+            let marker = app_dir.join("tui_game_station").join("welcome_new_version.txt");
+            if marker.exists() {
+                if let Ok(ver) = std::fs::read_to_string(&marker) {
+                    app.show_toast(
+                        format!("[Welcome] Updated to TUI Game Station v{} successfully!", ver.trim()),
+                        crate::toast::ToastKind::Success,
+                    );
+                }
+                let _ = std::fs::remove_file(marker);
+            }
+        }
 
         let is_first_run = app.db
             .get_setting("first_run_completed")
@@ -416,6 +440,15 @@ impl App {
                 active_field: 0,
                 cursor_pos: key_len,
             };
+        } else {
+            let (tx, rx) = mpsc::channel(1);
+            app.update_rx = Some(rx);
+            tokio::spawn(async move {
+                let result = crate::updater::check_for_updates(env!("CARGO_PKG_VERSION"))
+                    .await
+                    .map_err(|e| e.to_string());
+                let _ = tx.send(result).await;
+            });
         }
 
         if steam_added > 0 {
@@ -915,6 +948,32 @@ impl App {
             self.scan_rx = None;
             self.status_msg = format!("[OK] Escaneo completado: {} ROMs importadas/actualizadas.", scan_added);
             self.load_platforms();
+        }
+
+        if let Some(ref mut rx) = self.update_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.update_rx = None;
+                match res {
+                    Ok(Some(up)) => {
+                        self.status_msg = format!("[Updater] New version: v{}", up.latest_version);
+                        self.modal_state = ModalState::UpdateAvailable {
+                            new_version: up.latest_version,
+                            download_url: up.download_url,
+                            release_notes: up.release_notes,
+                        };
+                    }
+                    Ok(None) => {
+                        self.status_msg = format!("[OK] App is up to date (v{}).", env!("CARGO_PKG_VERSION"));
+                        self.show_toast(
+                            format!("[OK] Up to date (v{}).", env!("CARGO_PKG_VERSION")),
+                            crate::toast::ToastKind::Success,
+                        );
+                    }
+                    Err(e) => {
+                        self.status_msg = format!("[Updater Error] Failed to check for updates: {}", e);
+                    }
+                }
+            }
         }
     }
 
@@ -2237,7 +2296,21 @@ impl App {
                         self.download_progress = None;
                         self.download_rx = None;
 
-                        if let Some(err) = event.error {
+                        if name.starts_with("Updating to v") {
+                            if let Some(err) = event.error {
+                                self.status_msg = format!("[Updater Error] Update failed: {}", err);
+                            } else {
+                                self.status_msg = "[OK] Update installed! Restarting...".to_string();
+                                self.show_toast(
+                                    "[OK] Update installed! Restarting...".to_string(),
+                                    crate::toast::ToastKind::Success,
+                                );
+                                if let Ok(exe) = std::env::current_exe() {
+                                    let _ = std::process::Command::new(exe).spawn();
+                                    self.should_quit = true;
+                                }
+                            }
+                        } else if let Some(err) = event.error {
                             self.status_msg = format!("[Error] Download failed: {}", err);
                         } else {
                             self.status_msg =
@@ -2918,9 +2991,19 @@ impl App {
                 } => {
                     *selected_row = 1;
                 }
+                ModalState::AppSettings { ref mut selected_field, .. } => {
+                    *selected_field = (*selected_field + 1) % 5;
+                }
                 _ => {}
             },
             Action::ModalPrevField => match self.modal_state {
+                ModalState::AppSettings { ref mut selected_field, .. } => {
+                    if *selected_field == 0 {
+                        *selected_field = 4;
+                    } else {
+                        *selected_field -= 1;
+                    }
+                }
                 ModalState::AddGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
@@ -3627,6 +3710,54 @@ impl App {
                 };
                 self.status_msg =
                     "Settings menu opened. Edit API Key and press Enter to save.".to_string();
+            }
+            Action::OpenAboutModal => {
+                self.modal_state = ModalState::About;
+                self.status_msg = format!("[About] TUI Game Station v{}", env!("CARGO_PKG_VERSION"));
+            }
+            Action::CheckForUpdates { silent } => {
+                if !silent {
+                    self.status_msg = "[Updater] Checking GitHub...".to_string();
+                }
+                let (tx, rx) = mpsc::channel(1);
+                self.update_rx = Some(rx);
+                let current_ver = env!("CARGO_PKG_VERSION").to_string();
+
+                tokio::spawn(async move {
+                    let result = crate::updater::check_for_updates(&current_ver)
+                        .await
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(result).await;
+                });
+            }
+            Action::StartAppUpdate { download_url, new_version } => {
+                self.modal_state = ModalState::None;
+                let (tx, rx) = mpsc::channel(50);
+                self.download_rx = Some(rx);
+                let task_name = format!("Updating to v{}", new_version);
+                self.download_progress = Some(DownloadProgressState {
+                    runner_id: 0,
+                    runner_name: task_name.clone(),
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    percentage: 0.0,
+                    is_finished: false,
+                    error_msg: None,
+                });
+                self.status_msg = format!("[Updater] Downloading v{}...", new_version);
+
+                tokio::spawn(async move {
+                    if let Err(e) = crate::updater::download_and_apply_update(&download_url, &new_version, tx.clone()).await {
+                        let _ = tx.send(DownloadEvent {
+                            downloaded: 0,
+                            total: 0,
+                            percentage: 0.0,
+                            finished: true,
+                            error: Some(e.to_string()),
+                            task_name: Some(task_name),
+                        }).await;
+                    }
+                });
             }
             Action::SaveAppSettings => {
                 if let ModalState::AppSettings { ref api_key_input, .. } = self.modal_state.clone() {

@@ -5,6 +5,7 @@ mod mouse_handler;
 mod panic_hook;
 mod toast;
 mod ui;
+pub mod updater;
 mod window_helper;
 
 use anyhow::Result;
@@ -150,18 +151,18 @@ async fn main() -> Result<()> {
                                 } else if let ModalState::WelcomeWizard { ref mut step, .. } = app.modal_state {
                                     *step = (*step + 1) % 4;
                                 } else if let ModalState::AppSettings { ref mut selected_field, .. } = app.modal_state {
-                                    *selected_field = (*selected_field + 1) % 3;
-                                } else if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                    app.update(Action::ModalPrevField).await;
-                                } else {
-                                    app.update(Action::ModalNextField).await;
-                                }
+                                     *selected_field = (*selected_field + 1) % 5;
+                                 } else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                     app.update(Action::ModalPrevField).await;
+                                 } else {
+                                     app.update(Action::ModalNextField).await;
+                                 }
                             }
                             KeyCode::Up => match &mut app.modal_state {
                                 ModalState::AppSettings { ref mut selected_field, ref mut is_editing_api_key, .. } => {
-                                    *is_editing_api_key = false;
-                                    if *selected_field > 0 { *selected_field -= 1; }
-                                }
+                                     *is_editing_api_key = false;
+                                     if *selected_field > 0 { *selected_field -= 1; }
+                                 }
                                 ModalState::WelcomeWizard { step: 3, ref mut active_field, .. } => {
                                     if *active_field > 0 { *active_field -= 1; }
                                 }
@@ -195,9 +196,9 @@ async fn main() -> Result<()> {
                             },
                             KeyCode::Down => match &mut app.modal_state {
                                 ModalState::AppSettings { ref mut selected_field, ref mut is_editing_api_key, .. } => {
-                                    *is_editing_api_key = false;
-                                    if *selected_field < 2 { *selected_field += 1; }
-                                }
+                                     *is_editing_api_key = false;
+                                     if *selected_field < 4 { *selected_field += 1; }
+                                 }
                                 ModalState::WelcomeWizard { step: 3, ref mut active_field, .. } => {
                                     if *active_field < 1 { *active_field += 1; }
                                 }
@@ -428,8 +429,17 @@ async fn main() -> Result<()> {
                                     } else if selected_field == 1 {
                                         app.update(Action::OpenWelcomeWizardModal).await;
                                     } else if selected_field == 2 {
+                                        app.update(Action::OpenAboutModal).await;
+                                    } else if selected_field == 3 {
+                                        app.update(Action::CheckForUpdates { silent: false }).await;
+                                    } else if selected_field == 4 {
                                         app.update(Action::SaveAppSettings).await;
                                     }
+                                }
+                                ModalState::UpdateAvailable { ref download_url, ref new_version, .. } => {
+                                    let url = download_url.clone();
+                                    let ver = new_version.clone();
+                                    app.update(Action::StartAppUpdate { download_url: url, new_version: ver }).await;
                                 }
                                 ModalState::WelcomeWizard { step, ref sgdb_api_key, .. } => {
                                     if step < 3 {
@@ -743,6 +753,13 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('x') => {
                                 app.update(Action::ModalInputChar('x')).await;
+                            }
+                            KeyCode::Char('u') | KeyCode::Char('U') => {
+                                if let ModalState::About { .. } = app.modal_state {
+                                    app.update(Action::CheckForUpdates { silent: false }).await;
+                                } else {
+                                    app.update(Action::ModalInputChar('u')).await;
+                                }
                             }
                             KeyCode::Char('f') => {
                                 app.update(Action::ModalInputChar('f')).await;
