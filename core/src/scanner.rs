@@ -65,10 +65,10 @@ impl Scanner {
             .filter_map(|entry| entry.ok().map(|entry| entry.into_path()))
             .filter(|path| path.is_file() && has_supported_extension(path, platform))
             .collect();
-        let paths = if platform.slug == "ps1" {
-            select_ps1_images(paths)
-        } else {
-            paths
+        let paths = match platform.slug.as_str() {
+            "ps1" => select_ps1_images(paths),
+            "wii_u" => select_wii_u_images(paths),
+            _ => paths,
         };
 
         let total_paths = paths.len();
@@ -246,6 +246,44 @@ fn select_ps1_images(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 
     let mut selected: Vec<PathBuf> = best_by_name.into_values().collect();
     selected.sort();
+    selected
+}
+
+fn select_wii_u_images(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen_game_dirs = std::collections::HashSet::new();
+    let mut selected = Vec::new();
+
+    for path in paths {
+        let ext = extension_for(&path);
+        if ext == ".rpx" {
+            if let Some(code_dir) = path.parent() {
+                if code_dir.file_name().and_then(|n| n.to_str()) == Some("code") {
+                    if let Some(game_dir) = code_dir.parent() {
+                        let game_dir_buf = game_dir.to_path_buf();
+                        if seen_game_dirs.contains(&game_dir_buf) {
+                            continue;
+                        }
+
+                        let app_xml = code_dir.join("app.xml");
+                        if let Ok(contents) = std::fs::read_to_string(&app_xml) {
+                            if let Some(title_id) = xml_tag_value(&contents, "title_id") {
+                                let title_id = title_id.to_ascii_lowercase();
+                                if title_id.starts_with("0005000e") || title_id.starts_with("0005000c") {
+                                    continue;
+                                }
+                            }
+                        }
+
+                        seen_game_dirs.insert(game_dir_buf);
+                        selected.push(path);
+                        continue;
+                    }
+                }
+            }
+        }
+        selected.push(path);
+    }
+
     selected
 }
 
