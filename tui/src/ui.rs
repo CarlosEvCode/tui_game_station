@@ -796,8 +796,14 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let offset_y = (inner.height.saturating_sub(img_h)) / 2;
             let left_img_rect = Rect::new(inner.x + offset_x, inner.y + offset_y, img_w, img_h);
 
-            let key = (prev_game.id, "cover_hb".to_string());
-            if let Some(protocol) = app.media_protocols.get_mut(&key) {
+            let key_hb = (prev_game.id, "cover_hb".to_string());
+            let key_cover = (prev_game.id, "cover".to_string());
+            let protocol = if app.media_protocols.contains_key(&key_hb) {
+                app.media_protocols.get_mut(&key_hb)
+            } else {
+                app.media_protocols.get_mut(&key_cover)
+            };
+            if let Some(protocol) = protocol {
                 let image_widget = StatefulImage::new(None);
                 frame.render_stateful_widget(image_widget, left_img_rect, protocol);
             } else {
@@ -922,8 +928,14 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let offset_y = (inner.height.saturating_sub(img_h)) / 2;
             let right_img_rect = Rect::new(inner.x + offset_x, inner.y + offset_y, img_w, img_h);
 
-            let key = (next_game.id, "cover_hb".to_string());
-            if let Some(protocol) = app.media_protocols.get_mut(&key) {
+            let key_hb = (next_game.id, "cover_hb".to_string());
+            let key_cover = (next_game.id, "cover".to_string());
+            let protocol = if app.media_protocols.contains_key(&key_hb) {
+                app.media_protocols.get_mut(&key_hb)
+            } else {
+                app.media_protocols.get_mut(&key_cover)
+            };
+            if let Some(protocol) = protocol {
                 let image_widget = StatefulImage::new(None);
                 frame.render_stateful_widget(image_widget, right_img_rect, protocol);
             } else {

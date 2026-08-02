@@ -531,6 +531,7 @@ impl App {
         }
 
         self.load_local_covers_for_loaded_games();
+        self.trigger_async_cover_fetch();
         self.trigger_auto_bulk_media_fetch();
     }
 
