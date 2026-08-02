@@ -549,6 +549,9 @@ impl App {
             .games
             .iter()
             .filter(|g| {
+                if self.pending_cover_requests.contains(&g.id) {
+                    return false;
+                }
                 let j = media_dir.join(format!("{}.jpg", g.id));
                 let p = media_dir.join(format!("{}.png", g.id));
                 let w = media_dir.join(format!("{}.webp", g.id));
@@ -559,6 +562,10 @@ impl App {
 
         if target_games.is_empty() {
             return;
+        }
+
+        for g in &target_games {
+            self.pending_cover_requests.insert(g.id);
         }
 
         let total_games = target_games.len();
@@ -584,42 +591,70 @@ impl App {
         let manager = self.cover_manager.clone();
 
         tokio::spawn(async move {
-            let client = scraper::steamgriddb::SteamGridDBClient::new(Some(key_str));
+            let client = std::sync::Arc::new(scraper::steamgriddb::SteamGridDBClient::new(Some(key_str)));
             let db_path = dirs::data_dir()
                 .unwrap_or_else(|| PathBuf::from("~/.local/share"))
                 .join("tui_game_station")
                 .join("game_station.db");
 
-            for (idx, game) in target_games.iter().enumerate() {
-                let item_title = format!("SteamGridDB Media ({}/{}) - {}", idx + 1, total_games, game.title);
-                let _ = progress_tx
-                    .send(DownloadEvent {
-                        downloaded: (idx + 1) as u64,
-                        total: total_games as u64,
-                        percentage: (((idx + 1) as f64 / total_games as f64) * 100.0),
-                        finished: false,
-                        error: None,
-                        task_name: Some(item_title),
-                    })
-                    .await;
+            let completed_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+            let mut tasks = Vec::new();
 
-                if let Ok(res) = client
-                    .download_all_media_for_game(Some(db_path.clone()), game.id, &game.title, false)
-                    .await
-                {
-                    let protocol = if let Some(ref path) = res.cover_path {
-                        manager.load_protocol_from_file(path)
-                    } else {
-                        None
+            for game in target_games {
+                let sem = semaphore.clone();
+                let client_c = client.clone();
+                let db_path_c = db_path.clone();
+                let tx_c = tx.clone();
+                let progress_tx_c = progress_tx.clone();
+                let manager_c = manager.clone();
+                let counter_c = completed_count.clone();
+                let total = total_games;
+
+                tasks.push(tokio::spawn(async move {
+                    let _permit = sem.acquire().await;
+
+                    let res = client_c
+                        .download_all_media_for_game(Some(db_path_c), game.id, &game.title, false)
+                        .await;
+
+                    let protocol = match res {
+                        Ok(ref media) => {
+                            if let Some(ref path) = media.cover_path {
+                                manager_c.load_protocol_from_file(path)
+                            } else {
+                                None
+                            }
+                        }
+                        Err(_) => None,
                     };
-                    let _ = tx
+
+                    let _ = tx_c
                         .send(LoadedCoverEvent {
                             game_id: game.id,
                             media_type: "cover".to_string(),
                             protocol,
                         })
                         .await;
-                }
+
+                    let finished_so_far = counter_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    let item_title = format!("SteamGridDB Media ({}/{}) - {}", finished_so_far, total, game.title);
+
+                    let _ = progress_tx_c
+                        .send(DownloadEvent {
+                            downloaded: finished_so_far as u64,
+                            total: total as u64,
+                            percentage: ((finished_so_far as f64 / total as f64) * 100.0),
+                            finished: false,
+                            error: None,
+                            task_name: Some(item_title),
+                        })
+                        .await;
+                }));
+            }
+
+            for t in tasks {
+                let _ = t.await;
             }
 
             let _ = progress_tx
@@ -3405,13 +3440,13 @@ impl App {
                         self.media_protocols.remove(&(g.id, "cover".to_string()));
                         self.media_protocols.remove(&(g.id, "banner".to_string()));
                         self.media_protocols.remove(&(g.id, "icon".to_string()));
-                        self.pending_cover_requests.remove(&g.id);
+                        self.pending_cover_requests.insert(g.id);
                     }
 
                     let total_games = target_games.len();
                     self.download_progress = Some(DownloadProgressState {
                         runner_id: 0,
-                        runner_name: format!("SteamGridDB Media (0/{})", total_games),
+                        runner_name: format!("SteamGridDB Media (0/{}) - {}", total_games, target_games[0].title),
                         downloaded_bytes: 0,
                         total_bytes: total_games as u64,
                         percentage: 0.0,
@@ -3431,63 +3466,70 @@ impl App {
                     let manager = self.cover_manager.clone();
 
                     tokio::spawn(async move {
-                        let client = scraper::steamgriddb::SteamGridDBClient::new(Some(key_str));
+                        let client = std::sync::Arc::new(scraper::steamgriddb::SteamGridDBClient::new(Some(key_str)));
                         let db_path = dirs::data_dir()
                             .unwrap_or_else(|| PathBuf::from("~/.local/share"))
                             .join("tui_game_station")
                             .join("game_station.db");
-                        let mut log_lines = Vec::new();
-                        log_lines.push(format!(
-                            "[DEBUG] Starting FetchGameMedia for {} games...",
-                            target_games.len()
-                        ));
 
-                        for (idx, game) in target_games.iter().enumerate() {
-                            log_lines.push(format!(
-                                "[DEBUG] Game ID={}, Title='{}'",
-                                game.id, game.title
-                            ));
-                            let item_title = format!("SteamGridDB Media ({}/{}) - {}", idx + 1, total_games, game.title);
-                            let _ = progress_tx
-                                .send(DownloadEvent {
-                                    downloaded: (idx + 1) as u64,
-                                    total: total_games as u64,
-                                    percentage: (((idx + 1) as f64 / total_games as f64) * 100.0),
-                                    finished: false,
-                                    error: None,
-                                    task_name: Some(item_title),
-                                })
-                                .await;
+                        let completed_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+                        let mut tasks = Vec::new();
 
-                            match client
-                                .download_all_media_for_game(Some(db_path.clone()), game.id, &game.title, false)
-                                .await
-                            {
-                                Ok(res) => {
-                                    log_lines.push(format!(
-                                        "  [OK] Cover={:?}, Banner={:?}, Icon={:?}",
-                                        res.cover_path, res.banner_path, res.icon_path
-                                    ));
-                                    let protocol = if let Some(path) = res.cover_path {
-                                        manager.load_protocol_from_file(&path)
-                                    } else {
-                                        None
-                                    };
-                                    let _ = tx
-                                        .send(LoadedCoverEvent {
-                                            game_id: game.id,
-                                            media_type: "cover".to_string(),
-                                            protocol,
-                                        })
-                                        .await;
-                                }
-                                Err(err) => {
-                                    log_lines.push(format!(
-                                        "  [ERROR] Failed to download media: {:?}",
-                                        err
-                                    ));
-                                }
-                            }
+                        for game in target_games {
+                            let sem = semaphore.clone();
+                            let client_c = client.clone();
+                            let db_path_c = db_path.clone();
+                            let tx_c = tx.clone();
+                            let progress_tx_c = progress_tx.clone();
+                            let manager_c = manager.clone();
+                            let counter_c = completed_count.clone();
+                            let total = total_games;
+
+                            tasks.push(tokio::spawn(async move {
+                                let _permit = sem.acquire().await;
+
+                                let res = client_c
+                                    .download_all_media_for_game(Some(db_path_c), game.id, &game.title, true)
+                                    .await;
+
+                                let protocol = match res {
+                                    Ok(ref media) => {
+                                        if let Some(ref path) = media.cover_path {
+                                            manager_c.load_protocol_from_file(path)
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    Err(_) => None,
+                                };
+
+                                let _ = tx_c
+                                    .send(LoadedCoverEvent {
+                                        game_id: game.id,
+                                        media_type: "cover".to_string(),
+                                        protocol,
+                                    })
+                                    .await;
+
+                                let finished_so_far = counter_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                                let item_title = format!("SteamGridDB Media ({}/{}) - {}", finished_so_far, total, game.title);
+
+                                let _ = progress_tx_c
+                                    .send(DownloadEvent {
+                                        downloaded: finished_so_far as u64,
+                                        total: total as u64,
+                                        percentage: ((finished_so_far as f64 / total as f64) * 100.0),
+                                        finished: false,
+                                        error: None,
+                                        task_name: Some(item_title),
+                                    })
+                                    .await;
+                            }));
+                        }
+
+                        for t in tasks {
+                            let _ = t.await;
                         }
 
                         let _ = progress_tx
@@ -3500,12 +3542,6 @@ impl App {
                                 task_name: Some(format!("SteamGridDB Media ({}/{} Completed)", total_games, total_games)),
                             })
                             .await;
-
-                        let log_path = dirs::data_dir()
-                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-                            .join("tui_game_station")
-                            .join("tui_debug.log");
-                        let _ = std::fs::write(log_path, log_lines.join("\n"));
                     });
                 }
             }
