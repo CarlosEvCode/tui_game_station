@@ -545,10 +545,6 @@ impl App {
 
         for game in &self.games {
             let game_id = game.id;
-            if self.media_protocols.contains_key(&(game_id, "cover".to_string())) {
-                continue;
-            }
-
             let local_cover = vec![
                 media_dir.join(format!("{}.jpg", game_id)),
                 media_dir.join(format!("{}.png", game_id)),
@@ -560,15 +556,27 @@ impl App {
             if let Some(path) = local_cover {
                 let tx_c = tx.clone();
                 let manager_c = manager.clone();
+                let path_c = path.clone();
                 tokio::spawn(async move {
-                    let protocol = manager_c.load_protocol_from_file(&path);
-                    let _ = tx_c
-                        .send(LoadedCoverEvent {
-                            game_id,
-                            media_type: "cover".to_string(),
-                            protocol,
-                        })
-                        .await;
+                    if let Some(protocol) = manager_c.load_protocol_from_file(&path_c) {
+                        let _ = tx_c
+                            .send(LoadedCoverEvent {
+                                game_id,
+                                media_type: "cover".to_string(),
+                                protocol: Some(protocol),
+                            })
+                            .await;
+                    }
+
+                    if let Some(protocol_hb) = manager_c.load_halfblocks_protocol_from_file(&path_c) {
+                        let _ = tx_c
+                            .send(LoadedCoverEvent {
+                                game_id,
+                                media_type: "cover_hb".to_string(),
+                                protocol: Some(protocol_hb),
+                            })
+                            .await;
+                    }
                 });
             }
         }
