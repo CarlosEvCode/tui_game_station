@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.3.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.2.0...v1.3.0) (2026-08-02)
+
+
+### Features
+
+* **core:** Implement Phase 1 - DAT Downloader, DAT Parser, and Serial Extractor ([fa5e548](https://github.com/CarlosEvCode/tui_game_station/commit/fa5e5486404afa6e6e02f42c8cac8cb819069a21))
+* **scanner:** Restrict DAT auto-identification to arcade and retro platforms ([2c31d6e](https://github.com/CarlosEvCode/tui_game_station/commit/2c31d6e8fd201189ef53cb178ed87809a66facc6))
+* **tui:** Display real-time progress bar slider for SteamGridDB media downloads ([6ec60e2](https://github.com/CarlosEvCode/tui_game_station/commit/6ec60e2a6a016225b05290df7265abc5cd67a485))
+* **tui:** Enlarge and center cover image in card view ([c3d2cf1](https://github.com/CarlosEvCode/tui_game_station/commit/c3d2cf101898aacfc272d143672ee81a5de0b871))
+* **tui:** Implement automatic bulk media downloading with real-time slider progress ([8c9e171](https://github.com/CarlosEvCode/tui_game_station/commit/8c9e1714354996897b319a7a61d98dadbf26074e))
+* **tui:** Implement Phase 3 - Automatic DAT Identification option in ROM scan modal ([cae123e](https://github.com/CarlosEvCode/tui_game_station/commit/cae123e4ce75deb96a657608cd5fa36e6b2ff4ed))
+* **tui:** Implement streaming async ROM scanning with real-time identification progress ([b724958](https://github.com/CarlosEvCode/tui_game_station/commit/b724958171d776f684fdd99d31dc04ce5cacda4f))
+* **tui:** Refine Big Picture stage layout and cover details positioning ([233fe8c](https://github.com/CarlosEvCode/tui_game_station/commit/233fe8cd620300763c5efd2f502ed8c1b7b603b1))
+* **tui:** Trigger background DAT download upon runner/emulator configuration ([0f00690](https://github.com/CarlosEvCode/tui_game_station/commit/0f006902b1f763d5ba99fca8c9d8a8bdd0ffe7a5))
+* **tui:** Upscale small media images to 256px with smooth filter ([870ee54](https://github.com/CarlosEvCode/tui_game_station/commit/870ee54fbde9ac97109f3ae2bf9d2345b60d92a3))
+
+
+### Bug Fixes
+
+* **scanner:** Ensure DAT files are downloaded before scanning and persist serial updates ([004548c](https://github.com/CarlosEvCode/tui_game_station/commit/004548c4d7f2502be030f96643bf5634d9e9c269))
+* **scanner:** Filter candidate Wii U image paths up-front before counting scan tasks ([b620444](https://github.com/CarlosEvCode/tui_game_station/commit/b6204444ae69e8e304db69868275d0f4d61d4fa9))
+* **tui:** Add fallback cover protocol for Big Picture previews and trigger cover fetch on platform load ([a6860ae](https://github.com/CarlosEvCode/tui_game_station/commit/a6860aea898452382dcc67144c85516caeec041c))
+* **tui:** Correct Big Picture cover aspect ratio to 0.70 and populate unique cover_hb protocols per game ([68cedd2](https://github.com/CarlosEvCode/tui_game_station/commit/68cedd25db18c339597f363fec40af16a48260ab))
+* **tui:** Correct bulk media task game counts and enforce DAT exclusion on quick rescan ([6c5c595](https://github.com/CarlosEvCode/tui_game_station/commit/6c5c595bb66824f72e2cbd068bb6a901ef537576))
+* **tui:** Load existing local covers from disk immediately on app startup and platform load ([42fae72](https://github.com/CarlosEvCode/tui_game_station/commit/42fae7250d88da96db53ed3fca09bcf49dbe97ea))
+* **tui:** Parallelize bulk media download and mark pending requests immediately ([da9de8e](https://github.com/CarlosEvCode/tui_game_station/commit/da9de8e48dcdfbbc9f27900d722840bbded4df89))
+* **tui:** Prevent pending cover requests from freezing in Fetching state when SteamGridDB fails ([a241165](https://github.com/CarlosEvCode/tui_game_station/commit/a241165e4c1993b057dcc3e6001e28c77d09d941))
+* **tui:** Restore 1.33 terminal cell aspect ratio for large featured center cover in Big Picture mode ([9a08daa](https://github.com/CarlosEvCode/tui_game_station/commit/9a08daa262d2c3a84575d77b39cfcb8177af90df))
+
 ## [1.2.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.1.0...v1.2.0) (2026-07-31)
 
 
