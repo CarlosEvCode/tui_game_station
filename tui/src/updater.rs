@@ -28,6 +28,7 @@ pub struct UpdateCheckResult {
     pub release_notes: String,
 }
 
+/// Check GitHub API for latest release and compare with current app version.
 pub async fn check_for_updates(current_version: &str) -> Result<Option<UpdateCheckResult>> {
     let client = Client::builder()
         .user_agent("tui-game-station-updater")
