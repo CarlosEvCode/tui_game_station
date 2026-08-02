@@ -414,7 +414,7 @@ impl App {
             if marker.exists() {
                 if let Ok(ver) = std::fs::read_to_string(&marker) {
                     app.show_toast(
-                        format!("[Welcome] Updated to TUI Game Station v{} successfully!", ver.trim()),
+                        format!("[Welcome] Up to date (v{}).", ver.trim()),
                         crate::toast::ToastKind::Success,
                     );
                 }
