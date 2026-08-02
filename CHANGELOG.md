@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.4](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.3...v1.4.4) (2026-08-02)
+
+
+### Bug Fixes
+
+* **updater:** Revert process exec auto-restart to clean application quit ([9f9627b](https://github.com/CarlosEvCode/tui_game_station/commit/9f9627bc86925da6a1cdd98282630df15db7965f))
+
 ## [1.4.3](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.2...v1.4.3) (2026-08-02)
 
 
