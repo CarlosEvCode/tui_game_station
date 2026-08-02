@@ -840,18 +840,18 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let padding_h = 3u16;
 
         let avail_img_h = inner_h.saturating_sub(text_h + gap_h + padding_h).max(4);
-        let target_img_w = ((avail_img_h as f32) * 0.70) as u16;
+        let target_img_w = ((avail_img_h as f32) * 1.33) as u16;
 
         let (img_w, img_h) = if target_img_w <= inner_w.saturating_sub(2) {
             (target_img_w, avail_img_h)
         } else {
             let fit_w = inner_w.saturating_sub(2).max(6);
-            let fit_h = ((fit_w as f32) / 0.70) as u16;
+            let fit_h = ((fit_w as f32) / 1.33) as u16;
             (fit_w, fit_h.min(avail_img_h))
         };
 
         let total_content_h = img_h + gap_h + text_h;
-        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2 + 2;
+        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2 + 1;
         let left_margin = (inner_w.saturating_sub(img_w)) / 2;
 
         let img_centered_rect = Rect::new(
