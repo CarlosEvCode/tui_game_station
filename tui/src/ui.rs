@@ -1087,20 +1087,18 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     // Cover: native, overlays the banner's bottom-left corner and then keeps
     // growing DOWNWARD across the hero limit into the content zone, forming a
     // tall poster column along the whole left side. Its top edge stays where
-    // the old (hero-sized) cover sat; its height is now independent and much
-    // larger than the hero's (~78% of the total screen height).
+    // the old (hero-sized) cover sat, and its bottom edge is computed to land
+    // exactly on the info panel's bottom edge (info_area bottom = footer top).
     let hero_bottom = hero_area.y + hero_area.height;
     let old_cover_h = 16u16.min(hero_area.height.saturating_sub(3));
     let cover_top = hero_bottom.saturating_sub(old_cover_h);
-    let cover_h = (area.height as f32 * 0.78).round() as u16;
+    let info_bottom = chunks[1].y + chunks[1].height;
+    let cover_h = info_bottom.saturating_sub(cover_top).max(1);
     // Poster-ish aspect (H ≈ 0.75·W in cells for a 2:3 image), capped so the
     // info panel keeps a usable width on narrow terminals. Fit letterboxes, so
     // the image is never distorted.
     let cover_w = (cover_h as f32 * 4.0 / 3.0).round() as u16;
     let cover_w = cover_w.min(area.width.saturating_sub(50).max(18));
-    // Keep the cover inside the screen: it must not bleed into the footer rows.
-    let max_cover_bottom = area.bottom().saturating_sub(3);
-    let cover_h = cover_h.min(max_cover_bottom.saturating_sub(cover_top).max(1));
     let cover_rect = Rect::new(hero_area.x + 2, cover_top, cover_w.max(1), cover_h);
     let cover_key = (game.id, "cover".to_string());
     let cover_hb_key = (game.id, "cover_hb".to_string());
