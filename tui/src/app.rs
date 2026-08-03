@@ -1074,6 +1074,12 @@ impl App {
                         ModalState::VisualMediaSelector { .. } => {
                             self.update(Action::VisualMediaNavLeft).await;
                         }
+                        ModalState::ConfirmDeleteGame { .. } => {
+                            self.update(Action::ToggleConfirmDeleteOption).await;
+                        }
+                        ModalState::ConfirmDeleteRunner { .. } => {
+                            self.update(Action::ToggleConfirmDeleteRunnerOption).await;
+                        }
                         _ => {}
                     }
                 } else if self.is_big_picture {
@@ -1087,6 +1093,12 @@ impl App {
                     match &mut self.modal_state {
                         ModalState::VisualMediaSelector { .. } => {
                             self.update(Action::VisualMediaNavRight).await;
+                        }
+                        ModalState::ConfirmDeleteGame { .. } => {
+                            self.update(Action::ToggleConfirmDeleteOption).await;
+                        }
+                        ModalState::ConfirmDeleteRunner { .. } => {
+                            self.update(Action::ToggleConfirmDeleteRunnerOption).await;
                         }
                         _ => {}
                     }
@@ -1131,6 +1143,9 @@ impl App {
                         ModalState::ProtonDownloader { .. } => {
                             self.update(Action::StartProtonDownload).await;
                         }
+                        ModalState::PlatformSelector { .. } => {
+                            self.update(Action::ConfirmPlatformSelectorModal).await;
+                        }
                         ModalState::WelcomeWizard { ref sgdb_api_key, .. } => {
                             let key = sgdb_api_key.clone();
                             self.finish_welcome_wizard(&key);
@@ -1160,14 +1175,23 @@ impl App {
                     self.focused_pane = FocusedPane::Platforms;
                 }
             }
-            crate::gamepad::GamepadAction::Search => {
+            crate::gamepad::GamepadAction::ToggleViewMode => {
                 if self.modal_state == ModalState::None {
-                    self.update(Action::OpenFuzzySearchModal).await;
+                    if self.is_big_picture {
+                        self.update(Action::OpenPlatformSelectorModal).await;
+                    } else {
+                        self.update(Action::ToggleViewMode).await;
+                    }
                 }
             }
-            crate::gamepad::GamepadAction::Details => {
+            crate::gamepad::GamepadAction::ToggleSelectGame => {
                 if self.modal_state == ModalState::None && !self.is_big_picture {
-                    self.update(Action::OpenVisualMediaModal).await;
+                    self.update(Action::ToggleSelectGame).await;
+                }
+            }
+            crate::gamepad::GamepadAction::DeleteSelected => {
+                if self.modal_state == ModalState::None && !self.is_big_picture && !self.games.is_empty() {
+                    self.update(Action::OpenConfirmDeleteModal).await;
                 }
             }
             crate::gamepad::GamepadAction::NextTab => {

@@ -19,12 +19,13 @@ pub enum GamepadAction {
     Right,
     Confirm,          // South (A / Cross)
     Back,             // East (B / Circle)
-    Search,           // West (X / Square)
-    Details,          // North (Y / Triangle)
+    ToggleViewMode,   // West (X / Square)
+    ToggleSelectGame, // North (Y / Triangle)
     NextTab,          // Right Bumper (RB / R1)
     PrevTab,          // Left Bumper (LB / L1)
     ToggleBigPicture, // Select / Back / View
     OpenMenu,         // Start / Menu
+    DeleteSelected,   // Right Thumb (R3)
 }
 
 const AXIS_THRESHOLD: f32 = 0.5;
@@ -196,8 +197,9 @@ fn map_button_to_action(btn: Button) -> Option<GamepadAction> {
     match btn {
         Button::South => Some(GamepadAction::Confirm),
         Button::East => Some(GamepadAction::Back),
-        Button::West => Some(GamepadAction::Search),
-        Button::North => Some(GamepadAction::Details),
+        Button::West => Some(GamepadAction::ToggleViewMode),
+        Button::North => Some(GamepadAction::ToggleSelectGame),
+        Button::RightThumb => Some(GamepadAction::DeleteSelected),
         Button::LeftTrigger | Button::LeftTrigger2 => Some(GamepadAction::PrevTab),
         Button::RightTrigger | Button::RightTrigger2 => Some(GamepadAction::NextTab),
         Button::Select => Some(GamepadAction::ToggleBigPicture),
