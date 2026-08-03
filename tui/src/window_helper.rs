@@ -49,9 +49,16 @@ pub fn set_fullscreen(enable: bool) {
     let is_hyprland = desktop.contains("hyprland") || env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
     let is_sway = desktop.contains("sway") || env::var("SWAYSOCK").is_ok();
 
+    // 1. Emit ANSI Terminal Window Manipulation Escape Sequence for Fullscreen (supported by Kitty, Foot, WezTerm, Konsole)
+    if enable {
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::style::Print("\x1b[10;2t"));
+    } else {
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::style::Print("\x1b[10;0t"));
+    }
+
+    // 2. Dispatch Window Manager Fullscreen Commands
     if is_mango {
-        let mode = if enable { "1" } else { "0" };
-        let _ = Command::new("mmsg").args(["dispatch", "fullscreen", mode]).output();
+        let _ = Command::new("mmsg").args(["dispatch", "togglefullscreen"]).output();
     } else if is_hyprland {
         let mode = if enable { "1" } else { "0" };
         let _ = Command::new("hyprctl").args(["dispatch", "fullscreen", mode]).output();
@@ -63,5 +70,6 @@ pub fn set_fullscreen(enable: bool) {
     } else {
         let action = if enable { "add,fullscreen" } else { "remove,fullscreen" };
         let _ = Command::new("wmctrl").args(["-r", ":ACTIVE:", "-b", action]).output();
+        let _ = Command::new("xdotool").args(["key", "F11"]).output();
     }
 }
