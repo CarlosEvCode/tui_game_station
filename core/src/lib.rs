@@ -1,3 +1,4 @@
+pub mod config_patch;
 pub mod dat_downloader;
 pub mod dat_parser;
 pub mod db;
