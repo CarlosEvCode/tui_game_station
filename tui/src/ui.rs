@@ -1138,9 +1138,19 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     // section grows to fit it; on short terminals the info lines below simply
     // clip (same graceful degradation as always).
     const ICON_H: u16 = 12;
+    // Halfblock cells are 1px wide x 2px tall, so a square image fills a box
+    // that is TWICE as wide as it is tall. A 1:2 box (the old `ICON_H / 2`
+    // width) is width-limited: Fit only rendered `ICON_H/2 x ICON_H/4` cells,
+    // top-anchored, leaving a big empty gap under it — that's why the size
+    // barely changed before. The correct 2:1 box makes the icon fill its full
+    // reserved region.
+    let icon_w = (ICON_H.saturating_mul(2))
+        .min(info_inner_w.saturating_sub(6))
+        .max(2);
     let top_region_h = ICON_H.max(title_region_h);
-    // Conservative icon-width estimate so the chosen size never truncates.
-    let title_avail_w = info_inner_w.saturating_sub(16 + 2);
+    // Title width reserves the real icon box (plus a 2-cell gap) so the chosen
+    // pixel size never truncates next to the (now wider) icon.
+    let title_avail_w = info_inner_w.saturating_sub(icon_w + 2);
 
     // Biggest legible size first: short titles get the imposing Full glyphs,
     // long ones drop to more compact pixel sizes.
@@ -1169,11 +1179,9 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let title_region = info_chunks[0];
 
     // Icon beside the title: halfblocks protocol (same pipeline as the banner)
-    // rendered with Fit into a fixed-size box. Halfblocks cells are 1:2
-    // (1 cell wide per pixel, 2 cells tall per pixel), so a square icon needs
-    // a 1:2 box to display at its full height. The height is its own fixed
-    // constant (not the title's), so every game gets the exact same icon size.
-    let icon_w = (ICON_H / 2).max(2);
+    // rendered with Fit into a fixed-size 2:1 box, which it fills completely.
+    // The height is its own fixed constant (not the title's), so every game
+    // gets the exact same icon size.
     let icon_key = (game.id, "icon_hb".to_string());
     if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
         let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, ICON_H);
