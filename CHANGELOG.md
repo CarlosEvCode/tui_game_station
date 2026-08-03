@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.5.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.4...v1.5.0) (2026-08-03)
+
+
+### Features
+
+* **gamepad:** Add native Gamepad/Controller support with gilrs, hotplug detection, and UI glyph hints ([f3a0712](https://github.com/CarlosEvCode/tui_game_station/commit/f3a0712c13c860820f4671f0ab709cb2eac676e5))
+* **input:** Add dynamic input source switching between individual gamepads and keyboard ([8d26138](https://github.com/CarlosEvCode/tui_game_station/commit/8d261382e6f3240859004182239465a45d8d28db))
+* **launch:** Move window minimization into Action::LaunchGame and add force fullscreen to Big Picture mode ([ab1fae7](https://github.com/CarlosEvCode/tui_game_station/commit/ab1fae7a84d36c58ae89af5bc41b6b652568df66))
+* **tui:** Rework gamepad button mapping and modal navigation ([0292568](https://github.com/CarlosEvCode/tui_game_station/commit/029256895781634138156503ac43d5e8cea45d0d))
+* **window:** Add ANSI terminal escape sequences and mmsg togglefullscreen for Big Picture mode ([b034cac](https://github.com/CarlosEvCode/tui_game_station/commit/b034caceac00be906b42244ba8346be5d1fd0869))
+
+
+### Bug Fixes
+
+* **gamepad:** Invalidate terminal buffer after GameRunner exit to prevent garbled UI rendering ([ef9de39](https://github.com/CarlosEvCode/tui_game_station/commit/ef9de394cee46063f62ecd4f6547906184479b0a))
+
 ## [1.4.4](https://github.com/CarlosEvCode/tui_game_station/compare/v1.4.3...v1.4.4) (2026-08-02)
 
 
