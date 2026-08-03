@@ -16,11 +16,11 @@ echo ""
 
 # Parse arguments
 for arg in "$@"; do
-    if [ "$arg" == "--uninstall" ]; then
+    if [ "$arg" = "--uninstall" ]; then
         echo "--> Uninstalling TUI Game Station..."
         rm -f "/usr/local/bin/${BINARY_NAME}" "$HOME/.local/bin/${BINARY_NAME}" 2>/dev/null || true
         for subarg in "$@"; do
-            if [ "$subarg" == "--purge" ] || [ "$subarg" == "-p" ]; then
+            if [ "$subarg" = "--purge" ] || [ "$subarg" = "-p" ]; then
                 echo "--> Purging data at $HOME/.config/tui_game_station..."
                 rm -rf "$HOME/.config/tui_game_station"
             fi
@@ -94,11 +94,42 @@ echo "[OK] TUI Game Station (${TAG}) installed successfully!"
 echo "Location: ${INSTALL_DIR}/${BINARY_NAME}"
 echo ""
 
-if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
-    echo "Note: Make sure ${INSTALL_DIR} is in your PATH environment variable."
-    echo "You can add it to your ~/.bashrc or ~/.zshrc:"
-    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-    echo ""
-fi
+# Check if INSTALL_DIR is in PATH (POSIX-compatible, no [[ ]])
+case ":$PATH:" in
+    *":${INSTALL_DIR}:"*)
+        ;;
+    *)
+        echo "---------------------------------------------------------------------"
+        echo "  IMPORTANT: ${INSTALL_DIR} is not in your PATH."
+        echo ""
+        echo "  To use '${BINARY_NAME}' from anywhere, add this line to your"
+        echo "  ~/.bashrc, ~/.bash_profile, ~/.zshrc, or ~/.profile:"
+        echo ""
+        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo ""
+        echo "  Then reload your shell with: source ~/.bashrc"
+        echo ""
+        echo "  Or run now without restarting: source ~/.bashrc && ${BINARY_NAME}"
+        echo "---------------------------------------------------------------------"
+        echo ""
+        # Auto-add to all common shell config files that exist
+        ADDED_TO=""
+        for RC in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile"; do
+            if [ -f "$RC" ]; then
+                if ! grep -q 'local/bin' "$RC" 2>/dev/null; then
+                    echo "" >> "$RC"
+                    echo "# Added by tui-game-station installer" >> "$RC"
+                    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC"
+                    ADDED_TO="$ADDED_TO $RC"
+                fi
+            fi
+        done
+        if [ -n "$ADDED_TO" ]; then
+            echo "--> PATH updated automatically in:$ADDED_TO"
+            echo "    Restart your terminal or run: source ~/.bashrc"
+        fi
+        echo ""
+        ;;
+esac
 
 echo "Run the application with: ${BINARY_NAME}"
