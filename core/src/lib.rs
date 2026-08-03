@@ -7,3 +7,4 @@ pub mod runner_detector;
 pub mod scanner;
 pub mod serial_extractor;
 pub mod steam_scanner;
+pub mod switch;

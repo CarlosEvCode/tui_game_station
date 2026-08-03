@@ -4720,6 +4720,8 @@ impl App {
                         last_played_at: None,
                         created_at: String::new(),
                         updated_at: String::new(),
+                        components: Vec::new(),
+                        is_missing_base: false,
                     };
 
                     match self.db.insert_game(&game) {

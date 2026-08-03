@@ -110,6 +110,38 @@ pub struct Game {
     pub last_played_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+
+    /// Associated Switch files of the same game (updates, DLCs, discarded
+    /// duplicates, archives). Only populated for Switch games; empty otherwise.
+    #[serde(default)]
+    pub components: Vec<GameComponent>,
+
+    /// True when a Switch group had Update/DLC files but no Base file. The UI
+    /// can later warn "missing base game" instead of launching it as playable.
+    #[serde(default)]
+    pub is_missing_base: bool,
+}
+
+/// One additional file belonging to a Switch game entry (update, DLC, or a
+/// discarded duplicate). Kept out of the `games` table so updates/DLCs don't
+/// appear as separate library entries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GameComponent {
+    pub id: i64,
+    pub game_id: i64,
+    /// "base" | "update" | "dlc"
+    pub category: String,
+    pub file_path: String,
+    pub file_name: Option<String>,
+    pub file_extension: Option<String>,
+    pub file_size: Option<i64>,
+    /// False for archives (.zip/.rar/.7z) that need extracting before play.
+    pub is_launchable: bool,
+    pub title_id: Option<String>,
+    /// Numeric update version from the "[v393216]" tag, if present.
+    pub version: Option<i64>,
+    /// True for duplicates that lost disambiguation (kept for reference/debug).
+    pub discarded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

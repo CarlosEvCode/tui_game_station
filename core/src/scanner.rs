@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -6,7 +7,8 @@ use walkdir::WalkDir;
 
 use crate::db::Database;
 use crate::hash::HashCalculator;
-use crate::models::{Game, Platform};
+use crate::models::{Game, GameComponent, Platform};
+use crate::switch::SwitchCategory;
 
 #[derive(Debug, Clone)]
 pub struct ScanProgressEvent {
@@ -70,6 +72,12 @@ impl Scanner {
             "wii_u" => select_wii_u_images(paths),
             _ => paths,
         };
+
+        // Nintendo Switch is grouped by Title ID (base + updates + DLCs become
+        // one library entry), so it uses its own scan path.
+        if platform.slug == "switch" {
+            return Self::scan_switch_folder(db, platform, folder, recursive, calculate_hashes, progress_tx);
+        }
 
         let total_paths = paths.len();
 
@@ -175,6 +183,8 @@ impl Scanner {
                 last_played_at: None,
                 created_at: String::new(),
                 updated_at: String::new(),
+                components: Vec::new(),
+                is_missing_base: false,
             };
 
             if db.insert_game(&game).is_ok() {
@@ -194,6 +204,343 @@ impl Scanner {
         }
 
         Ok(count)
+    }
+
+    /// Switch-specific scan: group every file sharing a Title ID family into a
+    /// single library entry. The Base file of the group is the reference
+    /// (name + launch), while Updates/DLCs (and discarded duplicates) are
+    /// stored as associated components — not as separate games.
+    fn scan_switch_folder(
+        db: &Database,
+        platform: &Platform,
+        folder: &Path,
+        recursive: bool,
+        calculate_hashes: bool,
+        progress_tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
+    ) -> Result<usize> {
+        let mut walker = WalkDir::new(folder);
+        if !recursive {
+            walker = walker.max_depth(1);
+        }
+
+        // Platform extensions (nsp/xci/nca/nso) plus archives: compressed
+        // releases are grouped too, just marked as not directly launchable.
+        let paths: Vec<PathBuf> = walker
+            .into_iter()
+            .filter_map(|entry| entry.ok().map(|entry| entry.into_path()))
+            .filter(|path| {
+                path.is_file()
+                    && (has_supported_extension(path, platform)
+                        || crate::switch::is_archive_ext(&extension_for(path)))
+            })
+            .collect();
+
+        let entries: Vec<SwitchEntry> = paths
+            .iter()
+            .map(|path| {
+                let file_name = path
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let stem = path
+                    .file_stem()
+                    .and_then(OsStr::to_str)
+                    .unwrap_or(&file_name)
+                    .to_string();
+                let ext = extension_for(path);
+                let info = crate::switch::extract_title_info(&file_name);
+                let version = crate::switch::parse_version_tag(&file_name);
+                SwitchEntry {
+                    path: path.clone(),
+                    file_name,
+                    stem,
+                    ext,
+                    base_id: info.as_ref().map(|i| i.base_id.clone()),
+                    type_code: info.as_ref().map(|i| i.type_code.clone()),
+                    category: info.as_ref().map(|i| i.category),
+                    version,
+                    size: std::fs::metadata(path).map(|m| m.len() as i64).ok(),
+                }
+            })
+            .collect();
+
+        let total = entries.len();
+        let mut count = 0;
+        let mut groups: HashMap<String, Vec<SwitchEntry>> = HashMap::new();
+        let mut fallback: Vec<SwitchEntry> = Vec::new();
+        for entry in entries {
+            match entry.base_id.clone() {
+                Some(base_id) => groups.entry(base_id).or_default().push(entry),
+                None => fallback.push(entry),
+            }
+        }
+
+        // Files without a detectable Title ID keep the plain per-file flow.
+        for entry in &fallback {
+            let game = game_from_reference(platform, entry, clean_game_title(&entry.stem), false, Vec::new(), calculate_hashes);
+            let title = game.title.clone();
+            if db.insert_game(&game).is_ok() {
+                count += 1;
+            }
+            send_progress(progress_tx, count, total, &title, count, false);
+        }
+
+        // Grouped entries, processed in a deterministic order (by base_id).
+        let mut base_ids: Vec<String> = groups.keys().cloned().collect();
+        base_ids.sort();
+        for base_id in base_ids {
+            let group = groups.remove(&base_id).unwrap_or_default();
+            let title = group
+                .iter()
+                .find(|e| e.category == Some(SwitchCategory::Base))
+                .or_else(|| group.iter().find(|e| e.category == Some(SwitchCategory::Update)))
+                .or_else(|| group.iter().find(|e| e.category == Some(SwitchCategory::Dlc)))
+                .map(|e| clean_game_title(&e.stem))
+                .unwrap_or_else(|| base_id.clone());
+            let game = match build_switch_group_game(platform, group, calculate_hashes) {
+                Some(game) => game,
+                None => continue,
+            };
+
+            if db.insert_game(&game).is_ok() {
+                count += 1;
+                if let Some(file_path) = game.file_path.as_deref() {
+                    if let Ok(Some(game_id)) = db.get_game_id_by_file_path(file_path) {
+                        for comp in &game.components {
+                            let _ = db.insert_game_component(game_id, comp);
+                        }
+                    }
+                }
+            }
+            send_progress(progress_tx, count, total, &title, count, false);
+        }
+
+        send_progress(progress_tx, total, total, "Scan Completed", count, true);
+        Ok(count)
+    }
+}
+
+fn send_progress(
+    tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
+    current: usize,
+    total: usize,
+    title: &str,
+    count: usize,
+    finished: bool,
+) {
+    if let Some(tx) = tx {
+        let _ = tx.send(ScanProgressEvent {
+            current,
+            total,
+            current_title: title.to_string(),
+            finished,
+            added_count: count,
+            error_msg: None,
+        });
+    }
+}
+
+/// A file the Switch scanner looked at, with its parsed Title ID info.
+struct SwitchEntry {
+    path: PathBuf,
+    file_name: String,
+    stem: String,
+    ext: String,
+    base_id: Option<String>,
+    type_code: Option<String>,
+    category: Option<SwitchCategory>,
+    version: Option<u32>,
+    size: Option<i64>,
+}
+
+struct FileMeta {
+    size: Option<i64>,
+    crc32: Option<String>,
+    md5: Option<String>,
+    sha1: Option<String>,
+}
+
+fn file_meta(path: &Path, calculate_hashes: bool) -> FileMeta {
+    if calculate_hashes {
+        if let Ok(hashes) = HashCalculator::calculate_hashes(path) {
+            return FileMeta {
+                size: Some(hashes.file_size as i64),
+                crc32: Some(hashes.crc32),
+                md5: Some(hashes.md5),
+                sha1: Some(hashes.sha1),
+            };
+        }
+        return FileMeta { size: None, crc32: None, md5: None, sha1: None };
+    }
+    let size = std::fs::metadata(path).map(|m| m.len() as i64).ok();
+    FileMeta { size, crc32: None, md5: None, sha1: None }
+}
+
+/// Turn one Switch group into a single game entry plus its components.
+/// `None` can't happen for a real group (there is always >= 1 file), but is
+/// kept as a safe return so callers don't have to unwrap.
+fn build_switch_group_game(
+    platform: &Platform,
+    entries: Vec<SwitchEntry>,
+    calculate_hashes: bool,
+) -> Option<Game> {
+    let mut bases: Vec<&SwitchEntry> = Vec::new();
+    let mut updates: Vec<&SwitchEntry> = Vec::new();
+    let mut dlcs: Vec<&SwitchEntry> = Vec::new();
+    for entry in &entries {
+        match entry.category {
+            Some(SwitchCategory::Base) => bases.push(entry),
+            Some(SwitchCategory::Update) => updates.push(entry),
+            Some(SwitchCategory::Dlc) => dlcs.push(entry),
+            None => {}
+        }
+    }
+
+    let base_sel = resolve_category(bases, true);
+    let update_sel = resolve_category(updates, false);
+    let dlc_sel = resolve_category(dlcs, false);
+
+    let best_base = base_sel.iter().find(|(_, discarded)| !*discarded).map(|(e, _)| *e);
+    let best_update = update_sel.iter().find(|(_, discarded)| !*discarded).map(|(e, _)| *e);
+    let best_dlc = dlc_sel.iter().find(|(_, discarded)| !*discarded).map(|(e, _)| *e);
+
+    let reference = best_base.or(best_update).or(best_dlc)?;
+    let missing_base = best_base.is_none();
+
+    // Every non-reference file becomes a component (updates, DLCs, and any
+    // duplicates that lost disambiguation — kept for reference, not deleted).
+    let mut components = Vec::new();
+    for (entry, discarded) in base_sel
+        .iter()
+        .chain(update_sel.iter())
+        .chain(dlc_sel.iter())
+    {
+        if std::ptr::eq(*entry, reference) {
+            continue;
+        }
+        components.push(GameComponent {
+            id: 0,
+            game_id: 0,
+            category: entry
+                .category
+                .map(|c| c.as_str().to_string())
+                .unwrap_or_else(|| "dlc".to_string()),
+            file_path: entry.path.to_string_lossy().to_string(),
+            file_name: Some(entry.file_name.clone()),
+            file_extension: Some(entry.ext.clone()),
+            file_size: entry.size,
+            is_launchable: !crate::switch::is_archive_ext(&entry.ext),
+            title_id: entry.title_id(),
+            version: entry.version.map(|v| v as i64),
+            discarded: *discarded,
+        });
+    }
+
+    Some(game_from_reference(
+        platform,
+        reference,
+        clean_game_title(&reference.stem),
+        missing_base,
+        components,
+        calculate_hashes,
+    ))
+}
+
+impl SwitchEntry {
+    fn title_id(&self) -> Option<String> {
+        // Rebuild the title id from base_id's family + type_code so we keep a
+        // single source of truth for the grouping key.
+        let family = self.base_id.as_deref()?.get(..13)?;
+        let code = self.type_code.as_deref()?;
+        Some(format!("{}{}", family, code))
+    }
+}
+
+/// Choose the best file per type_code within one category. Returns `(entry,
+/// discarded)`: the winner of each type_code group has `discarded = false`,
+/// the losers keep `discarded = true` so nothing is dropped without a trace.
+fn resolve_category<'a>(
+    entries: Vec<&'a SwitchEntry>,
+    is_base: bool,
+) -> Vec<(&'a SwitchEntry, bool)> {
+    let mut by_type: HashMap<&str, Vec<&'a SwitchEntry>> = HashMap::new();
+    for entry in entries {
+        by_type
+            .entry(entry.type_code.as_deref().unwrap_or_default())
+            .or_default()
+            .push(entry);
+    }
+
+    let mut out = Vec::new();
+    for (_, mut group) in by_type {
+        group.sort_by(|a, b| compare_files(a, b, is_base));
+        for (i, entry) in group.into_iter().enumerate() {
+            out.push((entry, i != 0));
+        }
+    }
+    out
+}
+
+/// Order two files of the same category: "better" sorts first.
+/// - Base/DLC of the same type_code: format priority (.xci > .nsp > archive).
+/// - Updates: highest version wins, then format priority.
+fn compare_files(a: &SwitchEntry, b: &SwitchEntry, is_base: bool) -> Ordering {
+    let format_cmp = crate::switch::format_priority(&a.ext)
+        .cmp(&crate::switch::format_priority(&b.ext));
+    let version_cmp = b.version.cmp(&a.version);
+    if is_base {
+        format_cmp.then(version_cmp)
+    } else {
+        version_cmp.then(format_cmp)
+    }
+}
+
+/// Build a `Game` row using `reference` as the main file. `title` is the
+/// cleaned name; `components` and `missing_base` are Switch-specific.
+fn game_from_reference(
+    platform: &Platform,
+    reference: &SwitchEntry,
+    title: String,
+    missing_base: bool,
+    components: Vec<GameComponent>,
+    calculate_hashes: bool,
+) -> Game {
+    let meta = file_meta(&reference.path, calculate_hashes);
+    Game {
+        id: 0,
+        platform_id: platform.id,
+        title,
+        sort_title: None,
+        game_type: platform.platform_type.to_string(),
+        file_path: Some(reference.path.to_string_lossy().to_string()),
+        working_dir: reference.path.parent().map(|p| p.to_string_lossy().to_string()),
+        custom_command: None,
+        env_vars: None,
+        wine_prefix: None,
+        wine_runner_id: None,
+        steam_appid: None,
+        file_name: Some(reference.file_name.clone()),
+        file_extension: Some(reference.ext.clone()),
+        file_size: meta.size,
+        file_hash_crc32: meta.crc32,
+        file_hash_md5: meta.md5,
+        file_hash_sha1: meta.sha1,
+        serial: None,
+        release_year: None,
+        developer: None,
+        publisher: None,
+        description: None,
+        genre: None,
+        rating: None,
+        favorite: false,
+        play_count: 0,
+        play_time_seconds: 0,
+        last_played_at: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+        components,
+        is_missing_base: missing_base,
     }
 }
 
@@ -486,6 +833,96 @@ mod tests {
             select_ps1_images(vec![track_one, track_two, chd, cue.clone()]),
             vec![cue]
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn switch_scan_groups_files_by_title_id_into_single_entries() {
+        use crate::db::Database;
+        use super::Scanner;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_switch_scan_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let files = [
+            "Super Mario Odyssey [01006710031A0000][v0].xci",
+            "Super Mario Odyssey Update [01006710031A0800][v196608].nsp",
+            "The Legend of Zelda Breath of the Wild [01007EF00011E000][v0].xci",
+            "The Legend of Zelda Breath of the Wild Update [01007EF00011E800][v655360].nsp",
+            "The Legend of Zelda Breath of the Wild DLC [01007EF00011E001].nsp",
+            "The Legend of Zelda Breath of the Wild DLC [01007EF00011E002].nsp",
+            "Super Mario 3D World [010049900F546000][v0].xci",
+            "Shovel Knight [010057D002BBE000][v0].xci",
+            "Super Mario Maker 2 [01009B90006DC000][v0].xci",
+            "Super Mario Maker 2 [01009B90006DC000][v0].nsp",
+            "Super Mario Maker 2 [01009B90006DC000][v0].part1.rar",
+            "Super Mario Maker 2 [01009B90006DC000][v0].part2.rar",
+        ];
+        for f in &files {
+            fs::write(root.join(f), vec![0u8; 16]).unwrap();
+        }
+
+        let db = Database::open(":memory:").unwrap();
+        let platform = db
+            .get_platforms()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch platform seeded");
+
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
+        assert_eq!(added, 5, "one library entry per Title ID family");
+
+        let games = db.get_games_for_platform(platform.id).unwrap();
+        assert_eq!(games.len(), 5);
+
+        let titles: Vec<&str> = games.iter().map(|g| g.title.as_str()).collect();
+        for expected in [
+            "Super Mario Odyssey",
+            "The Legend of Zelda Breath of the Wild",
+            "Super Mario 3D World",
+            "Shovel Knight",
+            "Super Mario Maker 2",
+        ] {
+            assert!(titles.contains(&expected), "missing {expected}");
+        }
+
+        let odyssey = games.iter().find(|g| g.title == "Super Mario Odyssey").unwrap();
+        assert!(!odyssey.is_missing_base);
+        assert!(odyssey.file_path.as_deref().unwrap().ends_with(".xci"));
+        assert_eq!(odyssey.components.len(), 1);
+        let update = &odyssey.components[0];
+        assert_eq!(update.category, "update");
+        assert_eq!(update.version, Some(196608));
+        assert!(!update.discarded);
+        assert!(update.is_launchable);
+
+        let botw = games
+            .iter()
+            .find(|g| g.title == "The Legend of Zelda Breath of the Wild")
+            .unwrap();
+        assert!(!botw.is_missing_base);
+        assert!(botw.file_path.as_deref().unwrap().ends_with(".xci"));
+        assert_eq!(botw.components.len(), 3);
+        assert!(botw.components.iter().any(|c| c.category == "update"));
+        assert_eq!(botw.components.iter().filter(|c| c.category == "dlc").count(), 2);
+
+        let mm2 = games.iter().find(|g| g.title == "Super Mario Maker 2").unwrap();
+        assert!(!mm2.is_missing_base);
+        assert!(mm2.file_path.as_deref().unwrap().ends_with(".xci"));
+        assert_eq!(mm2.components.len(), 3);
+        assert!(mm2.components.iter().all(|c| c.discarded));
+        assert_eq!(mm2.components.iter().filter(|c| !c.is_launchable).count(), 2);
+
+        for g in &games {
+            if matches!(g.title.as_str(), "Super Mario 3D World" | "Shovel Knight") {
+                assert!(g.components.is_empty(), "loose games have no components");
+            }
+        }
+
         fs::remove_dir_all(root).unwrap();
     }
 }

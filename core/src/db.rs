@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::models::{Game, Platform, PlatformType, Runner};
+use crate::models::{Game, GameComponent, Platform, PlatformType, Runner};
 
 pub struct Database {
     conn: Connection,
@@ -107,7 +108,23 @@ impl Database {
                 play_time_seconds INTEGER DEFAULT 0,
                 last_played_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_missing_base BOOLEAN DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS game_components (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+                category TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_name TEXT,
+                file_extension TEXT,
+                file_size INTEGER,
+                is_launchable BOOLEAN DEFAULT 1,
+                title_id TEXT,
+                version INTEGER,
+                discarded BOOLEAN DEFAULT 0,
+                UNIQUE(game_id, file_path)
             );
 
             CREATE TABLE IF NOT EXISTS game_media (
@@ -123,6 +140,22 @@ impl Database {
             );
             ",
         )?;
+
+        // Migrate pre-existing databases that lack the is_missing_base column.
+        let has_missing_base = self
+            .conn
+            .prepare("PRAGMA table_info(games)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "is_missing_base");
+        if !has_missing_base {
+            self.conn.execute(
+                "ALTER TABLE games ADD COLUMN is_missing_base BOOLEAN DEFAULT 0",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -651,7 +684,7 @@ impl Database {
     // ----------------------------------------------------
     pub fn get_games_for_platform(&self, platform_id: i64) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at FROM games WHERE platform_id = ?1 ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base FROM games WHERE platform_id = ?1 ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -687,6 +720,8 @@ impl Database {
                 last_played_at: row.get(28)?,
                 created_at: row.get(29)?,
                 updated_at: row.get(30)?,
+                is_missing_base: row.get(31)?,
+                components: Vec::new(),
             })
         })?;
 
@@ -694,12 +729,13 @@ impl Database {
         for g in rows {
             games.push(g?);
         }
+        self.attach_components(&mut games, Some(platform_id))?;
         Ok(games)
     }
 
     pub fn get_all_games(&self) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at FROM games ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base FROM games ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -735,6 +771,8 @@ impl Database {
                 last_played_at: row.get(28)?,
                 created_at: row.get(29)?,
                 updated_at: row.get(30)?,
+                is_missing_base: row.get(31)?,
+                components: Vec::new(),
             })
         })?;
 
@@ -742,6 +780,7 @@ impl Database {
         for g in rows {
             games.push(g?);
         }
+        self.attach_components(&mut games, None)?;
         Ok(games)
     }
 
@@ -750,14 +789,16 @@ impl Database {
             "INSERT INTO games (
                 platform_id, title, sort_title, game_type, file_path, working_dir,
                 custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
-                file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial,
+                is_missing_base
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
             ON CONFLICT(file_path) DO UPDATE SET
                 title = excluded.title,
                 serial = excluded.serial,
                 file_hash_md5 = excluded.file_hash_md5,
                 file_hash_crc32 = excluded.file_hash_crc32,
                 file_size = excluded.file_size,
+                is_missing_base = excluded.is_missing_base,
                 updated_at = CURRENT_TIMESTAMP",
             params![
                 game.platform_id,
@@ -778,10 +819,124 @@ impl Database {
                 game.file_hash_md5,
                 game.file_hash_sha1,
                 game.serial,
+                game.is_missing_base,
             ],
         )?;
 
         Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Return the rowid of the game owning `file_path`, if any. Used after an
+    /// upsert so Switch components are linked to the correct (possibly reused)
+    /// game row instead of a guessed rowid.
+    pub fn get_game_id_by_file_path(&self, file_path: &str) -> Result<Option<i64>> {
+        let mut stmt = self.conn.prepare("SELECT id FROM games WHERE file_path = ?1")?;
+        let mut rows = stmt.query(params![file_path])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn insert_game_component(&self, game_id: i64, comp: &GameComponent) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO game_components
+                (game_id, category, file_path, file_name, file_extension, file_size, is_launchable, title_id, version, discarded)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(game_id, file_path) DO UPDATE SET
+                category = excluded.category,
+                file_name = excluded.file_name,
+                file_extension = excluded.file_extension,
+                file_size = excluded.file_size,
+                is_launchable = excluded.is_launchable,
+                title_id = excluded.title_id,
+                version = excluded.version,
+                discarded = excluded.discarded",
+            params![
+                game_id,
+                comp.category,
+                comp.file_path,
+                comp.file_name,
+                comp.file_extension,
+                comp.file_size,
+                comp.is_launchable,
+                comp.title_id,
+                comp.version,
+                comp.discarded,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Fill `game.components` for the given games from the game_components table.
+    fn attach_components(&self, games: &mut [Game], platform_id: Option<i64>) -> Result<()> {
+        let mut stmt = if platform_id.is_some() {
+            self.conn.prepare(
+                "SELECT gc.game_id, gc.id, gc.category, gc.file_path, gc.file_name, gc.file_extension, gc.file_size, gc.is_launchable, gc.title_id, gc.version, gc.discarded
+                 FROM game_components gc JOIN games g ON gc.game_id = g.id
+                 WHERE g.platform_id = ?1",
+            )?
+        } else {
+            self.conn.prepare(
+                "SELECT gc.game_id, gc.id, gc.category, gc.file_path, gc.file_name, gc.file_extension, gc.file_size, gc.is_launchable, gc.title_id, gc.version, gc.discarded
+                 FROM game_components gc",
+            )?
+        };
+
+        let mut by_game: HashMap<i64, Vec<GameComponent>> = HashMap::new();
+        if let Some(pid) = platform_id {
+            let rows = stmt.query_map(params![pid], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    GameComponent {
+                        id: row.get(1)?,
+                        game_id: row.get(0)?,
+                        category: row.get(2)?,
+                        file_path: row.get(3)?,
+                        file_name: row.get(4)?,
+                        file_extension: row.get(5)?,
+                        file_size: row.get(6)?,
+                        is_launchable: row.get(7)?,
+                        title_id: row.get(8)?,
+                        version: row.get(9)?,
+                        discarded: row.get(10)?,
+                    },
+                ))
+            })?;
+            for r in rows {
+                let (gid, comp) = r?;
+                by_game.entry(gid).or_default().push(comp);
+            }
+        } else {
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    GameComponent {
+                        id: row.get(1)?,
+                        game_id: row.get(0)?,
+                        category: row.get(2)?,
+                        file_path: row.get(3)?,
+                        file_name: row.get(4)?,
+                        file_extension: row.get(5)?,
+                        file_size: row.get(6)?,
+                        is_launchable: row.get(7)?,
+                        title_id: row.get(8)?,
+                        version: row.get(9)?,
+                        discarded: row.get(10)?,
+                    },
+                ))
+            })?;
+            for r in rows {
+                let (gid, comp) = r?;
+                by_game.entry(gid).or_default().push(comp);
+            }
+        }
+
+        for game in games {
+            game.components = by_game.remove(&game.id).unwrap_or_default();
+        }
+        Ok(())
     }
 
     pub fn update_game(&self, game: &Game) -> Result<()> {
