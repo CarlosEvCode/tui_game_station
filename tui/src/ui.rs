@@ -2774,11 +2774,17 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     }
                     game_core::options::EmulatorOptionKind::Choice(choices) => {
                         let pos = choices.iter().position(|c| *c == value).unwrap_or(0);
+                        let label = |v: &str| {
+                            opt.choice_labels
+                                .get(v)
+                                .cloned()
+                                .unwrap_or_else(|| v.to_string())
+                        };
                         lines.push(Line::from(vec![
                             Span::styled(format!("{} {}. ", arrow, i + 2), field_style(row)),
                             Span::styled(&opt.name, field_style(row)),
                             Span::raw(": "),
-                            Span::styled(value.clone(), field_style(row)),
+                            Span::styled(label(&value), field_style(row)),
                             Span::raw("  ["),
                             Span::styled(
                                 format!("{}/{}", pos + 1, choices.len()),
@@ -2787,7 +2793,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             Span::styled("]", Style::default().fg(Color::DarkGray)),
                             Span::raw("  "),
                             Span::styled(
-                                choices.join(" | "),
+                                choices.iter().map(|c| label(c)).collect::<Vec<_>>().join(" | "),
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ]));

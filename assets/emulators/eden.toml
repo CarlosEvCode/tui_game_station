@@ -26,8 +26,96 @@ flag_template = "--null-render"
 
 [[options]]
 key = "renderer"
-name = "Renderer Backend"
+name = "Renderer Backend (CLI)"
 kind = "choice"
 default = "opengl"
 flag_template = "--renderer {value}"
 choices = ["opengl", "vulkan", "null"]
+
+# --- Config-file options (no CLI flag; patched into Eden's qt-config.ini) ---
+#
+# Eden persists its Qt settings at `~/.config/eden/qt-config.ini`
+# (QSettings default location; confirmed on this system).
+
+[[options]]
+key = "renderer_backend"
+name = "Renderer Backend"
+kind = "choice"
+default = "vulkan"
+choices = ["opengl", "vulkan"]
+[options.config_target]
+file = "~/.config/eden/qt-config.ini"
+format = "qt_ini"
+section = "Renderer"
+key = "backend"
+[options.config_target.value_map]
+opengl = "0"
+vulkan = "1"
+
+[[options]]
+key = "docked_mode"
+name = "Docked Mode"
+kind = "toggle"
+default = "1"
+[options.config_target]
+file = "~/.config/eden/qt-config.ini"
+format = "qt_ini"
+section = "System"
+key = "use_docked_mode"
+# Logical toggle values are "0"/"1" and the file also uses "0"/"1"; the map
+# documents the logical<->file translation explicitly (identity today).
+[options.config_target.value_map]
+"0" = "0"
+"1" = "1"
+
+[[options]]
+key = "resolution_scale"
+name = "Resolution Scale"
+kind = "choice"
+default = "3"
+# 0=0.25X, 1=0.5X, 2=0.75X, 3=1X (nativo), 4=1.25X, 5=1.5X, 6=1.75X,
+# 7=2X, 8=3X, 9=4X, 10=5X, 11=6X, 12=8X (validado manualmente en Eden).
+[[options.choices]]
+value = "0"
+label = "0.25X"
+[[options.choices]]
+value = "1"
+label = "0.5X"
+[[options.choices]]
+value = "2"
+label = "0.75X"
+[[options.choices]]
+value = "3"
+label = "1X (Nativo)"
+[[options.choices]]
+value = "4"
+label = "1.25X"
+[[options.choices]]
+value = "5"
+label = "1.5X"
+[[options.choices]]
+value = "6"
+label = "1.75X"
+[[options.choices]]
+value = "7"
+label = "2X"
+[[options.choices]]
+value = "8"
+label = "3X"
+[[options.choices]]
+value = "9"
+label = "4X"
+[[options.choices]]
+value = "10"
+label = "5X"
+[[options.choices]]
+value = "11"
+label = "6X"
+[[options.choices]]
+value = "12"
+label = "8X"
+[options.config_target]
+file = "~/.config/eden/qt-config.ini"
+format = "qt_ini"
+section = "Renderer"
+key = "resolution_setup"

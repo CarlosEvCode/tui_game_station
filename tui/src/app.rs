@@ -2135,7 +2135,17 @@ impl App {
                         let defs = game_core::options::load_emulator_options(&r.name)
                             .unwrap_or_default();
                         let stored = env.emulator_options.clone().unwrap_or_default();
-                        let merged = game_core::options::merge_runner_options(&defs, &stored);
+                        let mut merged = game_core::options::merge_runner_options(&defs, &stored);
+                        // Preload options backed by a config file with their REAL
+                        // current value from the emulator config; fall back to the
+                        // TOML default when the file/key is missing.
+                        for opt in &defs {
+                            if let Some(real) = game_core::options::read_config_value(opt) {
+                                if game_core::options::value_is_valid(opt, &real) {
+                                    merged.insert(opt.key.clone(), real);
+                                }
+                            }
+                        }
                         self.modal_state = ModalState::ManageRunnersStep2Config {
                             runner_info: r.clone(),
                             exe_path_input: exe_path,
@@ -2184,6 +2194,29 @@ impl App {
                                 "[OK] Emulator '{}' ({}) configured successfully!",
                                 runner_info.name, runner_info.console_initials
                             );
+                            // Apply config-file targets. Failures (missing file,
+                            // key absent, ...) never break the save: they are
+                            // logged and surfaced as a non-blocking warning.
+                            let failures =
+                                game_core::options::apply_config_patches(options, option_values);
+                            for failure in &failures {
+                                tracing::warn!(
+                                    "config_target patch failed for '{}': {}",
+                                    failure.option_key,
+                                    failure.message
+                                );
+                            }
+                            if !failures.is_empty() {
+                                let keys = failures
+                                    .iter()
+                                    .map(|f| f.option_key.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                self.status_msg = format!(
+                                    "{} - Warning: no se pudo aplicar la opcion(es) [{}] al archivo de config del emulador.",
+                                    self.status_msg, keys
+                                );
+                            }
                             self.modal_state = ModalState::None;
                             self.load_platforms();
                         }
