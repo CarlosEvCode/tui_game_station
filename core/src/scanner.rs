@@ -223,16 +223,13 @@ impl Scanner {
             walker = walker.max_depth(1);
         }
 
-        // Platform extensions (nsp/xci/nca/nso) plus archives: compressed
-        // releases are grouped too, just marked as not directly launchable.
+        // Only extensions configured for the platform (nsp/xci/nca/nso) reach
+        // the Title ID pipeline. Anything else (archives, random files) is
+        // never a Switch entry or component, regardless of its name.
         let paths: Vec<PathBuf> = walker
             .into_iter()
             .filter_map(|entry| entry.ok().map(|entry| entry.into_path()))
-            .filter(|path| {
-                path.is_file()
-                    && (has_supported_extension(path, platform)
-                        || crate::switch::is_archive_ext(&extension_for(path)))
-            })
+            .filter(|path| path.is_file() && has_supported_extension(path, platform))
             .collect();
 
         let entries: Vec<SwitchEntry> = paths
@@ -286,18 +283,74 @@ impl Scanner {
             send_progress(progress_tx, count, total, &title, count, false);
         }
 
-        // Grouped entries, processed in a deterministic order (by base_id).
-        let mut base_ids: Vec<String> = groups.keys().cloned().collect();
+        // Grouped entries. Nintendo sometimes assigns DLC/AddOnContent a Title
+        // ID in a neighbouring block (the 13th hex digit changes, e.g. base
+        // 01007EF00011E000 vs DLC 01007EF00011F001), so a group may end up
+        // without its Base: those orphans are re-associated by clean name.
+        let mut primary: HashMap<String, Vec<SwitchEntry>> = HashMap::new();
+        let mut orphans: Vec<Vec<SwitchEntry>> = Vec::new();
+        for (base_id, group) in groups {
+            if group.iter().any(|e| e.category == Some(SwitchCategory::Base)) {
+                primary.insert(base_id, group);
+            } else {
+                orphans.push(group);
+            }
+        }
+
+        // Canonical clean name per primary group, from its best Base file.
+        let mut primary_names: Vec<(String, String)> = Vec::new();
+        let mut base_ids: Vec<String> = primary.keys().cloned().collect();
         base_ids.sort();
         for base_id in base_ids {
-            let group = groups.remove(&base_id).unwrap_or_default();
+            if let Some(base) = primary
+                .get(&base_id)
+                .and_then(|g| g.iter().find(|e| e.category == Some(SwitchCategory::Base)))
+            {
+                primary_names.push((clean_game_title(&base.stem), base_id.clone()));
+            }
+        }
+
+        // Orphan groups (Update/DLC only) attach to the single primary group
+        // whose clean name matches. Strict equality avoids false positives;
+        // ambiguous (0 or several) matches stay as their own entry.
+        let mut unmerged: Vec<Vec<SwitchEntry>> = Vec::new();
+        for orphan in orphans {
+            let name = orphan
+                .iter()
+                .find(|e| e.category == Some(SwitchCategory::Update))
+                .or_else(|| orphan.iter().find(|e| e.category == Some(SwitchCategory::Dlc)))
+                .map(|e| clean_game_title(&e.stem))
+                .unwrap_or_default();
+            let matches: Vec<String> = primary_names
+                .iter()
+                .filter(|(n, _)| *n == name)
+                .map(|(_, base_id)| base_id.clone())
+                .collect();
+            if matches.len() == 1 {
+                if let Some(group) = primary.get_mut(&matches[0]) {
+                    group.extend(orphan);
+                    continue;
+                }
+            }
+            unmerged.push(orphan);
+        }
+
+        // One library entry per remaining group; unmerged orphans become their
+        // own entries flagged as missing their base. Deterministic order.
+        let mut all: Vec<(String, Vec<SwitchEntry>)> = primary.into_iter().collect();
+        for orphan in unmerged {
+            let key = orphan.iter().find_map(|e| e.base_id.clone()).unwrap_or_default();
+            all.push((key, orphan));
+        }
+        all.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, group) in all {
             let title = group
                 .iter()
                 .find(|e| e.category == Some(SwitchCategory::Base))
                 .or_else(|| group.iter().find(|e| e.category == Some(SwitchCategory::Update)))
                 .or_else(|| group.iter().find(|e| e.category == Some(SwitchCategory::Dlc)))
                 .map(|e| clean_game_title(&e.stem))
-                .unwrap_or_else(|| base_id.clone());
+                .unwrap_or_default();
             let game = match build_switch_group_game(platform, group, calculate_hashes) {
                 Some(game) => game,
                 None => continue,
@@ -852,8 +905,8 @@ mod tests {
             "Super Mario Odyssey Update [01006710031A0800][v196608].nsp",
             "The Legend of Zelda Breath of the Wild [01007EF00011E000][v0].xci",
             "The Legend of Zelda Breath of the Wild Update [01007EF00011E800][v655360].nsp",
-            "The Legend of Zelda Breath of the Wild DLC [01007EF00011E001].nsp",
-            "The Legend of Zelda Breath of the Wild DLC [01007EF00011E002].nsp",
+            "The Legend of Zelda Breath of the Wild [DLC Pack 1 The Master Trials] [01007EF00011F001].nsp",
+            "The Legend of Zelda Breath of the Wild [DLC Pack 2 The Champions' Ballad] [01007EF00011F002].nsp",
             "Super Mario 3D World [010049900F546000][v0].xci",
             "Shovel Knight [010057D002BBE000][v0].xci",
             "Super Mario Maker 2 [01009B90006DC000][v0].xci",
@@ -909,19 +962,137 @@ mod tests {
         assert_eq!(botw.components.len(), 3);
         assert!(botw.components.iter().any(|c| c.category == "update"));
         assert_eq!(botw.components.iter().filter(|c| c.category == "dlc").count(), 2);
+        for dlc in botw.components.iter().filter(|c| c.category == "dlc") {
+            assert!(
+                dlc.title_id.as_deref() == Some("01007EF00011F001")
+                    || dlc.title_id.as_deref() == Some("01007EF00011F002"),
+                "real BOTW DLC title ids belong to the F-family block"
+            );
+        }
 
         let mm2 = games.iter().find(|g| g.title == "Super Mario Maker 2").unwrap();
         assert!(!mm2.is_missing_base);
         assert!(mm2.file_path.as_deref().unwrap().ends_with(".xci"));
-        assert_eq!(mm2.components.len(), 3);
-        assert!(mm2.components.iter().all(|c| c.discarded));
-        assert_eq!(mm2.components.iter().filter(|c| !c.is_launchable).count(), 2);
+        assert_eq!(mm2.components.len(), 1, ".rar files are not scanned at all");
+        let nsp = &mm2.components[0];
+        assert!(nsp.discarded);
+        assert!(nsp.is_launchable);
 
         for g in &games {
             if matches!(g.title.as_str(), "Super Mario 3D World" | "Shovel Knight") {
                 assert!(g.components.is_empty(), "loose games have no components");
             }
+            assert!(
+                g.file_extension.as_deref() != Some(".rar"),
+                "no entry may be an archive"
+            );
+            for comp in &g.components {
+                assert_ne!(
+                    comp.file_extension.as_deref(),
+                    Some(".rar"),
+                    "no component may be an archive"
+                );
+            }
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn switch_scan_groups_real_zelda_botw_ids_into_one_entry() {
+        use crate::db::Database;
+        use super::Scanner;
+
+        // Real Title IDs from a dump of Zelda BOTW: the DLCs live in a
+        // neighbouring block (13th digit E vs F), so the 13-char prefix rule
+        // alone would split them off as a second entry.
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_zelda_real_ids_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let files = [
+            "The Legend of Zelda Breath of the Wild [01007EF00011E000][v0].xci",
+            "The Legend of Zelda Breath of the Wild [Update] [01007EF00011E800][v655360].nsp",
+            "The Legend of Zelda Breath of the Wild [DLC Pack 1 The Master Trials] [01007EF00011F001].nsp",
+            "The Legend of Zelda Breath of the Wild [DLC Pack 2 The Champions' Ballad] [01007EF00011F002].nsp",
+        ];
+        for f in &files {
+            fs::write(root.join(f), vec![0u8; 16]).unwrap();
+        }
+
+        let db = Database::open(":memory:").unwrap();
+        let platform = db
+            .get_platforms()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch platform seeded");
+
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
+        assert_eq!(added, 1, "base + update + both DLCs collapse into one entry");
+
+        let games = db.get_games_for_platform(platform.id).unwrap();
+        assert_eq!(games.len(), 1);
+        let botw = &games[0];
+        assert_eq!(botw.title, "The Legend of Zelda Breath of the Wild");
+        assert!(!botw.is_missing_base);
+        assert!(botw.file_path.as_deref().unwrap().ends_with(".xci"));
+        assert_eq!(botw.components.len(), 3);
+
+        let update = botw.components.iter().find(|c| c.category == "update").unwrap();
+        assert_eq!(update.version, Some(655360));
+        let dlcs: Vec<&str> = botw
+            .components
+            .iter()
+            .filter(|c| c.category == "dlc")
+            .map(|c| c.title_id.as_deref().unwrap())
+            .collect();
+        assert!(dlcs.contains(&"01007EF00011F001"));
+        assert!(dlcs.contains(&"01007EF00011F002"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn switch_scan_ignores_extensions_not_configured_for_platform() {
+        use crate::db::Database;
+        use super::Scanner;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_switch_ignore_ext_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let files = [
+            "Super Mario Maker 2 [01009B90006DC000][v0].xci",
+            "Super Mario Maker 2 [01009B90006DC000][v0].part1.rar",
+            "Super Mario Maker 2 [01009B90006DC000][v0].part2.rar",
+            "Fake Game [0100ABCDEF123000][v0].zip",
+            "Random Readme.txt",
+        ];
+        for f in &files {
+            fs::write(root.join(f), vec![0u8; 16]).unwrap();
+        }
+
+        let db = Database::open(":memory:").unwrap();
+        let platform = db
+            .get_platforms()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch platform seeded");
+
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
+        assert_eq!(added, 1, "only the .xci is a valid Switch file");
+
+        let games = db.get_games_for_platform(platform.id).unwrap();
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].title, "Super Mario Maker 2");
+        assert!(games[0].components.is_empty(), "no component from archives");
+        assert_eq!(games[0].file_extension.as_deref(), Some(".xci"));
 
         fs::remove_dir_all(root).unwrap();
     }
