@@ -890,18 +890,15 @@ impl App {
             });
         }
 
-        // Background media (banner, icon): the banner stays halfblocks for the
-        // hero; the icon reuses the SAME native pipeline as the normal icon
-        // view (stored under the "icon" key) — one source of truth for icons.
+        // Background media (banner, icon): halfblocks / low-fidelity, same
+        // pipeline as the side games in the carousel. The cover is the ONLY
+        // native (high-fidelity) image in this view, so icon and banner must
+        // stay on the unicode halfblocks path to avoid two kitty/sixel slots.
         for (media_type, sub_dir, ext) in [
             ("banner", "banners", vec!["jpg", "png", "webp"]),
             ("icon", "icons", vec!["png", "jpg", "webp"]),
         ] {
-            let media_key = if media_type == "banner" {
-                "banner_hb".to_string()
-            } else {
-                media_type.to_string()
-            };
+            let media_key = format!("{}_hb", media_type);
             if self.media_protocols.contains_key(&(game_id, media_key.clone())) {
                 continue;
             }
@@ -951,6 +948,7 @@ impl App {
 
                 let protocol = path.and_then(|p| match media_type_s.as_str() {
                     "banner" => manager.load_halfblocks_banner_protocol_from_file(&p),
+                    "icon" => manager.load_halfblocks_protocol_from_file(&p),
                     _ => manager.load_native_protocol_from_file(&p),
                 });
                 let _ = tx
@@ -4011,6 +4009,7 @@ impl App {
                         self.media_protocols.remove(&(g.id, "cover".to_string()));
                         self.media_protocols.remove(&(g.id, "banner".to_string()));
                         self.media_protocols.remove(&(g.id, "icon".to_string()));
+                        self.media_protocols.remove(&(g.id, "icon_hb".to_string()));
                         self.pending_cover_requests.insert(g.id);
                     }
 
@@ -4565,6 +4564,7 @@ impl App {
                                 }
                             });
                             self.media_protocols.remove(&(game_id, "icon".to_string()));
+                            self.media_protocols.remove(&(game_id, "icon_hb".to_string()));
                             self.pending_cover_requests.remove(&game_id);
                             updated_media.push("Icon");
                         }

@@ -1162,11 +1162,12 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .split(info_inner);
     let title_region = info_chunks[0];
 
-    // Icon beside the title: native protocol (same pipeline as the normal icon
-    // view) rendered with Fit into a fixed-size box. Native cells are 2:1, so
-    // a square icon needs a 2:1 box to display at its full region height.
-    let icon_w = (title_region_h.saturating_mul(2)).min(info_inner_w.saturating_sub(4));
-    let icon_key = (game.id, "icon".to_string());
+    // Icon beside the title: halfblocks protocol (same pipeline as the banner)
+    // rendered with Fit into a fixed-size box. Halfblocks cells are 1:2
+    // (1 cell wide per pixel, 2 cells tall per pixel), so a square icon needs
+    // a 1:2 box to display at its full region height.
+    let icon_w = (title_region_h / 2).max(2);
+    let icon_key = (game.id, "icon_hb".to_string());
     if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
         let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, title_region.height);
         let icon_img = StatefulImage::new(None);
