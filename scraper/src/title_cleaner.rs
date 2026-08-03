@@ -15,7 +15,7 @@ impl TitleCleaner {
         }
 
         // 2. Replace underscores and dots with spaces
-        clean = clean.replace('_', " ").replace('.', " ");
+        clean = clean.replace(['_', '.'], " ");
 
         // 3. Separate camelCase (e.g. "BloodyRoar" -> "Bloody Roar")
         if let Ok(re_camel) = Regex::new(r"([a-z])([A-Z])") {

@@ -145,7 +145,7 @@ impl TargetLauncher {
             TargetLauncher::Steam => {
                 let flatpak = home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d");
                 let native = home.join(".local/share/Steam/compatibilitytools.d");
-                if native.exists() || !flatpak.parent().map_or(false, |p| p.exists()) {
+                if native.exists() || !flatpak.parent().is_some_and(|p| p.exists()) {
                     native
                 } else {
                     flatpak
@@ -335,11 +335,10 @@ impl ProtonDownloaderClient {
                     if tag_low.contains("proton") || title_low.contains("proton") {
                         continue;
                     }
-                } else if repo == ProtonRepo::WineProtonKron4ek {
-                    if !tag_low.contains("proton") && !title_low.contains("proton") {
+                } else if repo == ProtonRepo::WineProtonKron4ek
+                    && !tag_low.contains("proton") && !title_low.contains("proton") {
                         continue;
                     }
-                }
 
                 let display_name = match repo {
                     ProtonRepo::WineVanillaKron4ek => format!("wine-{}", tag_name),
@@ -389,11 +388,10 @@ impl ProtonDownloaderClient {
                             if !lower.contains("staging") || lower.contains("tkg") || lower.contains("proton") {
                                 continue;
                             }
-                        } else if repo == ProtonRepo::WineProtonKron4ek {
-                            if !lower.contains("proton") && !lower.contains("tkg") {
+                        } else if repo == ProtonRepo::WineProtonKron4ek
+                            && !lower.contains("proton") && !lower.contains("tkg") {
                                 continue;
                             }
-                        }
 
                         // For CachyOS, skip arm64 binaries if present
                         if repo == ProtonRepo::ProtonCachyOS && lower.contains("arm64") {

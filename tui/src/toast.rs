@@ -12,11 +12,13 @@ pub enum ToastKind {
     Info,
     Success,
     Warning,
+    #[allow(dead_code)]
     Error,
 }
 
 #[derive(Debug, Clone)]
 pub struct Toast {
+    #[allow(dead_code)]
     pub id: u64,
     pub message: String,
     pub kind: ToastKind,

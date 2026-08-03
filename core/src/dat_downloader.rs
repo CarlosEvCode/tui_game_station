@@ -7,10 +7,22 @@ pub struct DatDownloader;
 impl DatDownloader {
     /// Check if a platform slug supports and benefits from DAT auto-identification.
     pub fn supports_dat_identification(platform_slug: &str) -> bool {
-        match platform_slug {
-            "ps1" | "arcade" | "mame" | "snes" | "nes" | "n64" | "gb" | "gbc" | "gba" | "genesis" | "megadrive" | "dreamcast" | "master_system" | "game_gear" => true,
-            _ => false,
-        }
+        matches!(
+            platform_slug,
+            "ps1" | "arcade"
+                | "mame"
+                | "snes"
+                | "nes"
+                | "n64"
+                | "gb"
+                | "gbc"
+                | "gba"
+                | "genesis"
+                | "megadrive"
+                | "dreamcast"
+                | "master_system"
+                | "game_gear"
+        )
     }
 
     /// Resolve relative DAT file path on libretro-database for a platform slug.

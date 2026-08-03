@@ -25,7 +25,7 @@ impl SerialExtractor {
         let mut buf = [0u8; 4];
         file.read_exact(&mut buf).ok()?;
 
-        if buf.iter().all(|&b| b >= 32 && b <= 126) {
+        if buf.iter().all(|&b| (32..=126).contains(&b)) {
             let code = String::from_utf8_lossy(&buf).trim().to_uppercase();
             if !code.is_empty() {
                 return Some(code);
@@ -40,7 +40,7 @@ impl SerialExtractor {
         let mut buf = [0u8; 4];
         file.read_exact(&mut buf).ok()?;
 
-        if buf.iter().all(|&b| b >= 32 && b <= 126) {
+        if buf.iter().all(|&b| (32..=126).contains(&b)) {
             let code = String::from_utf8_lossy(&buf).trim().to_uppercase();
             if !code.is_empty() {
                 return Some(code);
@@ -55,7 +55,7 @@ impl SerialExtractor {
         let mut buf = [0u8; 6];
         file.read_exact(&mut buf).ok()?;
 
-        if buf.iter().all(|&b| b >= 32 && b <= 126) {
+        if buf.iter().all(|&b| (32..=126).contains(&b)) {
             let code = String::from_utf8_lossy(&buf).trim().to_uppercase();
             if !code.is_empty() {
                 return Some(code);

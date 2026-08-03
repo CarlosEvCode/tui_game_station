@@ -30,7 +30,7 @@ impl CoverManager {
         }
 
         let dyn_img = Self::decode_image(path)?;
-        let mut picker = self.picker.clone();
+        let mut picker = self.picker;
         Some(picker.new_resize_protocol(dyn_img))
     }
 
@@ -40,7 +40,7 @@ impl CoverManager {
         }
 
         let dyn_img = Self::decode_image(path)?;
-        let mut picker = self.halfblocks_picker.clone();
+        let mut picker = self.halfblocks_picker;
         Some(picker.new_resize_protocol(dyn_img))
     }
 
@@ -54,7 +54,7 @@ impl CoverManager {
 
         let dyn_img = Self::decode_image(path)?;
         let dyn_img = Self::ensure_min_width(dyn_img, BANNER_SOURCE_WIDTH);
-        let mut picker = self.halfblocks_picker.clone();
+        let mut picker = self.halfblocks_picker;
         Some(picker.new_resize_protocol(dyn_img))
     }
 

@@ -79,7 +79,7 @@ fn truncate_word_to_fit(word: &str, max_width: u16) -> String {
 /// the truncation marker is always visible.
 fn ellipsis() -> &'static str {
     static E: OnceLock<&'static str> = OnceLock::new();
-    *E.get_or_init(|| {
+    E.get_or_init(|| {
         if render("…").is_some() {
             "…"
         } else {
