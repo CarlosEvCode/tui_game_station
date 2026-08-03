@@ -5,14 +5,21 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
-use ratatui_image::StatefulImage;
+use ratatui_image::{Resize, StatefulImage};
+use tui_big_text::{BigText, PixelSize};
 
 use crate::app::{App, BigPictureFocus, FocusedPane, ModalState, ViewMode};
 use game_core::models::PlatformType;
 
+pub const DETAIL_ACTIONS: [&str; 4] = ["Jugar", "Favorito", "Opciones", "Eliminar"];
+
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
     if app.is_big_picture {
-        render_big_picture_mode(frame, app, frame.area());
+        if app.big_picture_in_detail {
+            render_game_detail_view(frame, app, frame.area());
+        } else {
+            render_big_picture_mode(frame, app, frame.area());
+        }
     } else {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -988,7 +995,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
             Span::styled(" [Ⓐ] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("Launch ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("Details ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
             Span::styled(" [Ⓑ] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
             Span::styled("Normal Mode ", Style::default().fg(Color::Gray)),
@@ -1013,7 +1020,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             Span::styled("Normal Mode ", Style::default().fg(Color::Gray)),
             Span::raw("│ "),
             Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("Launch Game", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("Details", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         ])
     };
 
@@ -1026,6 +1033,242 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
     frame.render_widget(footer_p, main_chunks[2]);
+}
+
+fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
+    if app.games.is_empty() || app.selected_game_idx >= app.games.len() {
+        return;
+    }
+    let game = app.games[app.selected_game_idx].clone();
+
+    let platform_name = app
+        .platforms
+        .iter()
+        .find(|p| p.id == game.platform_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "Desconocida".to_string());
+
+    let badge = match game.game_type.as_str() {
+        "wine" => "Windows / Wine / Proton",
+        "native" => "Linux Native",
+        "steam" => "Steam",
+        _ => "Emulador",
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(40), // Hero (full width)
+            Constraint::Min(14),        // Info + integrated actions
+            Constraint::Length(3),      // Footer
+        ])
+        .split(area);
+
+    // 1. HERO (full width): the banner is cropped to cover the whole hero, the
+    //    cover overlays its bottom-left corner and the icon + title form a
+    //    cluster right beside it.
+    let hero_area = chunks[0];
+    frame.render_widget(Clear, hero_area);
+
+    let banner_hb_key = (game.id, "banner_hb".to_string());
+    let banner_proto = app.media_protocols.get_mut(&banner_hb_key);
+    if let Some(proto) = banner_proto {
+        // Crop (cover) fills the full hero width; the source is pre-scaled so
+        // the crop always covers the whole area instead of letterboxing.
+        let img = StatefulImage::new(None).resize(Resize::Crop(None));
+        frame.render_stateful_widget(img, hero_area, proto);
+    } else {
+        frame.render_widget(
+            Block::default().style(Style::default().bg(Color::DarkGray)),
+            hero_area,
+        );
+    }
+
+    // Cover: native, overlaid on the banner's bottom-left corner (no box).
+    // Large and dominant, like a Big Picture storefront card over its hero.
+    let cover_w = 30u16;
+    let cover_h = 16u16.min(hero_area.height.saturating_sub(3));
+    let cover_rect = Rect::new(
+        hero_area.x + 2,
+        hero_area.y + hero_area.height.saturating_sub(cover_h),
+        cover_w.min(hero_area.width.saturating_sub(4)),
+        cover_h,
+    );
+    let cover_key = (game.id, "cover".to_string());
+    let cover_hb_key = (game.id, "cover_hb".to_string());
+    let cover_proto = if app.media_protocols.contains_key(&cover_key) {
+        app.media_protocols.get_mut(&cover_key)
+    } else {
+        app.media_protocols.get_mut(&cover_hb_key)
+    };
+    if let Some(proto) = cover_proto {
+        let img = StatefulImage::new(None);
+        frame.render_stateful_widget(img, cover_rect, proto);
+    }
+
+    // 2. INFO + integrated actions (single panel).
+    let info_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(" INFORMACIÓN ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+    let info_inner = info_block.inner(chunks[1]);
+    frame.render_widget(info_block, chunks[1]);
+
+    // Big pixel-art title + icon at the top of the panel.
+    let info_inner_w = info_inner.width;
+    let title_len = game.title.chars().count() as u16;
+    // Rows the panel can spare for the title block (info lines + actions take 12).
+    let title_budget = info_inner.height.saturating_sub(12);
+    // Conservative icon-width estimate so the chosen size never truncates.
+    let title_avail_w = info_inner_w.saturating_sub(16 + 2);
+
+    // Biggest legible size first: short titles get the imposing Full glyphs,
+    // long ones drop to more compact pixel sizes.
+    const BIG_SIZES: [(PixelSize, u16, u16); 4] = [
+        (PixelSize::Full, 8, 8),
+        (PixelSize::HalfHeight, 8, 4),
+        (PixelSize::Quadrant, 4, 4),
+        (PixelSize::Sextant, 4, 3),
+    ];
+    let chosen = BIG_SIZES
+        .iter()
+        .find(|(_, cw, ch)| title_len.saturating_mul(*cw) <= title_avail_w && *ch <= title_budget);
+    let (big_title, title_h) = match chosen {
+        Some((size, _, h)) => (Some(*size), *h),
+        None => (None, 4), // fallback: normal wrapped text
+    };
+
+    let info_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(title_h),
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ])
+        .split(info_inner);
+    let title_region = info_chunks[0];
+
+    // Icon beside the title, scaled to the big-text height.
+    let icon_w = (title_h.saturating_mul(2)).min(info_inner_w.saturating_sub(4));
+    let icon_hb_key = (game.id, "icon_hb".to_string());
+    let icon_key = (game.id, "icon".to_string());
+    let icon_proto = if app.media_protocols.contains_key(&icon_hb_key) {
+        app.media_protocols.get_mut(&icon_hb_key)
+    } else {
+        app.media_protocols.get_mut(&icon_key)
+    };
+    if let Some(icon_proto) = icon_proto {
+        let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, title_region.height);
+        let icon_img = StatefulImage::new(None);
+        frame.render_stateful_widget(icon_img, icon_rect, icon_proto);
+    }
+
+    let title_rect = Rect::new(
+        title_region.x + icon_w + 2,
+        title_region.y,
+        title_region.width.saturating_sub(icon_w + 2),
+        title_region.height,
+    );
+    let title_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+    if let Some(pixel_size) = big_title {
+        let big = BigText::builder()
+            .pixel_size(pixel_size)
+            .style(title_style)
+            .lines(vec![Line::from(game.title.clone())])
+            .left_aligned()
+            .build();
+        frame.render_widget(big, title_rect);
+    } else {
+        // Fallback for extremely long titles: normal wrapped text.
+        let fallback = Paragraph::new(Line::from(Span::styled(&game.title, title_style)))
+            .wrap(Wrap { trim: true });
+        frame.render_widget(fallback, title_rect);
+    }
+
+    let info_lines = vec![
+        Line::from(vec![
+            Span::styled("PLATAFORMA: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(&platform_name, Style::default().fg(Color::White)),
+            Span::raw("   "),
+            Span::styled("TIPO: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(badge, Style::default().fg(Color::Magenta)),
+        ]),
+        Line::from(Span::styled("AÑO", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("DESARROLLADOR", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("EDITORIAL", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("DESCRIPCIÓN", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("Sin descripción disponible.", Style::default().fg(Color::DarkGray))),
+    ];
+
+    let info_p = Paragraph::new(info_lines).wrap(Wrap { trim: true });
+    frame.render_widget(info_p, info_chunks[1]);
+
+    let mut action_spans = Vec::new();
+    for (i, label) in DETAIL_ACTIONS.iter().enumerate() {
+        if i > 0 {
+            action_spans.push(Span::raw("     "));
+        }
+        let is_focused = app.detail_action_idx == i;
+        let text = if i == 0 || is_focused {
+            format!("▶ {} ◀", label)
+        } else {
+            format!("[ {} ]", label)
+        };
+        let style = if i == 0 {
+            if is_focused {
+                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            }
+        } else if is_focused {
+            Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        action_spans.push(Span::styled(text, style));
+    }
+    let actions_p = Paragraph::new(Line::from(action_spans)).alignment(Alignment::Right);
+    frame.render_widget(actions_p, info_chunks[2]);
+
+    // 3. DETAIL FOOTER
+    let footer_text = match &app.active_input_source {
+        crate::app::InputSource::Gamepad(pad_name) => Line::from(vec![
+            Span::styled(" 🎮 ", Style::default().fg(Color::Yellow)),
+            Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓐ] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Jugar ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓑ] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled("Atrás ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [◀ ▶] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Acción ", Style::default().fg(Color::Gray)),
+        ]),
+        crate::app::InputSource::Keyboard => Line::from(vec![
+            Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Jugar ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::raw("│ "),
+            Span::styled(" [Esc] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled("Atrás ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [← →] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Acción ", Style::default().fg(Color::Gray)),
+        ]),
+    };
+    let footer_p = Paragraph::new(footer_text)
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+    frame.render_widget(footer_p, chunks[2]);
 }
 
 fn extract_custom_flags(cmd: &str) -> String {

@@ -260,6 +260,10 @@ pub enum Action {
     ToggleViewMode,
     ToggleShowAllPlatforms,
     LaunchGame,
+    OpenGameDetail,
+    CloseGameDetail,
+    DetailNextAction,
+    DetailPrevAction,
     ScanCurrentFolder,
     ScanSteamGames,
 
@@ -350,6 +354,8 @@ pub struct App {
     pub is_big_picture: bool,
     pub big_picture_cols: usize,
     pub big_picture_focus: BigPictureFocus,
+    pub big_picture_in_detail: bool,
+    pub detail_action_idx: usize,
     pub status_msg: String,
     pub should_quit: bool,
     pub pending_wine_tool: Option<WineToolCommand>,
@@ -410,6 +416,8 @@ impl App {
             is_big_picture: false,
             big_picture_cols: 4,
             big_picture_focus: BigPictureFocus::Carousel,
+            big_picture_in_detail: false,
+            detail_action_idx: 0,
             status_msg: "TUI Game Station ready!".to_string(),
             should_quit: false,
             pending_wine_tool: None,
@@ -847,6 +855,112 @@ impl App {
         });
     }
 
+    pub fn preload_game_detail_media(&mut self) {
+        if self.games.is_empty() || self.selected_game_idx >= self.games.len() {
+            return;
+        }
+        let game = &self.games[self.selected_game_idx];
+        let game_id = game.id;
+        let title = game.title.clone();
+
+        // Focused media (cover): native / high-fidelity, same pipeline as the
+        // featured game in the carousel center.
+        if !self.media_protocols.contains_key(&(game_id, "cover".to_string())) {
+            let tx = self.cover_tx.clone();
+            let manager = self.cover_manager.clone();
+            let id = game_id;
+            tokio::spawn(async move {
+                let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                let target_dir = media_dir.join("covers");
+                let local = ["jpg", "png", "webp"]
+                    .into_iter()
+                    .map(|e| target_dir.join(format!("{}.{}", id, e)))
+                    .find(|p| p.exists());
+                if let Some(path) = local {
+                    if let Some(protocol) = manager.load_native_protocol_from_file(&path) {
+                        let _ = tx
+                            .send(LoadedCoverEvent {
+                                game_id: id,
+                                media_type: "cover".to_string(),
+                                protocol: Some(protocol),
+                            })
+                            .await;
+                    }
+                }
+            });
+        }
+
+        // Background media (banner, icon): halfblocks / low-fidelity, same
+        // pipeline as the side games in the carousel.
+        for (media_type, sub_dir, ext) in [
+            ("banner", "banners", vec!["jpg", "png", "webp"]),
+            ("icon", "icons", vec!["png", "jpg", "webp"]),
+        ] {
+            let hb_key = format!("{}_hb", media_type);
+            if self.media_protocols.contains_key(&(game_id, hb_key)) {
+                continue;
+            }
+            let db_status = self.db.get_media_status(game_id, media_type).ok().flatten();
+            if db_status.as_deref() == Some("not_found") {
+                continue;
+            }
+
+            let tx = self.cover_tx.clone();
+            let manager = self.cover_manager.clone();
+            let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
+            let media_type_s = media_type.to_string();
+            let sub_dir_s = sub_dir.to_string();
+            let exts = ext.clone();
+            let title_c = title.clone();
+
+            tokio::spawn(async move {
+                let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                let target_dir = media_dir.join(&sub_dir_s);
+                let local = exts
+                    .into_iter()
+                    .map(|e| target_dir.join(format!("{}.{}", game_id, e)))
+                    .find(|p| p.exists());
+
+                let path = if let Some(p) = local {
+                    Some(p)
+                } else {
+                    let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
+                    let db_path = dirs::data_dir()
+                        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                        .join("tui_game_station")
+                        .join("game_station.db");
+                    if let Ok(res) = client
+                        .download_all_media_for_game(Some(db_path), game_id, &title_c, false)
+                        .await
+                    {
+                        match media_type_s.as_str() {
+                            "banner" => res.banner_path,
+                            "icon" => res.icon_path,
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                };
+
+                let protocol = path.and_then(|p| {
+                    if media_type_s == "banner" {
+                        manager.load_halfblocks_banner_protocol_from_file(&p)
+                    } else {
+                        manager.load_halfblocks_protocol_from_file(&p)
+                    }
+                });
+                let _ = tx
+                    .send(LoadedCoverEvent {
+                        game_id,
+                        media_type: format!("{}_hb", media_type_s),
+                        protocol,
+                    })
+                    .await;
+            });
+        }
+    }
+
     pub fn preload_visible_covers(&mut self) {
         if self.games.is_empty() {
             return;
@@ -1041,6 +1155,31 @@ impl App {
     }
 
     pub async fn handle_gamepad_action(&mut self, action: crate::gamepad::GamepadAction) {
+        if self.big_picture_in_detail {
+            match action {
+                crate::gamepad::GamepadAction::Confirm => {
+                    if self.detail_action_idx == 0 {
+                        self.update(Action::LaunchGame).await;
+                    } else {
+                        self.show_toast(
+                            "Esta acción estará disponible próximamente.",
+                            crate::toast::ToastKind::Info,
+                        );
+                    }
+                }
+                crate::gamepad::GamepadAction::Back => {
+                    self.update(Action::CloseGameDetail).await;
+                }
+                crate::gamepad::GamepadAction::Left => {
+                    self.update(Action::DetailPrevAction).await;
+                }
+                crate::gamepad::GamepadAction::Right => {
+                    self.update(Action::DetailNextAction).await;
+                }
+                _ => {}
+            }
+            return;
+        }
         match action {
             crate::gamepad::GamepadAction::Up => {
                 if self.modal_state != ModalState::None {
@@ -1153,7 +1292,7 @@ impl App {
                         _ => {}
                     }
                 } else if self.is_big_picture {
-                    self.update(Action::LaunchGame).await;
+                    self.update(Action::OpenGameDetail).await;
                 } else {
                     match self.focused_pane {
                         FocusedPane::Platforms => {
@@ -1325,6 +1464,7 @@ impl App {
             }
             Action::ToggleBigPictureMode => {
                 self.is_big_picture = !self.is_big_picture;
+                self.big_picture_in_detail = false;
                 self.needs_terminal_clear = true;
                 if self.is_big_picture {
                     self.preload_visible_covers();
@@ -1332,6 +1472,28 @@ impl App {
                     crate::window_helper::set_fullscreen(true);
                 } else {
                     crate::window_helper::set_fullscreen(false);
+                }
+            }
+            Action::OpenGameDetail => {
+                if self.games.is_empty() || self.selected_game_idx >= self.games.len() {
+                    return;
+                }
+                self.big_picture_in_detail = true;
+                self.detail_action_idx = 0;
+                self.preload_game_detail_media();
+            }
+            Action::CloseGameDetail => {
+                self.big_picture_in_detail = false;
+            }
+            Action::DetailNextAction => {
+                if self.big_picture_in_detail {
+                    self.detail_action_idx = (self.detail_action_idx + 1) % crate::ui::DETAIL_ACTIONS.len();
+                }
+            }
+            Action::DetailPrevAction => {
+                if self.big_picture_in_detail {
+                    let total = crate::ui::DETAIL_ACTIONS.len();
+                    self.detail_action_idx = (self.detail_action_idx + total - 1) % total;
                 }
             }
             Action::OpenCheatsheetModal => {

@@ -6,6 +6,7 @@ use ratatui_image::protocol::StatefulProtocol;
 use std::path::Path;
 
 const MIN_SOURCE_DIM: u32 = 256;
+const BANNER_SOURCE_WIDTH: u32 = 1600;
 
 #[derive(Clone)]
 pub struct CoverManager {
@@ -43,6 +44,20 @@ impl CoverManager {
         Some(picker.new_resize_protocol(dyn_img))
     }
 
+    /// Halfblocks protocol for full-width hero banners. The source is pre-scaled
+    /// wide so the renderer can crop (cover) it across the entire hero instead of
+    /// letterboxing it into a fraction of the width (Fit never upscales).
+    pub fn load_halfblocks_banner_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
+        if !path.exists() {
+            return None;
+        }
+
+        let dyn_img = Self::decode_image(path)?;
+        let dyn_img = Self::ensure_min_width(dyn_img, BANNER_SOURCE_WIDTH);
+        let mut picker = self.halfblocks_picker.clone();
+        Some(picker.new_resize_protocol(dyn_img))
+    }
+
     fn decode_image(path: &Path) -> Option<DynamicImage> {
         let dyn_img: DynamicImage = ImageReader::open(path)
             .ok()?
@@ -63,6 +78,15 @@ impl CoverManager {
         let new_w = (w as f32 * scale).round().max(1.0) as u32;
         let new_h = (h as f32 * scale).round().max(1.0) as u32;
         image::imageops::resize(&img, new_w, new_h, FilterType::CatmullRom).into()
+    }
+
+    fn ensure_min_width(img: DynamicImage, target_width: u32) -> DynamicImage {
+        if img.width() >= target_width {
+            return img;
+        }
+        let scale = target_width as f32 / img.width() as f32;
+        let new_h = (img.height() as f32 * scale).round().max(1.0) as u32;
+        image::imageops::resize(&img, target_width, new_h, FilterType::Nearest).into()
     }
 
     pub fn load_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {

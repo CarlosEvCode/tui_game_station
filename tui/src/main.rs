@@ -785,6 +785,32 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         }
+                    } else if app.is_big_picture && app.big_picture_in_detail {
+                        // Game Detail View: dedicated controls
+                        match key.code {
+                            KeyCode::Enter => {
+                                if app.detail_action_idx == 0 {
+                                    app.update(Action::LaunchGame).await;
+                                } else {
+                                    app.show_toast(
+                                        "Esta acción estará disponible próximamente.",
+                                        crate::toast::ToastKind::Info,
+                                    );
+                                }
+                                terminal.clear()?;
+                                terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                            }
+                            KeyCode::Esc => {
+                                app.update(Action::CloseGameDetail).await;
+                            }
+                            KeyCode::Left => {
+                                app.update(Action::DetailPrevAction).await;
+                            }
+                            KeyCode::Right => {
+                                app.update(Action::DetailNextAction).await;
+                            }
+                            _ => {}
+                        }
                     } else {
                         // Main View Keyboard Shortcuts & Interactive Search Input
                         let is_search_active_focus = if app.is_big_picture {
@@ -943,7 +969,11 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 KeyCode::Enter => {
-                                    app.update(Action::LaunchGame).await;
+                                    if app.is_big_picture {
+                                        app.update(Action::OpenGameDetail).await;
+                                    } else {
+                                        app.update(Action::LaunchGame).await;
+                                    }
                                     terminal.clear()?;
                                     terminal.draw(|f| ui::render_ui(f, &mut app))?;
                                 }
