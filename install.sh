@@ -97,39 +97,45 @@ echo ""
 # Check if INSTALL_DIR is in PATH (POSIX-compatible, no [[ ]])
 case ":$PATH:" in
     *":${INSTALL_DIR}:"*)
+        # Already in PATH — nothing to do
+        echo "Run the application with: ${BINARY_NAME}"
         ;;
     *)
-        echo "---------------------------------------------------------------------"
-        echo "  IMPORTANT: ${INSTALL_DIR} is not in your PATH."
-        echo ""
-        echo "  To use '${BINARY_NAME}' from anywhere, add this line to your"
-        echo "  ~/.bashrc, ~/.bash_profile, ~/.zshrc, or ~/.profile:"
-        echo ""
-        echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-        echo ""
-        echo "  Then reload your shell with: source ~/.bashrc"
-        echo ""
-        echo "  Or run now without restarting: source ~/.bashrc && ${BINARY_NAME}"
-        echo "---------------------------------------------------------------------"
-        echo ""
-        # Auto-add to all common shell config files that exist
+        # Not in PATH — auto-inject and source
         ADDED_TO=""
+        SOURCED_RC=""
         for RC in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile"; do
             if [ -f "$RC" ]; then
                 if ! grep -q 'local/bin' "$RC" 2>/dev/null; then
-                    echo "" >> "$RC"
-                    echo "# Added by tui-game-station installer" >> "$RC"
-                    echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$RC"
+                    printf '\n# Added by tui-game-station installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$RC"
                     ADDED_TO="$ADDED_TO $RC"
+                fi
+                # Source the first available rc so PATH is active for this session
+                if [ -z "$SOURCED_RC" ]; then
+                    # shellcheck disable=SC1090
+                    . "$RC" 2>/dev/null && SOURCED_RC="$RC"
                 fi
             fi
         done
+
         if [ -n "$ADDED_TO" ]; then
-            echo "--> PATH updated automatically in:$ADDED_TO"
-            echo "    Restart your terminal or run: source ~/.bashrc"
+            echo "--> PATH updated automatically in:${ADDED_TO}"
         fi
-        echo ""
+
+        if [ -n "$SOURCED_RC" ]; then
+            echo "--> Shell environment reloaded from ${SOURCED_RC}."
+            echo ""
+            echo "Run the application with: ${BINARY_NAME}"
+        else
+            echo ""
+            echo "---------------------------------------------------------------------"
+            echo "  NOTE: Could not auto-reload your shell environment."
+            echo "  Please run the following to start using ${BINARY_NAME}:"
+            echo ""
+            echo "    source ~/.bashrc && ${BINARY_NAME}"
+            echo ""
+            echo "  Or open a new terminal and run: ${BINARY_NAME}"
+            echo "---------------------------------------------------------------------"
+        fi
         ;;
 esac
-
-echo "Run the application with: ${BINARY_NAME}"
