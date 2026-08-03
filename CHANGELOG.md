@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.7.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.6.0...v1.7.0) (2026-08-03)
+
+
+### Features
+
+* **tui:** Add Big Picture game detail view ([940ac4e](https://github.com/CarlosEvCode/tui_game_station/commit/940ac4e5b3e05507fc20b2f51013012398ddcf86))
+* **tui:** Align cover bottom with info panel and harden icon normalization ([5325630](https://github.com/CarlosEvCode/tui_game_station/commit/532563039ba99b2428f068ed21574cec2d8c3230))
+* **tui:** big title with TOIlet 'Future' font via figlet-rs, 2-line word wrap ([5e99f90](https://github.com/CarlosEvCode/tui_game_station/commit/5e99f9091ce9767b774f3624decc244f55e2768a))
+* **tui:** decouple detail icon size, fixed 12 rows (24px) ([fecf581](https://github.com/CarlosEvCode/tui_game_station/commit/fecf58121dce09cfdf064a8993a081b8c23b28d2))
+* **tui:** Make detail cover a tall poster column and unify info/actions ([3283c2e](https://github.com/CarlosEvCode/tui_game_station/commit/3283c2e8d0de79686c1fc6f9ce9200e68ac79327))
+* **tui:** Reuse normal-mode icon pipeline in detail view ([e0f11d8](https://github.com/CarlosEvCode/tui_game_station/commit/e0f11d834a71c86961caf07827199f0434b58728))
+
+
+### Bug Fixes
+
+* **tui:** detail icon back to halfblocks to keep cover the only native image ([baf78ef](https://github.com/CarlosEvCode/tui_game_station/commit/baf78efe064c3f29fd4091413e384ff1231dee27))
+* **tui:** detail icon box was 1:2, width-limited; use correct 2:1 halfblocks ratio ([5ce304e](https://github.com/CarlosEvCode/tui_game_station/commit/5ce304e55beb0276fc1b0c7f6477a46577d3c041))
+
 ## [1.6.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.5.0...v1.6.0) (2026-08-03)
 
 
