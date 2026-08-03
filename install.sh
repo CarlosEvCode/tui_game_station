@@ -94,23 +94,43 @@ echo "[OK] TUI Game Station (${TAG}) installed successfully!"
 echo "Location: ${INSTALL_DIR}/${BINARY_NAME}"
 echo ""
 
-# Check if INSTALL_DIR is in PATH (POSIX-compatible, no [[ ]])
+# ── Check if INSTALL_DIR is in PATH (POSIX-compatible) ──────────────────────
 case ":$PATH:" in
     *":${INSTALL_DIR}:"*)
         # Already in PATH — nothing to do
         echo "Run the application with: ${BINARY_NAME}"
         ;;
     *)
-        # Not in PATH — auto-inject and source
+        # Not in PATH — detect which shells the user has and inject accordingly
         ADDED_TO=""
         SOURCED_RC=""
+
+        # ── Fish shell ────────────────────────────────────────────────────────
+        # Fish uses a completely different syntax: fish_add_path or set -gx
+        if command -v fish >/dev/null 2>&1; then
+            FISH_CONFIG="$HOME/.config/fish/config.fish"
+            mkdir -p "$(dirname "$FISH_CONFIG")"
+            if [ -f "$FISH_CONFIG" ]; then
+                FISH_CHECK="$HOME/.local/bin"
+            else
+                FISH_CHECK=""
+            fi
+            if [ -f "$FISH_CONFIG" ] && grep -q 'local/bin' "$FISH_CONFIG" 2>/dev/null; then
+                : # already configured
+            else
+                printf '\n# Added by tui-game-station installer\nfish_add_path "$HOME/.local/bin"\n' >> "$FISH_CONFIG"
+                ADDED_TO="$ADDED_TO $FISH_CONFIG"
+            fi
+        fi
+
+        # ── Bash / Zsh / POSIX sh ─────────────────────────────────────────────
         for RC in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile"; do
             if [ -f "$RC" ]; then
                 if ! grep -q 'local/bin' "$RC" 2>/dev/null; then
                     printf '\n# Added by tui-game-station installer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$RC"
                     ADDED_TO="$ADDED_TO $RC"
                 fi
-                # Source the first available rc so PATH is active for this session
+                # Source the first available POSIX rc to activate PATH in this session
                 if [ -z "$SOURCED_RC" ]; then
                     # shellcheck disable=SC1090
                     . "$RC" 2>/dev/null && SOURCED_RC="$RC"
@@ -132,9 +152,11 @@ case ":$PATH:" in
             echo "  NOTE: Could not auto-reload your shell environment."
             echo "  Please run the following to start using ${BINARY_NAME}:"
             echo ""
-            echo "    source ~/.bashrc && ${BINARY_NAME}"
+            echo "    source ~/.bashrc && ${BINARY_NAME}   # bash"
+            echo "    source ~/.zshrc  && ${BINARY_NAME}   # zsh"
+            echo "    exec fish        && ${BINARY_NAME}   # fish"
             echo ""
-            echo "  Or open a new terminal and run: ${BINARY_NAME}"
+            echo "  Or simply open a new terminal and run: ${BINARY_NAME}"
             echo "---------------------------------------------------------------------"
         fi
         ;;
