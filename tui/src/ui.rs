@@ -1133,6 +1133,12 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let title_len = game.title.chars().count() as u16;
     // Fixed title-region height: depends only on panel height, not the title.
     let title_region_h = (info_inner.height.saturating_sub(11)).clamp(4, 8);
+    // Icon height is decoupled from the title: its own FIXED constant so the
+    // icon reads as a recognizable game icon, identical for every game. The top
+    // section grows to fit it; on short terminals the info lines below simply
+    // clip (same graceful degradation as always).
+    const ICON_H: u16 = 12;
+    let top_region_h = ICON_H.max(title_region_h);
     // Conservative icon-width estimate so the chosen size never truncates.
     let title_avail_w = info_inner_w.saturating_sub(16 + 2);
 
@@ -1155,7 +1161,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let info_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(title_region_h),
+            Constraint::Length(top_region_h),
             Constraint::Min(1),
             Constraint::Length(3), // Integrated action buttons
         ])
@@ -1165,11 +1171,12 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     // Icon beside the title: halfblocks protocol (same pipeline as the banner)
     // rendered with Fit into a fixed-size box. Halfblocks cells are 1:2
     // (1 cell wide per pixel, 2 cells tall per pixel), so a square icon needs
-    // a 1:2 box to display at its full region height.
-    let icon_w = (title_region_h / 2).max(2);
+    // a 1:2 box to display at its full height. The height is its own fixed
+    // constant (not the title's), so every game gets the exact same icon size.
+    let icon_w = (ICON_H / 2).max(2);
     let icon_key = (game.id, "icon_hb".to_string());
     if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
-        let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, title_region.height);
+        let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, ICON_H);
         let icon_img = StatefulImage::new(None);
         frame.render_stateful_widget(icon_img, icon_rect, icon_proto);
     }
