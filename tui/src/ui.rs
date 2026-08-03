@@ -6,12 +6,11 @@ use ratatui::{
     Frame,
 };
 use ratatui_image::{Resize, StatefulImage};
-use tui_big_text::{BigText, PixelSize};
 
 use crate::app::{App, BigPictureFocus, FocusedPane, ModalState, ViewMode};
 use game_core::models::PlatformType;
 
-pub const DETAIL_ACTIONS: [&str; 4] = ["Jugar", "Favorito", "Opciones", "Eliminar"];
+pub const DETAIL_ACTIONS: [&str; 4] = ["Play", "Favorite", "Options", "Delete"];
 
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
     if app.is_big_picture {
@@ -1046,13 +1045,13 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .find(|p| p.id == game.platform_id)
         .map(|p| p.name.clone())
-        .unwrap_or_else(|| "Desconocida".to_string());
+        .unwrap_or_else(|| "Unknown".to_string());
 
     let badge = match game.game_type.as_str() {
         "wine" => "Windows / Wine / Proton",
         "native" => "Linux Native",
         "steam" => "Steam",
-        _ => "Emulador",
+        _ => "Emulator",
     };
 
     let chunks = Layout::default()
@@ -1121,7 +1120,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(" INFORMACIÓN ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(" INFORMATION ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
     let info_inner = info_block.inner(info_area);
     frame.render_widget(info_block, info_area);
 
@@ -1130,43 +1129,27 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     // on a given screen), mirroring the fixed-size Fit rendering of the normal
     // icon view — so the icon never changes size with the title's length.
     let info_inner_w = info_inner.width;
-    let title_len = game.title.chars().count() as u16;
-    // Fixed title-region height: depends only on panel height, not the title.
-    let title_region_h = (info_inner.height.saturating_sub(11)).clamp(4, 8);
-    // Icon height is decoupled from the title: its own FIXED constant so the
-    // icon reads as a recognizable game icon, identical for every game. The top
-    // section grows to fit it; on short terminals the info lines below simply
-    // clip (same graceful degradation as always).
+
+    // Icon beside the title: halfblocks protocol (same pipeline as the banner)
+    // rendered with Fit into a fixed-size 2:1 box. Halfblock cells are 1px
+    // wide x 2px tall, so a square image fills a box twice as wide as tall.
+    // The height is its own FIXED constant (not the title's), so every game
+    // gets the exact same icon size.
     const ICON_H: u16 = 12;
-    // Halfblock cells are 1px wide x 2px tall, so a square image fills a box
-    // that is TWICE as wide as it is tall. A 1:2 box (the old `ICON_H / 2`
-    // width) is width-limited: Fit only rendered `ICON_H/2 x ICON_H/4` cells,
-    // top-anchored, leaving a big empty gap under it — that's why the size
-    // barely changed before. The correct 2:1 box makes the icon fill its full
-    // reserved region.
     let icon_w = (ICON_H.saturating_mul(2))
         .min(info_inner_w.saturating_sub(6))
         .max(2);
-    let top_region_h = ICON_H.max(title_region_h);
-    // Title width reserves the real icon box (plus a 2-cell gap) so the chosen
-    // pixel size never truncates next to the (now wider) icon.
+    // Title area: everything to the right of the icon (plus a 2-cell gap).
     let title_avail_w = info_inner_w.saturating_sub(icon_w + 2);
 
-    // Biggest legible size first: short titles get the imposing Full glyphs,
-    // long ones drop to more compact pixel sizes.
-    const BIG_SIZES: [(PixelSize, u16, u16); 4] = [
-        (PixelSize::Full, 8, 8),
-        (PixelSize::HalfHeight, 8, 4),
-        (PixelSize::Quadrant, 4, 4),
-        (PixelSize::Sextant, 4, 3),
-    ];
-    let chosen = BIG_SIZES
-        .iter()
-        .find(|(_, cw, ch)| title_len.saturating_mul(*cw) <= title_avail_w && *ch <= title_region_h);
-    let (big_title, title_h) = match chosen {
-        Some((size, _, h)) => (Some(*size), *h),
-        None => (None, 4), // fallback: normal wrapped text
-    };
+    // Big title with the TOIlet "Future" font (figlet-rs), wrapped by whole
+    // words into at most two lines if it doesn't fit on one.
+    let title_art = crate::figlet_title::render_title(&game.title, title_avail_w);
+
+    // FIXED top-section height: enough for the icon AND two big-title lines.
+    // Independent of the actual title length, so the panel below never moves
+    // between games.
+    let top_region_h = ICON_H.max(title_art.line_height.saturating_mul(2));
 
     let info_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -1178,10 +1161,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .split(info_inner);
     let title_region = info_chunks[0];
 
-    // Icon beside the title: halfblocks protocol (same pipeline as the banner)
-    // rendered with Fit into a fixed-size 2:1 box, which it fills completely.
-    // The height is its own fixed constant (not the title's), so every game
-    // gets the exact same icon size.
+    // Icon beside the title.
     let icon_key = (game.id, "icon_hb".to_string());
     if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
         let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, ICON_H);
@@ -1189,47 +1169,55 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         frame.render_stateful_widget(icon_img, icon_rect, icon_proto);
     }
 
-    // Title text vertically centered within the fixed region so compact glyphs
-    // don't leave a lopsided gap next to the taller icon.
-    let title_top = title_region.y + (title_region.height.saturating_sub(title_h)) / 2;
-    let title_rect = Rect::new(
-        title_region.x + icon_w + 2,
-        title_top,
-        title_region.width.saturating_sub(icon_w + 2),
-        title_h,
-    );
+    // Title art, vertically centered in the fixed two-line region (a single
+    // line stays centered instead of the panel shifting between games).
     let title_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
-    if let Some(pixel_size) = big_title {
-        let big = BigText::builder()
-            .pixel_size(pixel_size)
-            .style(title_style)
-            .lines(vec![Line::from(game.title.clone())])
-            .left_aligned()
-            .build();
-        frame.render_widget(big, title_rect);
-    } else {
-        // Fallback for extremely long titles: normal wrapped text.
+    if title_art.is_plain {
+        // Fallback when the font can't render some character (e.g. accented
+        // names): normal wrapped text.
         let fallback = Paragraph::new(Line::from(Span::styled(&game.title, title_style)))
             .wrap(Wrap { trim: true });
+        let title_rect = Rect::new(
+            title_region.x + icon_w + 2,
+            title_region.y,
+            title_region.width.saturating_sub(icon_w + 2),
+            title_region.height,
+        );
         frame.render_widget(fallback, title_rect);
+    } else {
+        let used_h = title_art.rows.len() as u16;
+        let title_top = title_region.y + (title_region.height.saturating_sub(used_h)) / 2;
+        let title_rect = Rect::new(
+            title_region.x + icon_w + 2,
+            title_top,
+            title_region.width.saturating_sub(icon_w + 2),
+            used_h,
+        );
+        let text: Vec<Line> = title_art
+            .rows
+            .iter()
+            .map(|row| Line::from(Span::styled(row.clone(), title_style)))
+            .collect();
+        let title_p = Paragraph::new(text).left_aligned();
+        frame.render_widget(title_p, title_rect);
     }
 
     let info_lines = vec![
         Line::from(vec![
-            Span::styled("PLATAFORMA: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("PLATFORM: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(&platform_name, Style::default().fg(Color::White)),
             Span::raw("   "),
-            Span::styled("TIPO: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("TYPE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(badge, Style::default().fg(Color::Magenta)),
         ]),
-        Line::from(Span::styled("AÑO", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("YEAR", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
         Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled("DESARROLLADOR", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("DEVELOPER", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
         Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled("EDITORIAL", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("PUBLISHER", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
         Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled("DESCRIPCIÓN", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-        Line::from(Span::styled("Sin descripción disponible.", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("DESCRIPTION", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("No description available.", Style::default().fg(Color::DarkGray))),
     ];
 
     let info_p = Paragraph::new(info_lines).wrap(Wrap { trim: true });
@@ -1271,23 +1259,23 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
             Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
             Span::styled(" [Ⓐ] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("Jugar ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("Play ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
             Span::styled(" [Ⓑ] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled("Atrás ", Style::default().fg(Color::Gray)),
+            Span::styled("Back ", Style::default().fg(Color::Gray)),
             Span::raw("│ "),
             Span::styled(" [◀ ▶] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("Acción ", Style::default().fg(Color::Gray)),
+            Span::styled("Action ", Style::default().fg(Color::Gray)),
         ]),
         crate::app::InputSource::Keyboard => Line::from(vec![
             Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("Jugar ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("Play ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
             Span::styled(" [Esc] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled("Atrás ", Style::default().fg(Color::Gray)),
+            Span::styled("Back ", Style::default().fg(Color::Gray)),
             Span::raw("│ "),
             Span::styled(" [← →] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("Acción ", Style::default().fg(Color::Gray)),
+            Span::styled("Action ", Style::default().fg(Color::Gray)),
         ]),
     };
     let footer_p = Paragraph::new(footer_text)

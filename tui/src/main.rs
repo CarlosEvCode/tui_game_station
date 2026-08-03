@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod cover_renderer;
+mod figlet_title;
 pub mod gamepad;
 mod mouse_handler;
 mod panic_hook;
@@ -793,7 +794,7 @@ async fn main() -> Result<()> {
                                     app.update(Action::LaunchGame).await;
                                 } else {
                                     app.show_toast(
-                                        "Esta acción estará disponible próximamente.",
+                                        "This action will be available soon.",
                                         crate::toast::ToastKind::Info,
                                     );
                                 }

@@ -1163,7 +1163,7 @@ impl App {
                         self.update(Action::LaunchGame).await;
                     } else {
                         self.show_toast(
-                            "Esta acción estará disponible próximamente.",
+                            "This action will be available soon.",
                             crate::toast::ToastKind::Info,
                         );
                     }
