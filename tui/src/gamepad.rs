@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 pub enum GamepadEvent {
     Connected { name: String },
     Disconnected { name: String },
-    Action(GamepadAction),
+    Action { action: GamepadAction, name: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +117,11 @@ pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
                     }
                     EventType::ButtonPressed(btn, _) => {
                         if let Some(action) = map_button_to_action(btn) {
-                            let _ = tx.send(GamepadEvent::Action(action));
+                            let name = known_gamepads
+                                .get(&id)
+                                .cloned()
+                                .unwrap_or_else(|| "Controller".to_string());
+                            let _ = tx.send(GamepadEvent::Action { action, name });
                         }
                     }
                     _ => {}
@@ -125,12 +129,13 @@ pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
             }
 
             // Poll active gamepad axis & D-Pad direction with auto-repeat
-            let mut current_dir: Option<GamepadAction> = None;
-            for (_id, gamepad) in gilrs.gamepads() {
+            let mut active_pad_info: Option<(GamepadAction, String)> = None;
+            for (id, gamepad) in gilrs.gamepads() {
                 if !gamepad.is_connected() {
                     continue;
                 }
 
+                let mut current_dir: Option<GamepadAction> = None;
                 // D-Pad buttons
                 if gamepad.is_pressed(Button::DPadUp) {
                     current_dir = Some(GamepadAction::Up);
@@ -160,13 +165,24 @@ pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
                     }
                 }
 
-                if current_dir.is_some() {
+                if let Some(act) = current_dir {
+                    let pad_name = known_gamepads
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| gamepad.name().to_string());
+                    active_pad_info = Some((act, pad_name));
                     break;
                 }
             }
 
-            if let Some(action) = repeat_state.update(current_dir) {
-                let _ = tx.send(GamepadEvent::Action(action));
+            let act_dir = active_pad_info.as_ref().map(|(act, _)| *act);
+            if let Some(action) = repeat_state.update(act_dir) {
+                if let Some((_, ref pad_name)) = active_pad_info {
+                    let _ = tx.send(GamepadEvent::Action {
+                        action,
+                        name: pad_name.clone(),
+                    });
+                }
             }
 
             thread::sleep(Duration::from_millis(16)); // ~60 Hz polling rate

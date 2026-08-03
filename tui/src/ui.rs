@@ -614,8 +614,8 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let line = if let Some(ref pad_name) = app.active_gamepad_name {
-        Line::from(vec![
+    let line = match &app.active_input_source {
+        crate::app::InputSource::Gamepad(pad_name) => Line::from(vec![
             Span::styled(" 🎮 ", Style::default().fg(Color::Yellow)),
             Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
@@ -639,9 +639,8 @@ fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
             Span::raw("│ "),
             Span::styled(" [Start] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled("Settings", Style::default().fg(Color::Gray)),
-        ])
-    } else {
-        Line::from(vec![
+        ]),
+        crate::app::InputSource::Keyboard => Line::from(vec![
             Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("Search ", Style::default().fg(Color::Gray)),
             Span::raw("│ "),
@@ -980,8 +979,8 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // Floating Footer (Transparent, Fine Brackets, Rounded Borders)
-    let footer_text = if let Some(ref pad_name) = app.active_gamepad_name {
-        Line::from(vec![
+    let footer_text = match &app.active_input_source {
+        crate::app::InputSource::Gamepad(pad_name) => Line::from(vec![
             Span::styled(" 🎮 ", Style::default().fg(Color::Yellow)),
             Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw("│ "),
@@ -996,9 +995,8 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             Span::raw("│ "),
             Span::styled(" [LB/RB] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
             Span::styled("Console ", Style::default().fg(Color::Gray)),
-        ])
-    } else {
-        Line::from(vec![
+        ]),
+        crate::app::InputSource::Keyboard => Line::from(vec![
             Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("Search ", Style::default().fg(Color::Gray)),
             Span::raw("│ "),

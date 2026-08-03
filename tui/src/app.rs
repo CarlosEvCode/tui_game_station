@@ -360,7 +360,14 @@ pub struct App {
     pub is_manual_update_check: bool,
     pub gamepad_rx: Option<std::sync::mpsc::Receiver<crate::gamepad::GamepadEvent>>,
     pub active_gamepad_name: Option<String>,
+    pub active_input_source: InputSource,
     pub needs_terminal_clear: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputSource {
+    Keyboard,
+    Gamepad(String),
 }
 
 impl App {
@@ -413,6 +420,7 @@ impl App {
             is_manual_update_check: false,
             gamepad_rx,
             active_gamepad_name: None,
+            active_input_source: InputSource::Keyboard,
             needs_terminal_clear: false,
         };
 
@@ -1005,19 +1013,27 @@ impl App {
             match evt {
                 crate::gamepad::GamepadEvent::Connected { name } => {
                     self.active_gamepad_name = Some(name.clone());
+                    self.active_input_source = InputSource::Gamepad(name.clone());
                     self.show_toast(
                         format!("[Controller] Connected: {}", name),
                         crate::toast::ToastKind::Success,
                     );
                 }
                 crate::gamepad::GamepadEvent::Disconnected { name } => {
-                    self.active_gamepad_name = None;
+                    if let Some(ref current) = self.active_gamepad_name {
+                        if current == &name {
+                            self.active_gamepad_name = None;
+                            self.active_input_source = InputSource::Keyboard;
+                        }
+                    }
                     self.show_toast(
                         format!("[Controller] Disconnected: {}", name),
                         crate::toast::ToastKind::Success,
                     );
                 }
-                crate::gamepad::GamepadEvent::Action(action) => {
+                crate::gamepad::GamepadEvent::Action { action, name } => {
+                    self.active_gamepad_name = Some(name.clone());
+                    self.active_input_source = InputSource::Gamepad(name);
                     self.handle_gamepad_action(action).await;
                 }
             }

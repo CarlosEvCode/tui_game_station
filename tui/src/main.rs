@@ -120,7 +120,8 @@ async fn main() -> Result<()> {
             match event::read()? {
                 Event::Key(key) => {
                     if key.kind == KeyEventKind::Press {
-                    // Modal Input Handling
+                        app.active_input_source = crate::app::InputSource::Keyboard;
+                        // Modal Input Handling
                     if app.modal_state != ModalState::None {
                         match key.code {
                             KeyCode::Esc => {
