@@ -890,14 +890,19 @@ impl App {
             });
         }
 
-        // Background media (banner, icon): halfblocks / low-fidelity, same
-        // pipeline as the side games in the carousel.
+        // Background media (banner, icon): the banner stays halfblocks for the
+        // hero; the icon reuses the SAME native pipeline as the normal icon
+        // view (stored under the "icon" key) — one source of truth for icons.
         for (media_type, sub_dir, ext) in [
             ("banner", "banners", vec!["jpg", "png", "webp"]),
             ("icon", "icons", vec!["png", "jpg", "webp"]),
         ] {
-            let hb_key = format!("{}_hb", media_type);
-            if self.media_protocols.contains_key(&(game_id, hb_key)) {
+            let media_key = if media_type == "banner" {
+                "banner_hb".to_string()
+            } else {
+                media_type.to_string()
+            };
+            if self.media_protocols.contains_key(&(game_id, media_key.clone())) {
                 continue;
             }
             let db_status = self.db.get_media_status(game_id, media_type).ok().flatten();
@@ -912,6 +917,7 @@ impl App {
             let sub_dir_s = sub_dir.to_string();
             let exts = ext.clone();
             let title_c = title.clone();
+            let key = media_key;
 
             tokio::spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
@@ -945,13 +951,12 @@ impl App {
 
                 let protocol = path.and_then(|p| match media_type_s.as_str() {
                     "banner" => manager.load_halfblocks_banner_protocol_from_file(&p),
-                    "icon" => manager.load_halfblocks_icon_protocol_from_file(&p),
-                    _ => manager.load_halfblocks_protocol_from_file(&p),
+                    _ => manager.load_native_protocol_from_file(&p),
                 });
                 let _ = tx
                     .send(LoadedCoverEvent {
                         game_id,
-                        media_type: format!("{}_hb", media_type_s),
+                        media_type: key,
                         protocol,
                     })
                     .await;

@@ -1125,11 +1125,14 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let info_inner = info_block.inner(info_area);
     frame.render_widget(info_block, info_area);
 
-    // Big pixel-art title + icon at the top of the panel.
+    // Big pixel-art title + icon at the top of the panel. The icon box uses a
+    // FIXED height derived only from the panel size (identical for every game
+    // on a given screen), mirroring the fixed-size Fit rendering of the normal
+    // icon view — so the icon never changes size with the title's length.
     let info_inner_w = info_inner.width;
     let title_len = game.title.chars().count() as u16;
-    // Rows the panel can spare for the title block (info lines + actions take 11).
-    let title_budget = info_inner.height.saturating_sub(11);
+    // Fixed title-region height: depends only on panel height, not the title.
+    let title_region_h = (info_inner.height.saturating_sub(11)).clamp(4, 8);
     // Conservative icon-width estimate so the chosen size never truncates.
     let title_avail_w = info_inner_w.saturating_sub(16 + 2);
 
@@ -1143,7 +1146,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     ];
     let chosen = BIG_SIZES
         .iter()
-        .find(|(_, cw, ch)| title_len.saturating_mul(*cw) <= title_avail_w && *ch <= title_budget);
+        .find(|(_, cw, ch)| title_len.saturating_mul(*cw) <= title_avail_w && *ch <= title_region_h);
     let (big_title, title_h) = match chosen {
         Some((size, _, h)) => (Some(*size), *h),
         None => (None, 4), // fallback: normal wrapped text
@@ -1152,33 +1155,32 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let info_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(title_h),
+            Constraint::Length(title_region_h),
             Constraint::Min(1),
             Constraint::Length(3), // Integrated action buttons
         ])
         .split(info_inner);
     let title_region = info_chunks[0];
 
-    // Icon beside the title, scaled to the big-text height.
-    let icon_w = (title_h.saturating_mul(2)).min(info_inner_w.saturating_sub(4));
-    let icon_hb_key = (game.id, "icon_hb".to_string());
+    // Icon beside the title: native protocol (same pipeline as the normal icon
+    // view) rendered with Fit into a fixed-size box. Native cells are 2:1, so
+    // a square icon needs a 2:1 box to display at its full region height.
+    let icon_w = (title_region_h.saturating_mul(2)).min(info_inner_w.saturating_sub(4));
     let icon_key = (game.id, "icon".to_string());
-    let icon_proto = if app.media_protocols.contains_key(&icon_hb_key) {
-        app.media_protocols.get_mut(&icon_hb_key)
-    } else {
-        app.media_protocols.get_mut(&icon_key)
-    };
-    if let Some(icon_proto) = icon_proto {
+    if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
         let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, title_region.height);
         let icon_img = StatefulImage::new(None);
         frame.render_stateful_widget(icon_img, icon_rect, icon_proto);
     }
 
+    // Title text vertically centered within the fixed region so compact glyphs
+    // don't leave a lopsided gap next to the taller icon.
+    let title_top = title_region.y + (title_region.height.saturating_sub(title_h)) / 2;
     let title_rect = Rect::new(
         title_region.x + icon_w + 2,
-        title_region.y,
+        title_top,
         title_region.width.saturating_sub(icon_w + 2),
-        title_region.height,
+        title_h,
     );
     let title_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
     if let Some(pixel_size) = big_title {
