@@ -943,12 +943,10 @@ impl App {
                     }
                 };
 
-                let protocol = path.and_then(|p| {
-                    if media_type_s == "banner" {
-                        manager.load_halfblocks_banner_protocol_from_file(&p)
-                    } else {
-                        manager.load_halfblocks_protocol_from_file(&p)
-                    }
+                let protocol = path.and_then(|p| match media_type_s.as_str() {
+                    "banner" => manager.load_halfblocks_banner_protocol_from_file(&p),
+                    "icon" => manager.load_halfblocks_icon_protocol_from_file(&p),
+                    _ => manager.load_halfblocks_protocol_from_file(&p),
                 });
                 let _ = tx
                     .send(LoadedCoverEvent {

@@ -1059,14 +1059,14 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Percentage(40), // Hero (full width)
-            Constraint::Min(14),        // Info + integrated actions
+            Constraint::Min(14),        // Content: info panel, right of the cover column
             Constraint::Length(3),      // Footer
         ])
         .split(area);
 
-    // 1. HERO (full width): the banner is cropped to cover the whole hero, the
-    //    cover overlays its bottom-left corner and the icon + title form a
-    //    cluster right beside it.
+    // 1. HERO (full width): the banner is cropped to cover the whole hero. The
+    //    tall poster column (cover) overlays its bottom-left corner and runs
+    //    down into the content zone, drawn over both hero and info sections.
     let hero_area = chunks[0];
     frame.render_widget(Clear, hero_area);
 
@@ -1084,16 +1084,24 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
 
-    // Cover: native, overlaid on the banner's bottom-left corner (no box).
-    // Large and dominant, like a Big Picture storefront card over its hero.
-    let cover_w = 30u16;
-    let cover_h = 16u16.min(hero_area.height.saturating_sub(3));
-    let cover_rect = Rect::new(
-        hero_area.x + 2,
-        hero_area.y + hero_area.height.saturating_sub(cover_h),
-        cover_w.min(hero_area.width.saturating_sub(4)),
-        cover_h,
-    );
+    // Cover: native, overlays the banner's bottom-left corner and then keeps
+    // growing DOWNWARD across the hero limit into the content zone, forming a
+    // tall poster column along the whole left side. Its top edge stays where
+    // the old (hero-sized) cover sat; its height is now independent and much
+    // larger than the hero's (~78% of the total screen height).
+    let hero_bottom = hero_area.y + hero_area.height;
+    let old_cover_h = 16u16.min(hero_area.height.saturating_sub(3));
+    let cover_top = hero_bottom.saturating_sub(old_cover_h);
+    let cover_h = (area.height as f32 * 0.78).round() as u16;
+    // Poster-ish aspect (H ≈ 0.75·W in cells for a 2:3 image), capped so the
+    // info panel keeps a usable width on narrow terminals. Fit letterboxes, so
+    // the image is never distorted.
+    let cover_w = (cover_h as f32 * 4.0 / 3.0).round() as u16;
+    let cover_w = cover_w.min(area.width.saturating_sub(50).max(18));
+    // Keep the cover inside the screen: it must not bleed into the footer rows.
+    let max_cover_bottom = area.bottom().saturating_sub(3);
+    let cover_h = cover_h.min(max_cover_bottom.saturating_sub(cover_top).max(1));
+    let cover_rect = Rect::new(hero_area.x + 2, cover_top, cover_w.max(1), cover_h);
     let cover_key = (game.id, "cover".to_string());
     let cover_hb_key = (game.id, "cover_hb".to_string());
     let cover_proto = if app.media_protocols.contains_key(&cover_key) {
@@ -1106,20 +1114,24 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         frame.render_stateful_widget(img, cover_rect, proto);
     }
 
-    // 2. INFO + integrated actions (single panel).
+    // 2. INFO panel: single bordered box right of the cover column, below the
+    //    hero. It holds the title + icon, the info lines and the actions.
+    let info_x = cover_rect.right() + 2;
+    let info_w = area.right().saturating_sub(info_x + 2).max(1);
+    let info_area = Rect::new(info_x, chunks[1].y, info_w, chunks[1].height);
     let info_block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(" INFORMACIÓN ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
-    let info_inner = info_block.inner(chunks[1]);
-    frame.render_widget(info_block, chunks[1]);
+    let info_inner = info_block.inner(info_area);
+    frame.render_widget(info_block, info_area);
 
     // Big pixel-art title + icon at the top of the panel.
     let info_inner_w = info_inner.width;
     let title_len = game.title.chars().count() as u16;
-    // Rows the panel can spare for the title block (info lines + actions take 12).
-    let title_budget = info_inner.height.saturating_sub(12);
+    // Rows the panel can spare for the title block (info lines + actions take 11).
+    let title_budget = info_inner.height.saturating_sub(11);
     // Conservative icon-width estimate so the chosen size never truncates.
     let title_avail_w = info_inner_w.saturating_sub(16 + 2);
 
@@ -1144,7 +1156,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .constraints([
             Constraint::Length(title_h),
             Constraint::Min(1),
-            Constraint::Length(3),
+            Constraint::Length(3), // Integrated action buttons
         ])
         .split(info_inner);
     let title_region = info_chunks[0];
@@ -1207,6 +1219,8 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let info_p = Paragraph::new(info_lines).wrap(Wrap { trim: true });
     frame.render_widget(info_p, info_chunks[1]);
 
+    // 3. ACTIONS: integrated inside the info panel, one horizontal row at its
+    //    bottom (as before the two-column experiment).
     let mut action_spans = Vec::new();
     for (i, label) in DETAIL_ACTIONS.iter().enumerate() {
         if i > 0 {
@@ -1234,7 +1248,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let actions_p = Paragraph::new(Line::from(action_spans)).alignment(Alignment::Right);
     frame.render_widget(actions_p, info_chunks[2]);
 
-    // 3. DETAIL FOOTER
+    // 4. DETAIL FOOTER
     let footer_text = match &app.active_input_source {
         crate::app::InputSource::Gamepad(pad_name) => Line::from(vec![
             Span::styled(" 🎮 ", Style::default().fg(Color::Yellow)),
