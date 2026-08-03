@@ -613,35 +613,63 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_controls_footer(frame: &mut Frame, _app: &App, area: Rect) {
-    let line = Line::from(vec![
-        Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Search ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [?] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled("Help ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [v] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("View ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [m] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Emulators ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [c] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Wine ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [a] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Add Game ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [s] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Settings ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [Alt+O] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::styled("Big Picture ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::styled("Launch Game", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-    ]);
+fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
+    let line = if let Some(ref pad_name) = app.active_gamepad_name {
+        Line::from(vec![
+            Span::styled(" 🎮 ", Style::default().fg(Color::Yellow)),
+            Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓐ] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Launch ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓑ] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled("Back ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [ⓧ] ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+            Span::styled("Search ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓨ] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("Details ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [LB/RB] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("Tab ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Select] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("BigPic ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Start] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("Settings", Style::default().fg(Color::Gray)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Search ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [?] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("Help ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [v] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("View ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [m] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Emulators ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [c] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Wine ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [a] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Add Game ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [s] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Settings ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Alt+O] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("Big Picture ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Launch Game", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        ])
+    };
 
     let paragraph = Paragraph::new(line).block(
         Block::default()
@@ -952,22 +980,41 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // Floating Footer (Transparent, Fine Brackets, Rounded Borders)
-    let footer_text = Line::from(vec![
-        Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Search ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [Tab] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Focus ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [p] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Consoles ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [Alt+O] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::styled("Normal Mode ", Style::default().fg(Color::Gray)),
-        Span::raw("│ "),
-        Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::styled("Launch Game", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-    ]);
+    let footer_text = if let Some(ref pad_name) = app.active_gamepad_name {
+        Line::from(vec![
+            Span::styled(" 🎮 ", Style::default().fg(Color::Yellow)),
+            Span::styled(format!("{} ", pad_name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓐ] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Launch ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::raw("│ "),
+            Span::styled(" [Ⓑ] ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled("Normal Mode ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [ⓧ] ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+            Span::styled("Search ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [LB/RB] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("Console ", Style::default().fg(Color::Gray)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" [/] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Search ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Tab] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Focus ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [p] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Consoles ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [Alt+O] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("Normal Mode ", Style::default().fg(Color::Gray)),
+            Span::raw("│ "),
+            Span::styled(" [↵] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Launch Game", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        ])
+    };
 
     let footer_p = Paragraph::new(footer_text)
         .alignment(Alignment::Center)

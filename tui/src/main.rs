@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod cover_renderer;
+pub mod gamepad;
 mod mouse_handler;
 mod panic_hook;
 mod toast;

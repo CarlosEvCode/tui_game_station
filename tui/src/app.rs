@@ -358,6 +358,8 @@ pub struct App {
     pub is_search_active: bool,
     pub update_rx: Option<mpsc::Receiver<Result<Option<crate::updater::UpdateCheckResult>, String>>>,
     pub is_manual_update_check: bool,
+    pub gamepad_rx: Option<std::sync::mpsc::Receiver<crate::gamepad::GamepadEvent>>,
+    pub active_gamepad_name: Option<String>,
 }
 
 impl App {
@@ -371,6 +373,7 @@ impl App {
         let (cover_tx, cover_rx) = mpsc::channel::<LoadedCoverEvent>(50);
         let (preview_tx, preview_rx) = mpsc::channel::<LoadedPreviewEvent>(50);
         let cover_manager = CoverManager::new();
+        let gamepad_rx = crate::gamepad::spawn_gamepad_thread();
 
         let mut app = Self {
             db,
@@ -407,6 +410,8 @@ impl App {
             is_search_active: false,
             update_rx: None,
             is_manual_update_check: false,
+            gamepad_rx,
+            active_gamepad_name: None,
         };
 
         if let Some(app_dir) = dirs::data_dir() {
@@ -978,6 +983,201 @@ impl App {
                             self.status_msg = format!("[Updater Error] Failed to check for updates: {}", e);
                         }
                     }
+                }
+            }
+        }
+
+        self.poll_gamepad_events().await;
+    }
+
+    pub async fn poll_gamepad_events(&mut self) {
+        let mut events = Vec::new();
+
+        if let Some(ref mut rx) = self.gamepad_rx {
+            while let Ok(evt) = rx.try_recv() {
+                events.push(evt);
+            }
+        }
+
+        for evt in events {
+            match evt {
+                crate::gamepad::GamepadEvent::Connected { name } => {
+                    self.active_gamepad_name = Some(name.clone());
+                    self.show_toast(
+                        format!("[Controller] Connected: {}", name),
+                        crate::toast::ToastKind::Success,
+                    );
+                }
+                crate::gamepad::GamepadEvent::Disconnected { name } => {
+                    self.active_gamepad_name = None;
+                    self.show_toast(
+                        format!("[Controller] Disconnected: {}", name),
+                        crate::toast::ToastKind::Success,
+                    );
+                }
+                crate::gamepad::GamepadEvent::Action(action) => {
+                    self.handle_gamepad_action(action).await;
+                }
+            }
+        }
+    }
+
+    pub async fn handle_gamepad_action(&mut self, action: crate::gamepad::GamepadAction) {
+        match action {
+            crate::gamepad::GamepadAction::Up => {
+                if self.modal_state != ModalState::None {
+                    self.update(Action::ModalSelectPrev).await;
+                } else if self.is_big_picture {
+                    self.update(Action::PrevGame).await;
+                } else {
+                    match self.focused_pane {
+                        FocusedPane::Platforms => self.update(Action::PrevPlatform).await,
+                        FocusedPane::Games => self.update(Action::PrevGame).await,
+                        _ => {}
+                    }
+                }
+            }
+            crate::gamepad::GamepadAction::Down => {
+                if self.modal_state != ModalState::None {
+                    self.update(Action::ModalSelectNext).await;
+                } else if self.is_big_picture {
+                    self.update(Action::NextGame).await;
+                } else {
+                    match self.focused_pane {
+                        FocusedPane::Platforms => self.update(Action::NextPlatform).await,
+                        FocusedPane::Games => self.update(Action::NextGame).await,
+                        _ => {}
+                    }
+                }
+            }
+            crate::gamepad::GamepadAction::Left => {
+                if self.modal_state != ModalState::None {
+                    match &mut self.modal_state {
+                        ModalState::VisualMediaSelector { .. } => {
+                            self.update(Action::VisualMediaNavLeft).await;
+                        }
+                        _ => {}
+                    }
+                } else if self.is_big_picture {
+                    self.update(Action::PrevGame).await;
+                } else if self.focused_pane == FocusedPane::Games && self.view_mode == ViewMode::CoverCard {
+                    self.update(Action::PrevGame).await;
+                }
+            }
+            crate::gamepad::GamepadAction::Right => {
+                if self.modal_state != ModalState::None {
+                    match &mut self.modal_state {
+                        ModalState::VisualMediaSelector { .. } => {
+                            self.update(Action::VisualMediaNavRight).await;
+                        }
+                        _ => {}
+                    }
+                } else if self.is_big_picture {
+                    self.update(Action::NextGame).await;
+                } else if self.focused_pane == FocusedPane::Games && self.view_mode == ViewMode::CoverCard {
+                    self.update(Action::NextGame).await;
+                }
+            }
+            crate::gamepad::GamepadAction::Confirm => {
+                if self.modal_state != ModalState::None {
+                    match self.modal_state.clone() {
+                        ModalState::About => {
+                            self.update(Action::CheckForUpdates { silent: false }).await;
+                        }
+                        ModalState::UpdateAvailable { download_url, new_version, .. } => {
+                            self.update(Action::StartAppUpdate { download_url, new_version }).await;
+                        }
+                        ModalState::AppSettings { selected_field, is_editing_api_key, .. } => {
+                            if selected_field == 0 {
+                                if !is_editing_api_key {
+                                    if let ModalState::AppSettings { ref mut is_editing_api_key, .. } = self.modal_state {
+                                        *is_editing_api_key = true;
+                                    }
+                                }
+                            } else if selected_field == 1 {
+                                self.update(Action::ResetRunnerConfig).await;
+                            } else if selected_field == 2 {
+                                self.modal_state = ModalState::About;
+                            } else if selected_field == 3 {
+                                self.update(Action::CheckForUpdates { silent: false }).await;
+                            } else if selected_field == 4 {
+                                self.modal_state = ModalState::None;
+                            }
+                        }
+                        ModalState::ConfirmDeleteGame { .. } => {
+                            self.update(Action::ConfirmDeleteGameExecution).await;
+                        }
+                        ModalState::VisualMediaSelector { .. } => {
+                            self.update(Action::ApplyVisualMediaSelection).await;
+                        }
+                        ModalState::ProtonDownloader { .. } => {
+                            self.update(Action::StartProtonDownload).await;
+                        }
+                        ModalState::WelcomeWizard { ref sgdb_api_key, .. } => {
+                            let key = sgdb_api_key.clone();
+                            self.finish_welcome_wizard(&key);
+                        }
+                        _ => {}
+                    }
+                } else if self.is_big_picture {
+                    self.update(Action::LaunchGame).await;
+                } else {
+                    match self.focused_pane {
+                        FocusedPane::Platforms => {
+                            self.focused_pane = FocusedPane::Games;
+                        }
+                        FocusedPane::Games => {
+                            self.update(Action::LaunchGame).await;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            crate::gamepad::GamepadAction::Back => {
+                if self.modal_state != ModalState::None {
+                    self.update(Action::CloseModal).await;
+                } else if self.is_big_picture {
+                    self.update(Action::ToggleBigPictureMode).await;
+                } else if self.focused_pane == FocusedPane::Games {
+                    self.focused_pane = FocusedPane::Platforms;
+                }
+            }
+            crate::gamepad::GamepadAction::Search => {
+                if self.modal_state == ModalState::None {
+                    self.update(Action::OpenFuzzySearchModal).await;
+                }
+            }
+            crate::gamepad::GamepadAction::Details => {
+                if self.modal_state == ModalState::None && !self.is_big_picture {
+                    self.update(Action::OpenVisualMediaModal).await;
+                }
+            }
+            crate::gamepad::GamepadAction::NextTab => {
+                if self.modal_state != ModalState::None {
+                    if let ModalState::VisualMediaSelector { .. } = self.modal_state {
+                        self.update(Action::SwitchVisualMediaTab).await;
+                    }
+                } else {
+                    self.update(Action::NextPlatform).await;
+                }
+            }
+            crate::gamepad::GamepadAction::PrevTab => {
+                if self.modal_state != ModalState::None {
+                    if let ModalState::VisualMediaSelector { .. } = self.modal_state {
+                        self.update(Action::SwitchVisualMediaTabPrev).await;
+                    }
+                } else {
+                    self.update(Action::PrevPlatform).await;
+                }
+            }
+            crate::gamepad::GamepadAction::ToggleBigPicture => {
+                if self.modal_state == ModalState::None {
+                    self.update(Action::ToggleBigPictureMode).await;
+                }
+            }
+            crate::gamepad::GamepadAction::OpenMenu => {
+                if self.modal_state == ModalState::None {
+                    self.update(Action::OpenSettingsModal).await;
                 }
             }
         }
