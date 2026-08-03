@@ -555,8 +555,10 @@ impl App {
             .into_iter()
             .filter(|p| {
                 p.platform_type == PlatformType::Emulator && {
-                    let runner = self.db.get_runner_for_platform(p.id).ok().flatten();
-                    runner.and_then(|r| r.executable_path).is_some()
+                    // A platform is "configured" if ANY of its runners has an executable path.
+                    // This covers multi-runner platforms like Switch (Ryujinx + Eden).
+                    let runners = self.db.get_runners_for_platform(p.id).unwrap_or_default();
+                    runners.iter().any(|r| r.executable_path.is_some())
                 }
             })
             .collect()

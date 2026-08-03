@@ -217,6 +217,7 @@ impl Database {
             ("%ppsspp%", "PPSSPP"),
             ("%cemu%", "Cemu"),
             ("%ryujinx%", "Ryujinx"),
+            ("%eden%", "Eden"),
             ("%melonds%", "melonDS"),
             ("%redream%", "Redream"),
             ("%vita3k%", "Vita3K"),
@@ -256,6 +257,7 @@ impl Database {
             ("psp", "PPSSPP", "appimage", Some("https://github.com/hrydgard/ppsspp/releases/latest/download/PPSSPP-v1.20.4-anylinux-x86_64.AppImage"), Some("PPSSPP-v1.20.4-anylinux-x86_64.AppImage")),
             ("dreamcast", "Redream", "appimage", None, None),
             ("switch", "Ryujinx", "appimage", None, None),
+            ("switch", "Eden", "appimage", Some("https://stable.eden-emu.dev/v0.2.1/Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage"), Some("Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage")),
             ("nds", "melonDS", "appimage", Some("https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"), Some("melonDS-1.1-appimage-x86_64.zip")),
             ("vita", "Vita3K", "appimage", None, None),
         ];
@@ -344,6 +346,7 @@ impl Database {
                 "Azahar" => "3DS".to_string(),
                 "Cemu" => "Wii U".to_string(),
                 "Ryujinx" => "Switch".to_string(),
+                "Eden" => "Switch".to_string(),
                 "melonDS" => "NDS".to_string(),
                 "Redream" => "DC".to_string(),
                 "Vita3K" => "PS Vita".to_string(),
@@ -568,6 +571,12 @@ impl Database {
     pub fn get_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
         let runners = self.get_runners_for_platform(platform_id)?;
         if let Some(r) = runners.iter().find(|r| r.is_default).cloned() {
+            return Ok(Some(r));
+        }
+        // Multi-runner platforms (e.g. Switch: Ryujinx + Eden) may only have one
+        // emulator installed. Prefer a configured runner so the platform reads
+        // as "ready" and launches with the emulator that is actually installed.
+        if let Some(r) = runners.iter().find(|r| r.executable_path.is_some()).cloned() {
             return Ok(Some(r));
         }
         Ok(runners.into_iter().next())

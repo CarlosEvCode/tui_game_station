@@ -34,6 +34,41 @@ impl RunnerDownloader {
         Ok(dir)
     }
 
+    /// Resolves the real download URL for Eden (via Gitea API) if the URL is an Eden sentinel.
+    /// Eden's CDN does not expose a /latest/ path for AppImages, so we query the Gitea API
+    /// to get the actual versioned URL at download time.
+    pub async fn resolve_eden_download_url(url: &str) -> String {
+        const EDEN_SENTINEL: &str = "git.eden-emu.dev";
+        const EDEN_CDN: &str = "stable.eden-emu.dev";
+        // Only resolve if this looks like an Eden URL
+        if !url.contains(EDEN_SENTINEL) && !url.contains(EDEN_CDN) {
+            return url.to_string();
+        }
+        let api_url = "https://git.eden-emu.dev/api/v1/repos/eden-emu/eden/releases/latest";
+        let client = Client::builder()
+            .user_agent("tui_game_station/1.0")
+            .build()
+            .unwrap_or_default();
+        let Ok(resp) = client.get(api_url).send().await else {
+            return url.to_string();
+        };
+        let Ok(json) = resp.json::<serde_json::Value>().await else {
+            return url.to_string();
+        };
+        // Find the amd64 PGO AppImage asset (not .zsync)
+        if let Some(assets) = json["assets"].as_array() {
+            for asset in assets {
+                let name = asset["name"].as_str().unwrap_or("");
+                if name.contains("amd64-clang-pgo") && name.ends_with(".AppImage") {
+                    if let Some(dl_url) = asset["browser_download_url"].as_str() {
+                        return dl_url.to_string();
+                    }
+                }
+            }
+        }
+        url.to_string()
+    }
+
     /// Download file from URL with chunk progress reporting to mpsc channel.
     pub async fn download_with_progress<P: AsRef<Path>>(
         url: &str,
@@ -41,7 +76,9 @@ impl RunnerDownloader {
         tx: mpsc::Sender<DownloadEvent>,
     ) -> Result<()> {
         let dest_path = dest_path.as_ref();
-        let result = Self::download_file(url, dest_path, &tx).await;
+        // Resolve dynamic URLs (e.g. Eden, which has no stable /latest/ AppImage path)
+        let resolved_url = Self::resolve_eden_download_url(url).await;
+        let result = Self::download_file(&resolved_url, dest_path, &tx).await;
         match result {
             Ok(()) => {
                 Self::make_executable(dest_path);
