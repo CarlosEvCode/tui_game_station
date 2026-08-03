@@ -3822,6 +3822,10 @@ impl App {
                     let mut scan_platform = platform.clone();
                     scan_platform.default_extensions = selected_extensions;
 
+                    let _ = self
+                        .db
+                        .save_scan_folder(platform.id, folder_path.trim(), recursive);
+
                     let (scan_tx, scan_rx) = mpsc::channel::<game_core::scanner::ScanProgressEvent>(100);
                     self.scan_rx = Some(scan_rx);
                     self.download_progress = Some(DownloadProgressState {
