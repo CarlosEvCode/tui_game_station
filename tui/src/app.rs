@@ -1285,7 +1285,10 @@ impl App {
                 self.is_big_picture = !self.is_big_picture;
                 if self.is_big_picture {
                     self.preload_visible_covers();
-                    self.status_msg = "[MODE] Switched to LIBRARY Management Mode".to_string();
+                    self.status_msg = "[MODE] Switched to Big Picture Mode".to_string();
+                    crate::window_helper::set_fullscreen(true);
+                } else {
+                    crate::window_helper::set_fullscreen(false);
                 }
             }
             Action::OpenCheatsheetModal => {
@@ -1424,7 +1427,29 @@ impl App {
 
                 self.status_msg = format!("Launching {}...", game.title);
 
-                match GameRunner::launch_game(&game, runner.as_ref()).await {
+                crate::window_helper::minimize_active_window();
+
+                let _ = crossterm::terminal::disable_raw_mode();
+                let _ = crossterm::execute!(
+                    std::io::stdout(),
+                    crossterm::terminal::LeaveAlternateScreen,
+                    crossterm::event::DisableMouseCapture,
+                    crossterm::cursor::Show
+                );
+
+                let launch_res = GameRunner::launch_game(&game, runner.as_ref()).await;
+
+                crate::window_helper::restore_active_window();
+
+                let _ = crossterm::terminal::enable_raw_mode();
+                let _ = crossterm::execute!(
+                    std::io::stdout(),
+                    crossterm::terminal::EnterAlternateScreen,
+                    crossterm::event::EnableMouseCapture,
+                    crossterm::cursor::Hide
+                );
+
+                match launch_res {
                     Ok(status) => {
                         self.status_msg =
                             format!("Game exited with code: {:?}", status.code());

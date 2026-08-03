@@ -938,17 +938,7 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 KeyCode::Enter => {
-                                    window_helper::minimize_active_window();
-
-                                    disable_raw_mode()?;
-                                    execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture, cursor::Show)?;
-
                                     app.update(Action::LaunchGame).await;
-
-                                    window_helper::restore_active_window();
-
-                                    enable_raw_mode()?;
-                                    execute!(stdout(), EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
                                     terminal.clear()?;
                                     terminal.draw(|f| ui::render_ui(f, &mut app))?;
                                 }
