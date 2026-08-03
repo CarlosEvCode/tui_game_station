@@ -1,0 +1,33 @@
+# Emulator launch options for Eden (Nintendo Switch).
+# See eden-emulator/mirror docs/CommandLine.md for the supported flags.
+
+note = "Eden (Switch) command line options"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+flag_template = "-f"
+
+[[options]]
+key = "singlecore"
+name = "Single Core"
+kind = "toggle"
+default = "0"
+flag_template = "--singlecore"
+
+[[options]]
+key = "null_render"
+name = "Null Renderer"
+kind = "toggle"
+default = "0"
+flag_template = "--null-render"
+
+[[options]]
+key = "renderer"
+name = "Renderer Backend"
+kind = "choice"
+default = "opengl"
+flag_template = "--renderer {value}"
+choices = ["opengl", "vulkan", "null"]

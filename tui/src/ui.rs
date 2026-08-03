@@ -343,7 +343,7 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
             let mark = if is_checked { "[x] " } else { "" };
             let appid_info = g.steam_appid.map(|id| format!(" (AppID: {})", id)).unwrap_or_default();
             let gtype = get_game_type_badge(g, &app.platforms);
-            let content = format!("{}{}{}[{}] {}{}", pointer, mark, if is_checked { "" } else { "" }, gtype, g.title, appid_info);
+            let content = format!("{}{}[{}] {}{}", pointer, mark, gtype, g.title, appid_info);
 
             ListItem::new(content).style(style)
         })
@@ -1342,7 +1342,12 @@ fn extract_runner_display_name(cmd: &str) -> String {
 
 /// Render centered pop-up modal overlay dialog
 fn render_modal(frame: &mut Frame, app: &mut App) {
-    let popup_area = centered_rect(75, 70, frame.area());
+    let popup_area = match app.modal_state {
+        ModalState::ManageRunnersStep2Config { ref options, .. } => {
+            runner_step2_popup_area(options.len(), frame.area())
+        }
+        _ => centered_rect(75, 70, frame.area()),
+    };
     if !matches!(
         app.modal_state,
         ModalState::ConfirmDeleteGame { .. }
@@ -1358,12 +1363,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
     match app.modal_state {
         ModalState::AddGameStep1Type { selected_type_idx } => {
-            let options = vec![
-                "[Folder Scan] Automated ROMs Directory Scanner",
+            let options = ["[Folder Scan] Automated ROMs Directory Scanner",
                 "[NAT] Linux Native Game (Binary, Script, AppImage)",
                 "[WIN] Windows Game (Wine / Proton .exe)",
-                "[STM] Steam Game (Launch via Steam AppID)",
-            ];
+                "[STM] Steam Game (Launch via Steam AppID)"];
 
             let items: Vec<ListItem> = options
                 .iter()
@@ -1924,12 +1927,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let b_mark = if chosen_banner_idx.is_some() { "✓" } else { "-" };
             let i_mark = if chosen_icon_idx.is_some() { "✓" } else { "-" };
 
-            let tab_titles = vec![
-                format!("1. Candidates ({})", candidates.len()),
+            let tab_titles = [format!("1. Candidates ({})", candidates.len()),
                 format!("2. Covers ({}) [{}]", covers.len(), c_mark),
                 format!("3. Banners ({}) [{}]", banners.len(), b_mark),
-                format!("4. Icons ({}) [{}]", icons.len(), i_mark),
-            ];
+                format!("4. Icons ({}) [{}]", icons.len(), i_mark)];
 
             let tab_spans: Vec<Span> = tab_titles
                 .iter()
@@ -2528,7 +2529,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         ModalState::EditCustomArgsInput { ref input, cursor_pos, .. } => {
             let cpos = cursor_pos.min(input.len());
             let avail = 54usize;
-            let scroll = if cpos > avail { cpos - avail } else { 0 };
+            let scroll = cpos.saturating_sub(avail);
             let end = (scroll + avail * 2).min(input.len());
             let visible = &input[scroll..end];
             let cursor_in_visible = cpos - scroll;
@@ -2684,6 +2685,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         ModalState::ManageRunnersStep2Config {
             ref runner_info,
             ref exe_path_input,
+            ref options,
+            ref option_values,
+            ref custom_args,
             selected_row,
             selected_action_idx,
             cursor_pos,
@@ -2698,15 +2702,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ]));
             lines.push(Line::from(""));
 
-            let path_label_style = if selected_row == 0 {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
+            let field_style = |idx: usize| {
+                if idx == selected_row {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                }
             };
 
-            lines.push(Line::from(vec![
-                Span::styled(if selected_row == 0 { "▶ 1. Executable / AppImage Path: " } else { "  1. Executable / AppImage Path: " }, path_label_style),
-            ]));
+            let path_label = if selected_row == 0 {
+                "▶ 1. Executable / AppImage Path: "
+            } else {
+                "  1. Executable / AppImage Path: "
+            };
+            lines.push(Line::from(vec![Span::styled(path_label, field_style(0))]));
 
             let (before, after) = exe_path_input.split_at(cursor_pos.min(exe_path_input.len()));
             let path_span = if selected_row == 0 {
@@ -2728,12 +2737,102 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(path_span));
             lines.push(Line::from(""));
 
-            // Build action buttons list dynamically
-            let has_executable = runner_info
-                .executable_path
-                .as_ref()
-                .map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists())
-                .unwrap_or(false);
+            if !options.is_empty() {
+                lines.push(Line::from(vec![Span::styled(
+                    "  Emulator Options:",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )]));
+            }
+
+            for (i, opt) in options.iter().enumerate() {
+                let row = i + 1;
+                let value = option_values
+                    .get(&opt.key)
+                    .cloned()
+                    .unwrap_or_else(|| opt.default.clone());
+                let is_sel = selected_row == row;
+                let arrow = if is_sel { "▶" } else { " " };
+                match &opt.kind {
+                    game_core::options::EmulatorOptionKind::Toggle => {
+                        let on = value != opt.default;
+                        let mark = if on { "[X]" } else { "[ ]" };
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("{} {}. ", arrow, i + 2), field_style(row)),
+                            Span::styled(mark, field_style(row)),
+                            Span::raw(" "),
+                            Span::styled(&opt.name, field_style(row)),
+                            Span::raw("  "),
+                            Span::styled(
+                                if on {
+                                    format!("(flag: {})", opt.flag_template)
+                                } else {
+                                    "(off)".to_string()
+                                },
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]));
+                    }
+                    game_core::options::EmulatorOptionKind::Choice(choices) => {
+                        let pos = choices.iter().position(|c| *c == value).unwrap_or(0);
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("{} {}. ", arrow, i + 2), field_style(row)),
+                            Span::styled(&opt.name, field_style(row)),
+                            Span::raw(": "),
+                            Span::styled(value.clone(), field_style(row)),
+                            Span::raw("  ["),
+                            Span::styled(
+                                format!("{}/{}", pos + 1, choices.len()),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                            Span::styled("]", Style::default().fg(Color::DarkGray)),
+                            Span::raw("  "),
+                            Span::styled(
+                                choices.join(" | "),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]));
+                    }
+                }
+            }
+
+            let custom_row = options.len() + 1;
+            let custom_label = if selected_row == custom_row {
+                "▶ Custom Args: "
+            } else {
+                "  Custom Args: "
+            };
+            let mut custom_line = vec![Span::styled(custom_label, field_style(custom_row))];
+            if selected_row == custom_row {
+                let cpos = cursor_pos.min(custom_args.len());
+                let (cbefore, cafter) = custom_args.split_at(cpos);
+                custom_line.push(Span::styled(
+                    cbefore,
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                ));
+                custom_line.push(Span::styled(
+                    "█",
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray),
+                ));
+                custom_line.push(Span::styled(
+                    cafter,
+                    Style::default().fg(Color::White).bg(Color::DarkGray),
+                ));
+            } else {
+                custom_line.push(Span::styled(
+                    if custom_args.is_empty() {
+                        "< no extra flags >"
+                    } else {
+                        custom_args.as_str()
+                    },
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            lines.push(Line::from(custom_line));
+            lines.push(Line::from(""));
+
+            // Build action buttons list dynamically (based on the live form path)
+            let has_executable = !exe_path_input.trim().is_empty()
+                && std::path::Path::new(exe_path_input.trim()).exists();
 
             struct ActionBtn {
                 label: &'static str,
@@ -2751,13 +2850,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             btns.push(ActionBtn { label: "[ Save ]", fg: Color::Green });
 
             if has_executable {
+                btns.push(ActionBtn { label: "[ Open ]", fg: Color::Magenta });
                 btns.push(ActionBtn { label: "[ Delete ]", fg: Color::Red });
             }
 
+            let buttons_row = options.len() + 2;
             let mut actions_line = vec![Span::raw("  ")];
 
             for (idx, btn) in btns.iter().enumerate() {
-                let is_selected = selected_row == 1 && idx == selected_action_idx;
+                let is_selected = selected_row == buttons_row && idx == selected_action_idx;
                 let btn_style = if is_selected {
                     Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
                 } else {
@@ -2787,7 +2888,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Switch Row | [Left/Right] Select Action / Edit Cursor | [Enter] Confirm | [Esc] Back")
+            let help = Paragraph::new(" [Up/Down] Switch Row | [Left/Right] Cycle Option / Select Action | [Enter] Confirm | [Esc] Back")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -3416,6 +3517,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         }
         ModalState::None => {}
     }
+}
+
+/// Popup area for the Emulator Options (Step 2) modal. Shared with the mouse
+/// handler so click coordinates always match the drawn popup, no matter the
+/// terminal width. Height grows with the number of dynamic options.
+pub fn runner_step2_popup_area(options_len: usize, r: Rect) -> Rect {
+    let rows = (13 + options_len).min(40) as u16;
+    centered_rect_fixed(78, rows, r)
 }
 
 /// Helper function to center a pop-up dialog box with exact pixel dimensions relative to screen

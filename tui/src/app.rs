@@ -19,6 +19,49 @@ pub struct WineToolCommand {
     pub envs: HashMap<String, String>,
 }
 
+/// Cycle an emulator option's value by one step. Toggles flip on/off (both
+/// directions do the same); choices move through their value list.
+pub fn cycle_runner_option(
+    options: &[game_core::options::EmulatorOption],
+    values: &mut game_core::options::RunnerOptions,
+    idx: usize,
+    backward: bool,
+) {
+    use game_core::options::EmulatorOptionKind;
+    let Some(opt) = options.get(idx) else {
+        return;
+    };
+    let current = values
+        .get(&opt.key)
+        .cloned()
+        .unwrap_or_else(|| opt.default.clone());
+    let next = match &opt.kind {
+        EmulatorOptionKind::Toggle => {
+            let on = if opt.default == "1" {
+                "0".to_string()
+            } else {
+                "1".to_string()
+            };
+            if current == on {
+                opt.default.clone()
+            } else {
+                on
+            }
+        }
+        EmulatorOptionKind::Choice(choices) => {
+            let pos = choices.iter().position(|c| *c == current).unwrap_or(0);
+            let n = choices.len();
+            let next_pos = if backward {
+                if pos == 0 { n - 1 } else { pos - 1 }
+            } else {
+                (pos + 1) % n
+            };
+            choices[next_pos].clone()
+        }
+    };
+    values.insert(opt.key.clone(), next);
+}
+
 pub struct LoadedCoverEvent {
     pub game_id: i64,
     pub media_type: String,
@@ -154,6 +197,9 @@ pub enum ModalState {
     ManageRunnersStep2Config {
         runner_info: game_core::models::UniqueRunnerInfo,
         exe_path_input: String,
+        options: Vec<game_core::options::EmulatorOption>,
+        option_values: game_core::options::RunnerOptions,
+        custom_args: String,
         selected_row: usize,
         selected_action_idx: usize,
         cursor_pos: usize,
@@ -218,6 +264,9 @@ pub enum BigPictureFocus {
     Search,
 }
 
+/// Action bus for the TUI. Some variants are reserved for upcoming features
+/// (fuzzy search, wine tooling, batch scanning) and are not yet dispatched.
+#[allow(dead_code, clippy::enum_variant_names)]
 pub enum Action {
     OpenAboutModal,
     CheckForUpdates { silent: bool },
@@ -322,6 +371,7 @@ pub enum Action {
     OpenConfirmDeleteRunnerModal,
     ToggleConfirmDeleteRunnerOption,
     ConfirmDeleteRunnerExecution,
+    OpenRunnerStandalone,
 
     Quit,
     SetStatus(String),
@@ -352,6 +402,7 @@ pub struct App {
     pub visual_preview_loading: bool,
     pub show_all_platforms: bool,
     pub is_big_picture: bool,
+    #[allow(dead_code)]
     pub big_picture_cols: usize,
     pub big_picture_focus: BigPictureFocus,
     pub big_picture_in_detail: bool,
@@ -538,6 +589,7 @@ impl App {
     }
 
     /// Platforms list for Runner Manager (excludes Linux Native & Steam)
+    #[allow(dead_code)]
     pub fn get_runner_platforms(&self) -> Vec<Platform> {
         self.db
             .get_platforms()
@@ -828,8 +880,8 @@ impl App {
 
             let cover_path = if let Some(path) = local_cover {
                 Some(path)
-            } else if media_type_str == "cover" && appid.is_some() {
-                SteamCoverResolver::resolve_cover(appid.unwrap()).await
+            } else if let Some(appid) = appid.filter(|_| media_type_str == "cover") {
+                SteamCoverResolver::resolve_cover(appid).await
             } else {
                 let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
                 let db_path = dirs::data_dir()
@@ -1003,8 +1055,8 @@ impl App {
 
                 let cover_path = if let Some(path) = local_cover {
                     Some(path)
-                } else if appid.is_some() {
-                    SteamCoverResolver::resolve_cover(appid.unwrap()).await
+                } else if let Some(appid) = appid {
+                    SteamCoverResolver::resolve_cover(appid).await
                 } else {
                     let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
                     let db_path = dirs::data_dir()
@@ -1183,6 +1235,12 @@ impl App {
             }
             return;
         }
+
+        // Dedicated controller navigation for the Emulator Options popup.
+        if matches!(self.modal_state, ModalState::ManageRunnersStep2Config { .. }) {
+            self.handle_runner_step2_gamepad(action).await;
+            return;
+        }
         match action {
             crate::gamepad::GamepadAction::Up => {
                 if self.modal_state != ModalState::None {
@@ -1216,6 +1274,9 @@ impl App {
                         ModalState::VisualMediaSelector { .. } => {
                             self.update(Action::VisualMediaNavLeft).await;
                         }
+                        ModalState::EditCustomArgsInput { .. } => {
+                            self.update(Action::FormNavLeft).await;
+                        }
                         ModalState::ConfirmDeleteGame { .. } => {
                             self.update(Action::ToggleConfirmDeleteOption).await;
                         }
@@ -1224,9 +1285,9 @@ impl App {
                         }
                         _ => {}
                     }
-                } else if self.is_big_picture {
-                    self.update(Action::PrevGame).await;
-                } else if self.focused_pane == FocusedPane::Games && self.view_mode == ViewMode::CoverCard {
+                } else if self.is_big_picture
+                    || (self.focused_pane == FocusedPane::Games && self.view_mode == ViewMode::CoverCard)
+                {
                     self.update(Action::PrevGame).await;
                 }
             }
@@ -1236,6 +1297,9 @@ impl App {
                         ModalState::VisualMediaSelector { .. } => {
                             self.update(Action::VisualMediaNavRight).await;
                         }
+                        ModalState::EditCustomArgsInput { .. } => {
+                            self.update(Action::FormNavRight).await;
+                        }
                         ModalState::ConfirmDeleteGame { .. } => {
                             self.update(Action::ToggleConfirmDeleteOption).await;
                         }
@@ -1244,9 +1308,9 @@ impl App {
                         }
                         _ => {}
                     }
-                } else if self.is_big_picture {
-                    self.update(Action::NextGame).await;
-                } else if self.focused_pane == FocusedPane::Games && self.view_mode == ViewMode::CoverCard {
+                } else if self.is_big_picture
+                    || (self.focused_pane == FocusedPane::Games && self.view_mode == ViewMode::CoverCard)
+                {
                     self.update(Action::NextGame).await;
                 }
             }
@@ -1278,6 +1342,9 @@ impl App {
                         }
                         ModalState::ConfirmDeleteGame { .. } => {
                             self.update(Action::ConfirmDeleteGameExecution).await;
+                        }
+                        ModalState::EditCustomArgsInput { .. } => {
+                            self.update(Action::SaveCustomArgsInput).await;
                         }
                         ModalState::VisualMediaSelector { .. } => {
                             self.update(Action::ApplyVisualMediaSelection).await;
@@ -1364,6 +1431,185 @@ impl App {
                     self.update(Action::OpenSettingsModal).await;
                 }
             }
+        }
+    }
+
+    /// Controller navigation for the Emulator Options popup (Step 2 config).
+    async fn handle_runner_step2_gamepad(&mut self, action: crate::gamepad::GamepadAction) {
+        use crate::gamepad::GamepadAction;
+        match action {
+            GamepadAction::Up => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref options,
+                    ref mut selected_row,
+                    ..
+                } = self.modal_state
+                {
+                    let total = options.len() + 3;
+                    *selected_row = if *selected_row == 0 {
+                        total - 1
+                    } else {
+                        *selected_row - 1
+                    };
+                }
+            }
+            GamepadAction::Down => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref options,
+                    ref mut selected_row,
+                    ..
+                } = self.modal_state
+                {
+                    let total = options.len() + 3;
+                    *selected_row = (*selected_row + 1) % total;
+                }
+            }
+            GamepadAction::Left | GamepadAction::Right => {
+                let backward = matches!(action, GamepadAction::Left);
+                if let ModalState::ManageRunnersStep2Config {
+                    ref runner_info,
+                    ref exe_path_input,
+                    ref options,
+                    ref mut option_values,
+                    ref selected_row,
+                    ..
+                } = self.modal_state
+                {
+                    if *selected_row == 0 {
+                        if let ModalState::ManageRunnersStep2Config {
+                            ref exe_path_input,
+                            ref mut cursor_pos,
+                            ..
+                        } = self.modal_state
+                        {
+                            if backward {
+                                if *cursor_pos > 0 {
+                                    *cursor_pos -= 1;
+                                }
+                            } else if *cursor_pos < exe_path_input.len() {
+                                *cursor_pos += 1;
+                            }
+                        }
+                    } else if *selected_row >= 1 && *selected_row <= options.len() {
+                        cycle_runner_option(options, option_values, *selected_row - 1, backward);
+                    } else if *selected_row == options.len() + 1 {
+                        if let ModalState::ManageRunnersStep2Config {
+                            ref custom_args,
+                            ref mut cursor_pos,
+                            ..
+                        } = self.modal_state
+                        {
+                            if backward {
+                                if *cursor_pos > 0 {
+                                    *cursor_pos -= 1;
+                                }
+                            } else if *cursor_pos < custom_args.len() {
+                                *cursor_pos += 1;
+                            }
+                        }
+                    } else {
+                        let has_executable = !exe_path_input.trim().is_empty()
+                            && std::path::Path::new(exe_path_input.trim()).exists();
+                        let download_url = runner_info.download_url.is_some();
+                        let mut total_btns = 2;
+                        if download_url {
+                            total_btns += 1;
+                        }
+                        if has_executable {
+                            total_btns += 2;
+                        }
+                        if let ModalState::ManageRunnersStep2Config {
+                            ref mut selected_action_idx,
+                            ..
+                        } = self.modal_state
+                        {
+                            if backward {
+                                if *selected_action_idx > 0 {
+                                    *selected_action_idx -= 1;
+                                }
+                            } else if *selected_action_idx + 1 < total_btns {
+                                *selected_action_idx += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            GamepadAction::Confirm => {
+                let snapshot = match self.modal_state.clone() {
+                    ModalState::ManageRunnersStep2Config {
+                        ref runner_info,
+                        ref exe_path_input,
+                        ref options,
+                        selected_row,
+                        selected_action_idx,
+                        ..
+                    } => Some((
+                        runner_info.clone(),
+                        exe_path_input.clone(),
+                        options.clone(),
+                        selected_row,
+                        selected_action_idx,
+                    )),
+                    _ => None,
+                };
+                let Some((runner_info, exe_path_input, options, selected_row, selected_action_idx)) = snapshot
+                else {
+                    return;
+                };
+                let has_executable = !exe_path_input.trim().is_empty()
+                    && std::path::Path::new(exe_path_input.trim()).exists();
+
+                if selected_row == 0 {
+                    if exe_path_input.trim().is_empty() {
+                        self.update(Action::OpenFilePicker).await;
+                    } else if let ModalState::ManageRunnersStep2Config {
+                        ref mut selected_row,
+                        ref options,
+                        ..
+                    } = self.modal_state
+                    {
+                        *selected_row = options.len() + 2;
+                    }
+                } else if selected_row >= 1 && selected_row <= options.len() {
+                    if let ModalState::ManageRunnersStep2Config {
+                        ref options,
+                        ref mut option_values,
+                        ref selected_row,
+                        ..
+                    } = self.modal_state
+                    {
+                        cycle_runner_option(options, option_values, selected_row - 1, false);
+                    }
+                } else if selected_row == options.len() + 1 {
+                    self.update(Action::OpenCustomArgsEditor).await;
+                } else {
+                    let mut actions = vec!["browse"];
+                    if runner_info.download_url.is_some() {
+                        actions.push("download");
+                    }
+                    actions.push("save");
+                    if has_executable {
+                        actions.push("open");
+                    }
+                    if has_executable {
+                        actions.push("delete");
+                    }
+                    let act = actions.get(selected_action_idx).copied().unwrap_or("save");
+                    match act {
+                        "browse" => self.update(Action::OpenFilePicker).await,
+                        "download" => self.update(Action::StartRunnerDownload).await,
+                        "save" => self.update(Action::SaveRunnerConfig).await,
+                        "open" => self.update(Action::OpenRunnerStandalone).await,
+                        "toggle_active" => self.update(Action::ToggleRunnerActiveState).await,
+                        "delete" => self.update(Action::OpenConfirmDeleteRunnerModal).await,
+                        _ => {}
+                    }
+                }
+            }
+            GamepadAction::Back => {
+                self.update(Action::CloseModal).await;
+            }
+            _ => {}
         }
     }
 
@@ -1879,9 +2125,23 @@ impl App {
                     if let Some(r) = unique_runners.get(selected_platform_idx) {
                         let exe_path = r.executable_path.clone().unwrap_or_default();
                         let len = exe_path.len();
+                        let env = self
+                            .db
+                            .get_runner_env_by_name(&r.name)
+                            .ok()
+                            .flatten()
+                            .map(|json| game_core::options::from_env_json(&json))
+                            .unwrap_or_default();
+                        let defs = game_core::options::load_emulator_options(&r.name)
+                            .unwrap_or_default();
+                        let stored = env.emulator_options.clone().unwrap_or_default();
+                        let merged = game_core::options::merge_runner_options(&defs, &stored);
                         self.modal_state = ModalState::ManageRunnersStep2Config {
                             runner_info: r.clone(),
                             exe_path_input: exe_path,
+                            options: defs,
+                            option_values: merged,
+                            custom_args: env.custom_args.unwrap_or_default(),
                             selected_row: 0,
                             selected_action_idx: 0,
                             cursor_pos: len,
@@ -1893,6 +2153,9 @@ impl App {
                 if let ModalState::ManageRunnersStep2Config {
                     ref runner_info,
                     ref exe_path_input,
+                    ref options,
+                    ref option_values,
+                    ref custom_args,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -1908,8 +2171,14 @@ impl App {
                         return;
                     }
 
+                    let env_json =
+                        game_core::options::build_env_json(options, option_values, custom_args);
+
                     match self.db.update_runner_by_name(&runner_info.name, trimmed_path) {
                         Ok(_) => {
+                            let _ = self
+                                .db
+                                .update_runner_env_by_name(&runner_info.name, Some(&env_json));
                             self.trigger_async_dat_download_by_runner(&runner_info.name);
                             self.status_msg = format!(
                                 "[OK] Emulator '{}' ({}) configured successfully!",
@@ -1954,11 +2223,17 @@ impl App {
             Action::OpenConfirmDeleteRunnerModal => {
                 if let ModalState::ManageRunnersStep2Config {
                     ref runner_info,
+                    ref exe_path_input,
                     ..
                 } = self.modal_state.clone()
                 {
+                    let mut confirmed = runner_info.clone();
+                    let trimmed = exe_path_input.trim();
+                    if !trimmed.is_empty() {
+                        confirmed.executable_path = Some(trimmed.to_string());
+                    }
                     self.modal_state = ModalState::ConfirmDeleteRunner {
-                        runner_info: runner_info.clone(),
+                        runner_info: confirmed,
                         selected_option: 0,
                     };
                 }
@@ -2001,6 +2276,85 @@ impl App {
                         self.modal_state = ModalState::None;
                         self.load_platforms();
                     }
+                }
+            }
+            Action::OpenRunnerStandalone => {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref runner_info,
+                    ref exe_path_input,
+                    ref options,
+                    ref option_values,
+                    ref custom_args,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    let exe = exe_path_input.trim();
+                    if exe.is_empty() {
+                        self.status_msg = format!(
+                            "Configure the executable for '{}' before opening it.",
+                            runner_info.name
+                        );
+                        return;
+                    }
+                    if !Path::new(exe).exists() {
+                        self.status_msg = format!(
+                            "Executable/AppImage for '{}' does not exist on disk ({}).",
+                            runner_info.name, exe
+                        );
+                        return;
+                    }
+
+                    let env_json =
+                        game_core::options::build_env_json(options, option_values, custom_args);
+                    let runner = game_core::models::Runner {
+                        id: 0,
+                        platform_id: None,
+                        name: runner_info.name.clone(),
+                        runner_type: runner_info.runner_type.clone(),
+                        executable_path: Some(exe.to_string()),
+                        command_template: String::new(),
+                        default_env: None,
+                        download_url: runner_info.download_url.clone(),
+                        download_filename: runner_info.download_filename.clone(),
+                        is_default: false,
+                        env_vars: Some(env_json),
+                    };
+
+                    self.status_msg = format!("Opening {}...", runner_info.name);
+
+                    crate::window_helper::minimize_active_window();
+                    let _ = crossterm::terminal::disable_raw_mode();
+                    let _ = crossterm::execute!(
+                        std::io::stdout(),
+                        crossterm::terminal::LeaveAlternateScreen,
+                        crossterm::event::DisableMouseCapture,
+                        crossterm::cursor::Show
+                    );
+
+                    let launch_res = GameRunner::launch_standalone(&runner).await;
+
+                    crate::window_helper::restore_active_window();
+                    let _ = crossterm::terminal::enable_raw_mode();
+                    let _ = crossterm::execute!(
+                        std::io::stdout(),
+                        crossterm::terminal::EnterAlternateScreen,
+                        crossterm::event::EnableMouseCapture,
+                        crossterm::cursor::Hide
+                    );
+
+                    match launch_res {
+                        Ok(status) => {
+                            self.status_msg = format!(
+                                "{} exited with code: {:?}",
+                                runner_info.name,
+                                status.code()
+                            );
+                        }
+                        Err(err) => {
+                            self.status_msg = format!("[Error] {}", err);
+                        }
+                    }
+                    self.needs_terminal_clear = true;
                 }
             }
             Action::StartRunnerDownload => {
@@ -2142,11 +2496,10 @@ impl App {
                                 *selected_tool_idx = (*selected_tool_idx + 1) % valid_tools.len();
                             }
                         }
-                        2 => {
-                            if !releases.is_empty() {
+                        2
+                            if !releases.is_empty() => {
                                 *selected_release_idx = (*selected_release_idx + 1) % releases.len();
                             }
-                        }
                         _ => {}
                     }
                 }
@@ -2184,15 +2537,14 @@ impl App {
                                 }
                             }
                         }
-                        2 => {
-                            if !releases.is_empty() {
+                        2
+                            if !releases.is_empty() => {
                                 if *selected_release_idx == 0 {
                                     *selected_release_idx = releases.len() - 1;
                                 } else {
                                     *selected_release_idx -= 1;
                                 }
                             }
-                        }
                         _ => {}
                     }
                 }
@@ -2264,8 +2616,8 @@ impl App {
                                 }
                             }
                         }
-                        2 => {
-                            if !releases.is_empty() {
+                        2
+                            if !releases.is_empty() => {
                                 if self.download_progress.is_some() {
                                     self.status_msg = "[Warning] A download/extraction task is already in progress. Please wait for it to complete.".to_string();
                                     return;
@@ -2300,7 +2652,6 @@ impl App {
                                     });
                                 }
                             }
-                        }
                         _ => {}
                     }
                 }
@@ -2506,10 +2857,20 @@ impl App {
                 }
             }
             Action::OpenCustomArgsEditor => {
-                if let ModalState::AddGameForm { ref custom_command, .. }
+                let args = if let ModalState::AddGameForm { ref custom_command, .. }
                 | ModalState::EditGameForm { ref custom_command, .. } = self.modal_state
                 {
-                    let args = custom_command.clone();
+                    Some(custom_command.clone())
+                } else if let ModalState::ManageRunnersStep2Config {
+                    ref custom_args,
+                    ..
+                } = self.modal_state
+                {
+                    Some(custom_args.clone())
+                } else {
+                    None
+                };
+                if let Some(args) = args {
                     let cpos = args.len();
                     let parent = Box::new(self.modal_state.clone());
                     self.modal_state = ModalState::EditCustomArgsInput {
@@ -2526,6 +2887,12 @@ impl App {
                     | ModalState::EditGameForm { ref mut custom_command, .. } = *parent
                     {
                         *custom_command = input.clone();
+                    } else if let ModalState::ManageRunnersStep2Config {
+                        ref mut custom_args,
+                        ..
+                    } = *parent
+                    {
+                        *custom_args = input.clone();
                     }
                     self.modal_state = *parent;
                     self.status_msg = "[OK] Custom launcher arguments updated.".to_string();
@@ -2985,11 +3352,10 @@ impl App {
                                 *selected_banner_idx = (*selected_banner_idx + 1) % banners.len();
                             }
                         }
-                        3 => {
-                            if !icons.is_empty() {
+                        3
+                            if !icons.is_empty() => {
                                 *selected_icon_idx = (*selected_icon_idx + 1) % icons.len();
                             }
-                        }
                         _ => {}
                     },
                     ModalState::ManageWineRunners {
@@ -3025,11 +3391,10 @@ impl App {
                     }
                     ModalState::PlatformSelector {
                         ref mut selected_idx,
-                    } => {
-                        if !self.platforms.is_empty() {
+                    }
+                        if !self.platforms.is_empty() => {
                             *selected_idx = (*selected_idx + 1) % self.platforms.len();
                         }
-                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -3123,15 +3488,14 @@ impl App {
                                 }
                             }
                         }
-                        3 => {
-                            if !icons.is_empty() {
+                        3
+                            if !icons.is_empty() => {
                                 if *selected_icon_idx == 0 {
                                     *selected_icon_idx = icons.len() - 1;
                                 } else {
                                     *selected_icon_idx -= 1;
                                 }
                             }
-                        }
                         _ => {}
                     },
                     ModalState::ManageWineRunners {
@@ -3183,15 +3547,14 @@ impl App {
                     }
                     ModalState::PlatformSelector {
                         ref mut selected_idx,
-                    } => {
-                        if !self.platforms.is_empty() {
+                    }
+                        if !self.platforms.is_empty() => {
                             if *selected_idx == 0 {
                                 *selected_idx = self.platforms.len() - 1;
                             } else {
                                 *selected_idx -= 1;
                             }
                         }
-                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -3582,15 +3945,23 @@ impl App {
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config {
-                    selected_row: 0,
+                    ref options,
+                    ref selected_row,
                     ref mut exe_path_input,
+                    ref mut custom_args,
                     ref mut cursor_pos,
                     ..
                 } = self.modal_state
                 {
-                    let pos = (*cursor_pos).min(exe_path_input.len());
-                    exe_path_input.insert(pos, ch);
-                    *cursor_pos = pos + 1;
+                    if *selected_row == 0 {
+                        let pos = (*cursor_pos).min(exe_path_input.len());
+                        exe_path_input.insert(pos, ch);
+                        *cursor_pos = pos + 1;
+                    } else if *selected_row == options.len() + 1 {
+                        let pos = (*cursor_pos).min(custom_args.len());
+                        custom_args.insert(pos, ch);
+                        *cursor_pos = pos + 1;
+                    }
                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state
                 {
                     input.push(ch);
@@ -3725,16 +4096,26 @@ impl App {
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config {
-                    selected_row: 0,
+                    ref options,
+                    ref selected_row,
                     ref mut exe_path_input,
+                    ref mut custom_args,
                     ref mut cursor_pos,
                     ..
                 } = self.modal_state
                 {
-                    let pos = (*cursor_pos).min(exe_path_input.len());
-                    if pos > 0 && !exe_path_input.is_empty() {
-                        exe_path_input.remove(pos - 1);
-                        *cursor_pos = pos - 1;
+                    if *selected_row == 0 {
+                        let pos = (*cursor_pos).min(exe_path_input.len());
+                        if pos > 0 && !exe_path_input.is_empty() {
+                            exe_path_input.remove(pos - 1);
+                            *cursor_pos = pos - 1;
+                        }
+                    } else if *selected_row == options.len() + 1 {
+                        let pos = (*cursor_pos).min(custom_args.len());
+                        if pos > 0 && !custom_args.is_empty() {
+                            custom_args.remove(pos - 1);
+                            *cursor_pos = pos - 1;
+                        }
                     }
                 } else if let ModalState::ConfigureApiKeyInput { ref mut input } = self.modal_state
                 {
@@ -4705,8 +5086,8 @@ impl App {
                         },
                         wine_runner_id: None,
                         steam_appid: steam_id,
-                        file_name: file_path.split('/').last().map(|s| s.to_string()),
-                        file_extension: file_path.split('.').last().map(|s| format!(".{}", s)),
+                        file_name: file_path.split('/').next_back().map(|s| s.to_string()),
+                        file_extension: file_path.split('.').next_back().map(|s| format!(".{}", s)),
                         file_size: None,
                         file_hash_crc32: None,
                         file_hash_md5: None,

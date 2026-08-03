@@ -61,7 +61,8 @@ impl Database {
                 download_url TEXT,
                 download_filename TEXT,
                 is_configured BOOLEAN DEFAULT 0,
-                is_default BOOLEAN DEFAULT 0
+                is_default BOOLEAN DEFAULT 0,
+                env_vars TEXT
             );
 
             CREATE TABLE IF NOT EXISTS scan_folders (
@@ -154,6 +155,19 @@ impl Database {
                 "ALTER TABLE games ADD COLUMN is_missing_base BOOLEAN DEFAULT 0",
                 [],
             )?;
+        }
+
+        // Migrate pre-existing databases that lack the runners.env_vars column
+        // (stores the emulator options JSON: emulator_options map + custom_args).
+        let has_runner_env = self
+            .conn
+            .prepare("PRAGMA table_info(runners)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "env_vars");
+        if !has_runner_env {
+            self.conn.execute("ALTER TABLE runners ADD COLUMN env_vars TEXT", [])?;
         }
 
         Ok(())
@@ -429,6 +443,28 @@ impl Database {
         Ok(())
     }
 
+    /// Read the emulator-options JSON stored in the runner's `env_vars` column.
+    pub fn get_runner_env_by_name(&self, runner_name: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT env_vars FROM runners WHERE name = ?1 LIMIT 1")?;
+        let mut rows = stmt.query(params![runner_name])?;
+        if let Some(row) = rows.next()? {
+            Ok(row.get(0)?)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Persist the emulator-options JSON into the runner's `env_vars` column.
+    pub fn update_runner_env_by_name(&self, runner_name: &str, env_vars: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET env_vars = ?2 WHERE name = ?1",
+            params![runner_name, env_vars],
+        )?;
+        Ok(())
+    }
+
     // ----------------------------------------------------
     // App Settings Queries
     // ----------------------------------------------------
@@ -576,7 +612,7 @@ impl Database {
 
     pub fn get_runners_for_platform(&self, platform_id: i64) -> Result<Vec<Runner>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default FROM runners WHERE platform_id = ?1",
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default, env_vars FROM runners WHERE platform_id = ?1",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -591,6 +627,7 @@ impl Database {
                 download_url: row.get(7)?,
                 download_filename: row.get(8)?,
                 is_default: row.get(9)?,
+                env_vars: row.get(10)?,
             })
         })?;
 

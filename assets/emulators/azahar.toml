@@ -1,0 +1,29 @@
+# Emulator launch options for Azahar (Nintendo 3DS).
+# Each [[options]] entry is rendered generically in the "Emulator Options" popup
+# and expanded into CLI flags when the chosen value differs from `default`.
+# `kind` is extensible: "toggle" (flag present/absent) and "choice" (pick one
+# value, inserted where `{value}` appears in `flag_template`).
+
+note = "Azahar Plus command line options"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+flag_template = "-f"
+
+[[options]]
+key = "renderer"
+name = "Renderer"
+kind = "choice"
+default = "opengl"
+flag_template = "--renderer {value}"
+choices = ["software", "opengl", "vulkan"]
+
+[[options]]
+key = "accurate_bus"
+name = "Accurate Bus Timing"
+kind = "toggle"
+default = "0"
+flag_template = "--accurate-bus"

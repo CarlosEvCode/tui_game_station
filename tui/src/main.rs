@@ -65,11 +65,10 @@ async fn main() -> Result<()> {
         }
 
         if let Some(ref path) = exe_path {
-            if path.exists() && !removed {
-                if std::fs::remove_file(path).is_ok() {
+            if path.exists() && !removed
+                && std::fs::remove_file(path).is_ok() {
                     removed = true;
                 }
-            }
         }
 
         if !removed {
@@ -142,11 +141,9 @@ async fn main() -> Result<()> {
                                 }
                             }
                             KeyCode::BackTab => {
-                                if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                    app.update(Action::ModalPrevField).await;
-                                } else if key.modifiers.contains(KeyModifiers::CONTROL) {
-                                    app.update(Action::ModalPrevField).await;
-                                } else if key.modifiers.contains(KeyModifiers::SHIFT) {
+                                if key.modifiers.contains(KeyModifiers::SHIFT)
+                                    || key.modifiers.contains(KeyModifiers::CONTROL)
+                                {
                                     app.update(Action::ModalPrevField).await;
                                 } else {
                                     app.update(Action::ModalNextField).await;
@@ -194,8 +191,9 @@ async fn main() -> Result<()> {
                                 | ModalState::WineToolsMenu { .. } => {
                                     app.update(Action::ModalSelectPrev).await;
                                 }
-                                ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } => {
-                                    *selected_row = 0;
+                                ModalState::ManageRunnersStep2Config { ref options, ref mut selected_row, .. } => {
+                                    let total = options.len() + 3;
+                                    *selected_row = if *selected_row == 0 { total - 1 } else { *selected_row - 1 };
                                 }
                                 _ => {
                                     app.update(Action::ModalSelectPrev).await;
@@ -221,8 +219,9 @@ async fn main() -> Result<()> {
                                 ModalState::ConfirmDeleteRunner { .. } => {
                                     app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                 }
-                                ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } => {
-                                    *selected_row = 1;
+                                ModalState::ManageRunnersStep2Config { ref options, ref mut selected_row, .. } => {
+                                    let total = options.len() + 3;
+                                    *selected_row = (*selected_row + 1) % total;
                                 }
                                 ModalState::AddGameStep1Type { .. }
                                 | ModalState::ScanFolderStep1Platform { .. }
@@ -257,8 +256,24 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavLeft).await;
                                 }
-                                ModalState::ManageRunnersStep2Config { ref selected_row, ref mut selected_action_idx, ref mut cursor_pos, .. } => {
+                                ModalState::ManageRunnersStep2Config {
+                                    ref options,
+                                    ref mut option_values,
+                                    ref selected_row,
+                                    ref mut selected_action_idx,
+                                    ref mut cursor_pos,
+                                    ..
+                                } => {
                                     if *selected_row == 0 {
+                                        if *cursor_pos > 0 { *cursor_pos -= 1; }
+                                    } else if *selected_row >= 1 && *selected_row <= options.len() {
+                                        crate::app::cycle_runner_option(
+                                            options,
+                                            option_values,
+                                            *selected_row - 1,
+                                            true,
+                                        );
+                                    } else if *selected_row == options.len() + 1 {
                                         if *cursor_pos > 0 { *cursor_pos -= 1; }
                                     } else if *selected_action_idx > 0 {
                                         *selected_action_idx -= 1;
@@ -302,14 +317,35 @@ async fn main() -> Result<()> {
                                 ModalState::VisualMediaSelector { .. } => {
                                     app.update(Action::VisualMediaNavRight).await;
                                 }
-                                ModalState::ManageRunnersStep2Config { ref runner_info, ref exe_path_input, ref selected_row, ref mut selected_action_idx, ref mut cursor_pos } => {
+                                ModalState::ManageRunnersStep2Config {
+                                    ref runner_info,
+                                    ref exe_path_input,
+                                    ref options,
+                                    ref mut option_values,
+                                    ref custom_args,
+                                    ref selected_row,
+                                    ref mut selected_action_idx,
+                                    ref mut cursor_pos,
+                                    ..
+                                } => {
                                     if *selected_row == 0 {
                                         if *cursor_pos < exe_path_input.len() { *cursor_pos += 1; }
+                                    } else if *selected_row >= 1 && *selected_row <= options.len() {
+                                        crate::app::cycle_runner_option(
+                                            options,
+                                            option_values,
+                                            *selected_row - 1,
+                                            false,
+                                        );
+                                    } else if *selected_row == options.len() + 1 {
+                                        if *cursor_pos < custom_args.len() {
+                                            *cursor_pos += 1;
+                                        }
                                     } else {
                                         let has_executable = runner_info.executable_path.as_ref().map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists()).unwrap_or(false);
                                         let mut total_btns = 2;
                                         if runner_info.download_url.is_some() { total_btns += 1; }
-                                        if has_executable { total_btns += 1; }
+                                        if has_executable { total_btns += 2; }
                                         if *selected_action_idx + 1 < total_btns {
                                             *selected_action_idx += 1;
                                         }
@@ -395,10 +431,10 @@ async fn main() -> Result<()> {
                                         _ => &PlatformType::Native,
                                     };
                                     let on_checkbox = match game_type {
-                                        PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
-                                        PlatformType::Native => selected_field >= 4 && selected_field <= 6,
+                                        PlatformType::Wine => (6..=12).contains(&selected_field),
+                                        PlatformType::Native => (4..=6).contains(&selected_field),
                                         PlatformType::Emulator | PlatformType::Steam =>
-                                            selected_field >= 3 && selected_field <= 5,
+                                            (3..=5).contains(&selected_field),
                                     };
                                     if on_checkbox {
                                         app.update(Action::ModalToggleCheckbox).await;
@@ -407,6 +443,23 @@ async fn main() -> Result<()> {
                                     }
                                 } else if let ModalState::ScanFolderForm { .. } = app.modal_state {
                                     app.update(Action::ModalToggleCheckbox).await;
+                                } else if let ModalState::ManageRunnersStep2Config {
+                                    ref options,
+                                    ref mut option_values,
+                                    ref selected_row,
+                                    ..
+                                } = app.modal_state
+                                {
+                                    if *selected_row >= 1 && *selected_row <= options.len() {
+                                        crate::app::cycle_runner_option(
+                                            options,
+                                            option_values,
+                                            *selected_row - 1,
+                                            false,
+                                        );
+                                    } else {
+                                        app.update(Action::ModalInputChar(' ')).await;
+                                    }
                                 } else if let ModalState::VisualMediaSelector { active_tab, .. } = app.modal_state {
                                     if active_tab > 0 {
                                         app.update(Action::ModalToggleCheckbox).await;
@@ -546,17 +599,17 @@ async fn main() -> Result<()> {
                                     ..
                                 } => {
                                     let on_checkbox = match game_type {
-                                        PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
-                                        PlatformType::Native => selected_field >= 4 && selected_field <= 6,
+                                        PlatformType::Wine => (6..=12).contains(&selected_field),
+                                        PlatformType::Native => (4..=6).contains(&selected_field),
                                         PlatformType::Emulator | PlatformType::Steam =>
-                                            selected_field >= 3 && selected_field <= 5,
+                                            (3..=5).contains(&selected_field),
                                     };
                                     if on_checkbox {
                                         app.update(Action::ModalToggleCheckbox).await;
                                     } else {
                                         match game_type {
                                             PlatformType::Wine => match selected_field {
-                                                1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
+                                                1..=3 => app.update(Action::OpenFilePicker).await,
                                                 4 => app.update(Action::OpenWineRunnerPicker).await,
                                                 5 => app.update(Action::OpenCustomArgsEditor).await,
                                                 13 => app.update(Action::SaveModalGame).await,
@@ -588,17 +641,17 @@ async fn main() -> Result<()> {
                                     ..
                                 } => {
                                     let on_checkbox = match game_type {
-                                        PlatformType::Wine => selected_field >= 6 && selected_field <= 12,
-                                        PlatformType::Native => selected_field >= 4 && selected_field <= 6,
+                                        PlatformType::Wine => (6..=12).contains(&selected_field),
+                                        PlatformType::Native => (4..=6).contains(&selected_field),
                                         PlatformType::Emulator | PlatformType::Steam =>
-                                            selected_field >= 3 && selected_field <= 5,
+                                            (3..=5).contains(&selected_field),
                                     };
                                     if on_checkbox {
                                         app.update(Action::ModalToggleCheckbox).await;
                                     } else {
                                         match game_type {
                                             PlatformType::Wine => match selected_field {
-                                                1 | 2 | 3 => app.update(Action::OpenFilePicker).await,
+                                                1..=3 => app.update(Action::OpenFilePicker).await,
                                                 4 => app.update(Action::OpenWineRunnerPicker).await,
                                                 5 => app.update(Action::OpenCustomArgsEditor).await,
                                                 13 => app.update(Action::SaveEditGameModal).await,
@@ -629,9 +682,9 @@ async fn main() -> Result<()> {
                                     let action_field_idx = if supports_dat { 4 } else { 3 };
                                     if selected_field == 0 {
                                         app.update(Action::OpenFilePicker).await;
-                                    } else if selected_field == 2 {
-                                        app.update(Action::ModalToggleCheckbox).await;
-                                    } else if supports_dat && selected_field == 3 {
+                                    } else if selected_field == 2
+                                        || (supports_dat && selected_field == 3)
+                                    {
                                         app.update(Action::ModalToggleCheckbox).await;
                                     } else if selected_field == action_field_idx {
                                         app.update(Action::StartFolderScan).await;
@@ -639,27 +692,45 @@ async fn main() -> Result<()> {
                                         app.update(Action::ModalNextField).await;
                                     }
                                 },
-                                ModalState::ManageRunnersStep2Config { ref runner_info, ref exe_path_input, selected_row, selected_action_idx, .. } => {
-                                    if selected_row == 0 {
+                                ModalState::ManageRunnersStep2Config {
+                                    ref runner_info,
+                                    ref exe_path_input,
+                                    ref options,
+                                    ref mut option_values,
+                                    ref selected_row,
+                                    selected_action_idx,
+                                    ..
+                                } => {
+                                    if *selected_row == 0 {
                                         if exe_path_input.trim().is_empty() {
                                             app.update(Action::OpenFilePicker).await;
-                                        } else if let ModalState::ManageRunnersStep2Config { ref mut selected_row, .. } = app.modal_state {
-                                            *selected_row = 1;
+                                        } else if let ModalState::ManageRunnersStep2Config { ref mut selected_row, ref options, .. } = app.modal_state {
+                                            *selected_row = options.len() + 2;
                                         }
+                                    } else if *selected_row >= 1 && *selected_row <= options.len() {
+                                        crate::app::cycle_runner_option(
+                                            options,
+                                            option_values,
+                                            *selected_row - 1,
+                                            false,
+                                        );
+                                    } else if *selected_row == options.len() + 1 {
+                                        app.update(Action::OpenCustomArgsEditor).await;
                                     } else {
-                                        let has_executable = runner_info.executable_path.as_ref().map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists()).unwrap_or(false);
+                                        let has_executable = !exe_path_input.trim().is_empty()
+                                            && std::path::Path::new(exe_path_input.trim()).exists();
                                         let mut actions = vec!["browse"];
                                         if runner_info.download_url.is_some() { actions.push("download"); }
                                         actions.push("save");
-                                        if has_executable {
-                                            actions.push("delete");
-                                        }
+                                        if has_executable { actions.push("open"); }
+                                        if has_executable { actions.push("delete"); }
 
                                         let act = actions.get(selected_action_idx).copied().unwrap_or("save");
                                         match act {
                                             "browse" => app.update(Action::OpenFilePicker).await,
                                             "download" => app.update(Action::StartRunnerDownload).await,
                                             "save" => app.update(Action::SaveRunnerConfig).await,
+                                            "open" => app.update(Action::OpenRunnerStandalone).await,
                                             "toggle_active" => app.update(Action::ToggleRunnerActiveState).await,
                                             "delete" => app.update(Action::OpenConfirmDeleteRunnerModal).await,
                                             _ => {}
@@ -762,7 +833,7 @@ async fn main() -> Result<()> {
                                 app.update(Action::ModalInputChar('x')).await;
                             }
                             KeyCode::Char('u') | KeyCode::Char('U') => {
-                                if let ModalState::About { .. } = app.modal_state {
+                                if let ModalState::About = app.modal_state {
                                     app.update(Action::CheckForUpdates { silent: false }).await;
                                 } else {
                                     app.update(Action::ModalInputChar('u')).await;

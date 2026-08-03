@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use game_core::models::{Game, Runner};
+use game_core::options::{load_emulator_options, merge_runner_options, resolve_flags, RunnerOptionEnv};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
@@ -96,8 +97,14 @@ impl GameRunner {
                 local_envs.insert("WINEPREFIX".to_string(), prefix.clone());
             }
 
-            let (e, a, mut pe) = parse_command_string(&template, game)?;
+            let (e, mut a, mut pe) = parse_command_string(&template, game)?;
             pe.extend(local_envs);
+
+            // Inject TOML-defined emulator options + custom args before the ROM.
+            let option_flags = resolved_runner_flags(r);
+            if !option_flags.is_empty() {
+                a.splice(0..0, option_flags);
+            }
             (e, a, pe)
         } else if let Some(path) = &game.file_path {
             let (e, a, mut pe) = parse_command_string(&format!("\"{}\"", path), game)?;
@@ -132,12 +139,36 @@ impl GameRunner {
     /// Launch game process asynchronously, isolating stdout/stderr to a log file to avoid TUI terminal corruption.
     pub async fn launch_game(game: &Game, runner: Option<&Runner>) -> Result<ExitStatus> {
         let (exe, args, envs) = Self::build_command_line(game, runner)?;
+        let work_dir = game.working_dir.clone();
+        Self::spawn_and_wait(&exe, &args, &envs, work_dir.as_deref()).await
+    }
 
-        let mut cmd = Command::new(&exe);
-        cmd.args(&args);
+    /// Launch an emulator standalone (no ROM) reusing its configured options,
+    /// so users can open the emulator UI / settings directly.
+    pub async fn launch_standalone(runner: &Runner) -> Result<ExitStatus> {
+        let exe = runner
+            .executable_path
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("El emulador '{}' no tiene ejecutable configurado.", runner.name))?;
+        if !std::path::Path::new(&exe).exists() {
+            anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}).", runner.name, exe);
+        }
 
-        if let Some(work_dir) = &game.working_dir {
-            cmd.current_dir(work_dir);
+        let args = resolved_runner_flags(runner);
+        Self::spawn_and_wait(&exe, &args, &HashMap::new(), None).await
+    }
+
+    async fn spawn_and_wait(
+        exe: &str,
+        args: &[String],
+        envs: &HashMap<String, String>,
+        work_dir: Option<&str>,
+    ) -> Result<ExitStatus> {
+        let mut cmd = Command::new(exe);
+        cmd.args(args);
+
+        if let Some(wd) = work_dir {
+            cmd.current_dir(wd);
         }
 
         for (k, v) in envs {
@@ -173,6 +204,28 @@ impl GameRunner {
         let status = child.wait().await?;
         Ok(status)
     }
+}
+
+/// Resolve the emulator-options flags + custom args stored on a runner row.
+fn resolved_runner_flags(runner: &Runner) -> Vec<String> {
+    let Some(env_json) = &runner.env_vars else {
+        return Vec::new();
+    };
+    let env: RunnerOptionEnv = game_core::options::from_env_json(env_json);
+    let Ok(defs) = load_emulator_options(&runner.name) else {
+        return Vec::new();
+    };
+    if defs.is_empty()
+        && env.custom_args
+            .as_deref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return Vec::new();
+    }
+    let options_map = env.emulator_options.clone().unwrap_or_default();
+    let merged = merge_runner_options(&defs, &options_map);
+    resolve_flags(&defs, &merged, env.custom_args.as_deref().unwrap_or(""))
 }
 
 fn parse_command_string(full_cmd: &str, _game: &Game) -> Result<(String, Vec<String>, HashMap<String, String>)> {

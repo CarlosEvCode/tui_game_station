@@ -8,14 +8,15 @@ pub enum PlatformType {
     Steam,
 }
 
-impl ToString for PlatformType {
-    fn to_string(&self) -> String {
-        match self {
-            PlatformType::Emulator => "emulator".to_string(),
-            PlatformType::Native => "native".to_string(),
-            PlatformType::Wine => "wine".to_string(),
-            PlatformType::Steam => "steam".to_string(),
-        }
+impl std::fmt::Display for PlatformType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            PlatformType::Emulator => "emulator",
+            PlatformType::Native => "native",
+            PlatformType::Wine => "wine",
+            PlatformType::Steam => "steam",
+        };
+        f.write_str(s)
     }
 }
 
@@ -51,6 +52,8 @@ pub struct Runner {
     pub download_url: Option<String>,
     pub download_filename: Option<String>,
     pub is_default: bool,
+    /// JSON payload for emulator options (`emulator_options` map + `custom_args`).
+    pub env_vars: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -77,28 +77,44 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
         return;
     }
 
-    if let ModalState::ManageRunnersStep2Config { ref runner_info, ref mut selected_row, ref mut selected_action_idx, .. } = app.modal_state {
-        let popup_area = centered_rect_exact(60, 10, area);
+    if let ModalState::ManageRunnersStep2Config {
+        ref runner_info,
+        ref exe_path_input,
+        ref mut selected_row,
+        ref mut selected_action_idx,
+        ref mut option_values,
+        ref options,
+        ..
+    } = app.modal_state
+    {
+        let popup_area = crate::ui::runner_step2_popup_area(options.len(), area);
         if x >= popup_area.x && x < popup_area.x + popup_area.width &&
            y >= popup_area.y && y < popup_area.y + popup_area.height {
-            let rel_y = y.saturating_sub(popup_area.y + 1);
-            if rel_y <= 2 {
+            let n = options.len();
+            let rel_in = y.saturating_sub(popup_area.y + 1);
+            let custom_line = if n == 0 { 5 } else { 6 + n };
+            let buttons_line = custom_line + 2;
+
+            if rel_in <= 3 {
                 *selected_row = 0;
-            } else if rel_y >= 3 {
-                *selected_row = 1;
+            } else if n > 0 && rel_in >= 6 && usize::from(rel_in) < 6 + n {
+                let opt_idx = usize::from(rel_in) - 5;
+                *selected_row = opt_idx + 1;
+                crate::app::cycle_runner_option(options, option_values, opt_idx, false);
+            } else if usize::from(rel_in) == custom_line {
+                *selected_row = n + 1;
+                app.update(Action::OpenCustomArgsEditor).await;
+            } else if usize::from(rel_in) >= buttons_line {
+                *selected_row = n + 2;
                 let rel_x = x.saturating_sub(popup_area.x + 2);
                 let w = popup_area.width.saturating_sub(4);
-                let has_executable = runner_info
-                    .executable_path
-                    .as_ref()
-                    .map(|p| !p.trim().is_empty() && std::path::Path::new(p).exists())
-                    .unwrap_or(false);
+                let has_executable = !exe_path_input.trim().is_empty()
+                    && std::path::Path::new(exe_path_input.trim()).exists();
                 let mut actions = vec!["browse"];
                 if runner_info.download_url.is_some() { actions.push("download"); }
                 actions.push("save");
-                if has_executable {
-                    actions.push("delete");
-                }
+                if has_executable { actions.push("open"); }
+                if has_executable { actions.push("delete"); }
 
                 let step_w = w / (actions.len() as u16).max(1);
                 let clicked_action = ((rel_x / step_w.max(1)) as usize).min(actions.len() - 1);
@@ -109,6 +125,7 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                     "browse" => app.update(Action::OpenFilePicker).await,
                     "download" => app.update(Action::StartRunnerDownload).await,
                     "save" => app.update(Action::SaveRunnerConfig).await,
+                    "open" => app.update(Action::OpenRunnerStandalone).await,
                     "toggle_active" => app.update(Action::ToggleRunnerActiveState).await,
                     "delete" => app.update(Action::OpenConfirmDeleteRunnerModal).await,
                     _ => {}
