@@ -360,6 +360,7 @@ pub struct App {
     pub is_manual_update_check: bool,
     pub gamepad_rx: Option<std::sync::mpsc::Receiver<crate::gamepad::GamepadEvent>>,
     pub active_gamepad_name: Option<String>,
+    pub needs_terminal_clear: bool,
 }
 
 impl App {
@@ -412,6 +413,7 @@ impl App {
             is_manual_update_check: false,
             gamepad_rx,
             active_gamepad_name: None,
+            needs_terminal_clear: false,
         };
 
         if let Some(app_dir) = dirs::data_dir() {
@@ -1283,6 +1285,7 @@ impl App {
             }
             Action::ToggleBigPictureMode => {
                 self.is_big_picture = !self.is_big_picture;
+                self.needs_terminal_clear = true;
                 if self.is_big_picture {
                     self.preload_visible_covers();
                     self.status_msg = "[MODE] Switched to Big Picture Mode".to_string();
@@ -1458,6 +1461,7 @@ impl App {
                         self.status_msg = format!("[Error] {}", err);
                     }
                 }
+                self.needs_terminal_clear = true;
             }
             Action::ScanCurrentFolder => {
                 if self.platforms.is_empty() {

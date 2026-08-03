@@ -110,6 +110,10 @@ async fn main() -> Result<()> {
     // Main event loop
     loop {
         app.check_download_events().await;
+        if app.needs_terminal_clear {
+            app.needs_terminal_clear = false;
+            terminal.clear()?;
+        }
         terminal.draw(|f| ui::render_ui(f, &mut app))?;
 
         if event::poll(Duration::from_millis(50))? {
