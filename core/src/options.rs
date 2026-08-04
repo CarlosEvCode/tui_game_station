@@ -143,6 +143,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         "duckstation" => include_str!("../../assets/emulators/duckstation.toml"),
         "pcsx2" => include_str!("../../assets/emulators/pcsx2.toml"),
         "cemu" => include_str!("../../assets/emulators/cemu.toml"),
+        "ppsspp" => include_str!("../../assets/emulators/ppsspp.toml"),
         _ => return Ok(Vec::new()),
     };
 

@@ -1,0 +1,89 @@
+# Emulator launch options for PPSSPP (Sony PSP).
+#
+# PPSSPP persists its settings at
+# `~/.config/ppsspp/PSP/SYSTEM/ppsspp.ini` using standard INI format
+# with `Key = Value` and booleans as True/False.
+# The qt_ini patcher handles that format; booleans are translated with
+# value_map ("False"/"True" logical <-> "false"/"true" in the file).
+
+note = "PPSSPP (PSP) configuration file options"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+[options.config_target]
+file = "~/.config/ppsspp/PSP/SYSTEM/ppsspp.ini"
+format = "qt_ini"
+section = "Graphics"
+key = "FullScreen"
+[options.config_target.value_map]
+"0" = "False"
+"1" = "True"
+
+[[options]]
+key = "renderer"
+name = "Renderer Backend"
+kind = "choice"
+default = "Vulkan"
+# PPSSPP stores GraphicsBackend as numeric code followed by name in parentheses.
+[[options.choices]]
+value = "OpenGL"
+label = "OpenGL"
+[[options.choices]]
+value = "Vulkan"
+label = "Vulkan"
+[options.config_target]
+file = "~/.config/ppsspp/PSP/SYSTEM/ppsspp.ini"
+format = "qt_ini"
+section = "Graphics"
+key = "GraphicsBackend"
+[options.config_target.value_map]
+"OpenGL" = "0 (OPENGL)"
+"Vulkan" = "3 (VULKAN)"
+
+[[options]]
+key = "resolution_scale"
+name = "Resolution Scale"
+kind = "choice"
+default = "0"
+# 0=Automatic (1:1), 1=PSP x1 ... 10=PSP x10
+[[options.choices]]
+value = "0"
+label = "Automatic (1:1)"
+[[options.choices]]
+value = "1"
+label = "1X (PSP Native)"
+[[options.choices]]
+value = "2"
+label = "2X"
+[[options.choices]]
+value = "3"
+label = "3X"
+[[options.choices]]
+value = "4"
+label = "4X"
+[[options.choices]]
+value = "5"
+label = "5X"
+[[options.choices]]
+value = "6"
+label = "6X"
+[[options.choices]]
+value = "7"
+label = "7X"
+[[options.choices]]
+value = "8"
+label = "8X"
+[[options.choices]]
+value = "9"
+label = "9X"
+[[options.choices]]
+value = "10"
+label = "10X"
+[options.config_target]
+file = "~/.config/ppsspp/PSP/SYSTEM/ppsspp.ini"
+format = "qt_ini"
+section = "Graphics"
+key = "InternalResolution"
