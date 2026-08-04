@@ -632,10 +632,6 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
     fn apply_config_patches_writes_docked_mode_to_file() {
         let options = eden_options_with_temp_target("apply_docked.ini");
         let mut values = default_map(&options);
-
-        values.insert("docked_mode".to_string(), "0".to_string());
-        let failures = apply_config_patches(&options, &values);
-        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
         let file = resolve_config_file(
             &options
                 .iter()
@@ -646,11 +642,28 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
                 .unwrap()
                 .file,
         );
+
+        // Eden inverts use_docked_mode: 0 = docked, 1 = handheld.
+        // Logical Docked ON ("1") must write a 0 to the file.
+        values.insert("docked_mode".to_string(), "1".to_string());
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
         assert_eq!(
             read_qt_ini_value(&file, "System", "use_docked_mode")
                 .unwrap()
                 .as_deref(),
             Some("0")
+        );
+
+        // Logical Docked OFF ("0") must write a 1.
+        values.insert("docked_mode".to_string(), "0".to_string());
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+        assert_eq!(
+            read_qt_ini_value(&file, "System", "use_docked_mode")
+                .unwrap()
+                .as_deref(),
+            Some("1")
         );
     }
 
@@ -708,9 +721,10 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
             Some("vulkan")
         );
 
-        // Docked mode sample is use_docked_mode=1 -> logical "1".
+        // Docked mode sample is use_docked_mode=1, which Eden treats as
+        // HANDHELD (0 = docked) -> logical value must be "0".
         let docked = options.iter().find(|o| o.key == "docked_mode").unwrap();
-        assert_eq!(read_config_value(docked).as_deref(), Some("1"));
+        assert_eq!(read_config_value(docked).as_deref(), Some("0"));
 
         // Missing key/section -> None, so the caller falls back to the default.
         let mut missing = renderer_backend(&options).clone();

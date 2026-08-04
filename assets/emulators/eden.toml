@@ -62,11 +62,13 @@ file = "~/.config/eden/qt-config.ini"
 format = "qt_ini"
 section = "System"
 key = "use_docked_mode"
-# Logical toggle values are "0"/"1" and the file also uses "0"/"1"; the map
-# documents the logical<->file translation explicitly (identity today).
+# Eden's use_docked_mode is INVERTED vs. what its name suggests (validado
+# manualmente): 0 = docked, 1 = handheld. So logical "1" (Docked ON) writes a
+# 0, and logical "0" (Docked OFF) writes a 1. The reverse map is used when
+# preloading the current state from the config file.
 [options.config_target.value_map]
-"0" = "0"
-"1" = "1"
+"0" = "1"
+"1" = "0"
 
 [[options]]
 key = "resolution_scale"
