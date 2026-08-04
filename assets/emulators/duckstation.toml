@@ -1,0 +1,86 @@
+# Emulator launch options for DuckStation (Sony PlayStation).
+#
+# DuckStation persists its settings at
+# `~/.local/share/duckstation/settings.ini` (NOT Qt INI: it uses
+# `Key = Value` with spaces around the `=` and booleans as true/false).
+# The qt_ini patcher handles that format; booleans are translated with
+# value_map ("0"/"1" logical <-> "false"/"true" in the file).
+# Confirmed against this system's settings.ini.
+
+note = "DuckStation (PS1) configuration file options"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+[options.config_target]
+file = "~/.local/share/duckstation/settings.ini"
+format = "qt_ini"
+section = "Main"
+key = "StartFullscreen"
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
+
+[[options]]
+key = "renderer"
+name = "Renderer Backend"
+kind = "choice"
+default = "Vulkan"
+choices = ["Vulkan", "OpenGL", "Software"]
+[options.config_target]
+file = "~/.local/share/duckstation/settings.ini"
+format = "qt_ini"
+section = "GPU"
+key = "Renderer"
+
+[[options]]
+key = "aspect_ratio"
+name = "Aspect Ratio"
+kind = "choice"
+default = "16:9"
+# Stored strings follow the current DuckStation convention (the file already
+# contains "16:9"); verify "Auto"/"Stretch" if DuckStation changes them.
+choices = ["Auto", "4:3", "16:9", "Stretch"]
+[options.config_target]
+file = "~/.local/share/duckstation/settings.ini"
+format = "qt_ini"
+section = "Display"
+key = "AspectRatio"
+
+[[options]]
+key = "resolution_scale"
+name = "Resolution Scale"
+kind = "choice"
+default = "3"
+# DuckStation uses direct integer scale: 1X (native) up to 8X.
+[[options.choices]]
+value = "1"
+label = "1X (Nativo)"
+[[options.choices]]
+value = "2"
+label = "2X"
+[[options.choices]]
+value = "3"
+label = "3X"
+[[options.choices]]
+value = "4"
+label = "4X"
+[[options.choices]]
+value = "5"
+label = "5X"
+[[options.choices]]
+value = "6"
+label = "6X"
+[[options.choices]]
+value = "7"
+label = "7X"
+[[options.choices]]
+value = "8"
+label = "8X"
+[options.config_target]
+file = "~/.local/share/duckstation/settings.ini"
+format = "qt_ini"
+section = "GPU"
+key = "ResolutionScale"

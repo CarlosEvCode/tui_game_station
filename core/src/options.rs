@@ -131,6 +131,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
     let source = match key.as_str() {
         "azahar" => include_str!("../../assets/emulators/azahar.toml"),
         "eden" => include_str!("../../assets/emulators/eden.toml"),
+        "duckstation" => include_str!("../../assets/emulators/duckstation.toml"),
         _ => return Ok(Vec::new()),
     };
 
@@ -586,6 +587,167 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
         assert_eq!(
             res.kind,
             EmulatorOptionKind::Choice((0..=12).map(|n| n.to_string()).collect::<Vec<_>>())
+        );
+    }
+
+    /// A representative DuckStation `settings.ini` sample (its own INI format:
+    /// `Key = Value` with spaces around the `=` and true/false booleans).
+    const DUCKSTATION_INI_SAMPLE: &str = "\
+[Main]
+StartFullscreen = false
+RewindEnable = false
+
+[GPU]
+Renderer = Vulkan
+ResolutionScale = 3
+Multisamples = 1
+
+[Display]
+AspectRatio = 16:9
+VSync = true
+
+[UI]
+Theme = Dark
+";
+
+    /// Load the real DuckStation TOML definitions with every config_target
+    /// pointing at a temp file, so tests never touch the user's settings.ini.
+    fn duckstation_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
+        let dir = std::env::temp_dir().join(format!(
+            "tui_game_station_options_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, DUCKSTATION_INI_SAMPLE).unwrap();
+        let mut options = load_emulator_options("DuckStation").unwrap();
+        for opt in &mut options {
+            if let Some(target) = &mut opt.config_target {
+                target.file = file.to_string_lossy().into_owned();
+            }
+        }
+        options
+    }
+
+    fn duckstation_option<'a>(
+        options: &'a [EmulatorOption],
+        key: &str,
+    ) -> &'a EmulatorOption {
+        options.iter().find(|o| o.key == key).unwrap()
+    }
+
+    #[test]
+    fn duckstation_loads_config_target_definitions() {
+        let options = load_emulator_options("DuckStation").unwrap();
+        assert_eq!(options.len(), 4);
+
+        let fullscreen = duckstation_option(&options, "fullscreen");
+        let target = fullscreen.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("Main", "StartFullscreen"));
+        assert_eq!(target.format, "qt_ini");
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("0"), Some(&"false".to_string()));
+        assert_eq!(map.get("1"), Some(&"true".to_string()));
+        assert!(fullscreen.flag_template.is_empty(), "config-only option must not emit CLI flags");
+
+        let renderer = duckstation_option(&options, "renderer");
+        let target = renderer.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("GPU", "Renderer"));
+        assert_eq!(
+            renderer.kind,
+            EmulatorOptionKind::Choice(vec![
+                "Vulkan".to_string(),
+                "OpenGL".to_string(),
+                "Software".to_string()
+            ])
+        );
+
+        let aspect = duckstation_option(&options, "aspect_ratio");
+        let target = aspect.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("Display", "AspectRatio"));
+        assert_eq!(aspect.default, "16:9");
+
+        let res = duckstation_option(&options, "resolution_scale");
+        let target = res.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("GPU", "ResolutionScale"));
+        assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("1X (Nativo)"));
+        assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8X"));
+        assert_eq!(
+            res.kind,
+            EmulatorOptionKind::Choice((1..=8).map(|n| n.to_string()).collect::<Vec<_>>())
+        );
+    }
+
+    #[test]
+    fn apply_config_patches_writes_duckstation_settings() {
+        let options = duckstation_options_with_temp_target("apply_duckstation.ini");
+        let file = resolve_config_file(
+            &duckstation_option(&options, "fullscreen")
+                .config_target
+                .as_ref()
+                .unwrap()
+                .file,
+        );
+
+        let mut values = default_map(&options);
+        values.insert("fullscreen".to_string(), "1".to_string());
+        values.insert("renderer".to_string(), "OpenGL".to_string());
+        values.insert("aspect_ratio".to_string(), "4:3".to_string());
+        values.insert("resolution_scale".to_string(), "5".to_string());
+
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+
+        // Booleans must be translated to DuckStation's true/false words.
+        assert_eq!(
+            read_qt_ini_value(&file, "Main", "StartFullscreen").unwrap().as_deref(),
+            Some("true")
+        );
+        // Identity choices written verbatim, spacing around `=` preserved.
+        assert_eq!(
+            read_qt_ini_value(&file, "GPU", "Renderer").unwrap().as_deref(),
+            Some("OpenGL")
+        );
+        assert_eq!(
+            read_qt_ini_value(&file, "Display", "AspectRatio").unwrap().as_deref(),
+            Some("4:3")
+        );
+        assert_eq!(
+            read_qt_ini_value(&file, "GPU", "ResolutionScale").unwrap().as_deref(),
+            Some("5")
+        );
+
+        // Unrelated lines stay byte-identical (DuckStation uses `Key = Value`).
+        let written = std::fs::read_to_string(&file).unwrap();
+        let expected = DUCKSTATION_INI_SAMPLE
+            .replace("StartFullscreen = false", "StartFullscreen = true")
+            .replace("Renderer = Vulkan", "Renderer = OpenGL")
+            .replace("AspectRatio = 16:9", "AspectRatio = 4:3")
+            .replace("ResolutionScale = 3", "ResolutionScale = 5");
+        assert_eq!(written, expected);
+        assert!(written.contains("VSync = true"));
+    }
+
+    #[test]
+    fn read_config_value_preloads_duckstation_settings() {
+        let options = duckstation_options_with_temp_target("preload_duckstation.ini");
+
+        assert_eq!(
+            read_config_value(duckstation_option(&options, "fullscreen")).as_deref(),
+            Some("0"),
+            "file has StartFullscreen = false -> logical off"
+        );
+        assert_eq!(
+            read_config_value(duckstation_option(&options, "renderer")).as_deref(),
+            Some("Vulkan")
+        );
+        assert_eq!(
+            read_config_value(duckstation_option(&options, "aspect_ratio")).as_deref(),
+            Some("16:9")
+        );
+        assert_eq!(
+            read_config_value(duckstation_option(&options, "resolution_scale")).as_deref(),
+            Some("3")
         );
     }
 
