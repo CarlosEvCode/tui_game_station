@@ -1207,9 +1207,10 @@ EECycleRate = 0
 
     /// A representative melonDS `melonDS.toml` sample (real TOML format with
     /// nested tables, kept close to the real file so path depth matters).
+    /// Deliberately lacks `[3D.GL]` and `Screen.VSync` — like a real config
+    /// melonDS has only ever run with the software renderer — so the tests also
+    /// cover the patcher creating those tables/keys on save.
     const MELONDS_TOML_SAMPLE: &str = "\
-LimitFPS = true
-AudioSync = false
 TargetFPS = 60.0
 RecentROM = [\"/home/x/rom.nds\"]
 
@@ -1218,6 +1219,9 @@ Renderer = 0
 
 [JIT]
 Enable = false
+
+[Screen]
+UseGL = false
 
 [Instance0.Window0]
 ScreenLayout = 0
@@ -1256,21 +1260,10 @@ ScreenLayout = 0
         assert_eq!(fullscreen.flag_template, "-f");
         assert!(fullscreen.config_target.is_none());
 
-        let limit = melonds_option(&options, "limit_fps");
-        let target = limit.config_target.as_ref().unwrap();
-        assert_eq!(target.format, "melonds_toml");
-        assert_eq!(target.toml_path.as_deref().unwrap(), ["LimitFPS"]);
-        let map = target.value_map.as_ref().unwrap();
-        assert_eq!(map.get("0"), Some(&"false".to_string()));
-        assert_eq!(map.get("1"), Some(&"true".to_string()));
-        assert!(limit.flag_template.is_empty(), "config-only option must not emit CLI flags");
-
         let renderer = melonds_option(&options, "renderer_3d");
         let target = renderer.config_target.as_ref().unwrap();
-        assert_eq!(
-            target.toml_path.as_deref().unwrap(),
-            ["3D", "Renderer"]
-        );
+        assert_eq!(target.format, "melonds_toml");
+        assert_eq!(target.toml_path.as_deref().unwrap(), ["3D", "Renderer"]);
 
         let layout = melonds_option(&options, "screen_layout");
         let target = layout.config_target.as_ref().unwrap();
@@ -1278,13 +1271,36 @@ ScreenLayout = 0
             target.toml_path.as_deref().unwrap(),
             ["Instance0", "Window0", "ScreenLayout"]
         );
+
+        let scale = melonds_option(&options, "scale_factor");
+        let target = scale.config_target.as_ref().unwrap();
+        assert_eq!(target.toml_path.as_deref().unwrap(), ["3D", "GL", "ScaleFactor"]);
+        assert!(target.value_map.is_none(), "scale factor maps identically");
+        assert_eq!(scale.default, "2");
+        assert_eq!(
+            scale.kind,
+            EmulatorOptionKind::Choice((1..=16).map(|n| n.to_string()).collect::<Vec<_>>())
+        );
+        assert_eq!(scale.choice_labels.get("1").map(String::as_str), Some("1X (Native)"));
+
+        let vsync = melonds_option(&options, "vsync");
+        let target = vsync.config_target.as_ref().unwrap();
+        assert_eq!(
+            target.toml_path.as_deref().unwrap(),
+            ["Screen", "VSync"],
+            "VSync lives in [Screen], not [3D.GL]"
+        );
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("0"), Some(&"false".to_string()));
+        assert_eq!(map.get("1"), Some(&"true".to_string()));
+        assert!(vsync.flag_template.is_empty(), "config-only option must not emit CLI flags");
     }
 
     #[test]
     fn apply_config_patches_writes_melonds_settings() {
         let options = melonds_options_with_temp_target("apply_melonds.toml");
         let file = resolve_config_file(
-            &melonds_option(&options, "limit_fps")
+            &melonds_option(&options, "renderer_3d")
                 .config_target
                 .as_ref()
                 .unwrap()
@@ -1292,24 +1308,15 @@ ScreenLayout = 0
         );
 
         let mut values = default_map(&options);
-        values.insert("limit_fps".to_string(), "0".to_string());
-        values.insert("audio_sync".to_string(), "1".to_string());
         values.insert("renderer_3d".to_string(), "OpenGL".to_string());
         values.insert("screen_layout".to_string(), "Vertical".to_string());
+        values.insert("scale_factor".to_string(), "4".to_string());
+        values.insert("vsync".to_string(), "1".to_string());
 
         let failures = apply_config_patches(&options, &values);
         assert!(failures.is_empty(), "unexpected failures: {failures:?}");
 
-        // Booleans keep their TOML type (unquoted true/false).
-        assert_eq!(
-            read_melonds_toml_value(&file, &["LimitFPS"]).unwrap(),
-            Some(TomlValue::Bool(false))
-        );
-        assert_eq!(
-            read_melonds_toml_value(&file, &["AudioSync"]).unwrap(),
-            Some(TomlValue::Bool(true))
-        );
-        // Nested integer codes keep their numeric type.
+        // Existing nested integer codes keep their numeric type.
         assert_eq!(
             read_melonds_toml_value(&file, &["3D", "Renderer"]).unwrap(),
             Some(TomlValue::Int(1))
@@ -1319,32 +1326,35 @@ ScreenLayout = 0
             Some(TomlValue::Int(1))
         );
 
+        // [3D.GL] did not exist -> created with the integer scale factor.
+        assert_eq!(
+            read_melonds_toml_value(&file, &["3D", "GL", "ScaleFactor"]).unwrap(),
+            Some(TomlValue::Int(4))
+        );
+
+        // Screen.VSync did not exist -> created as a boolean.
+        assert_eq!(
+            read_melonds_toml_value(&file, &["Screen", "VSync"]).unwrap(),
+            Some(TomlValue::Bool(true))
+        );
+
         // Unrelated lines (RecentROM array, JIT block) stay byte-identical.
         let written = std::fs::read_to_string(&file).unwrap();
-        let expected = MELONDS_TOML_SAMPLE
-            .replace("LimitFPS = true", "LimitFPS = false")
-            .replace("AudioSync = false", "AudioSync = true")
-            .replace("Renderer = 0", "Renderer = 1")
-            .replace("ScreenLayout = 0", "ScreenLayout = 1");
-        assert_eq!(written, expected);
+        assert!(written.contains("TargetFPS = 60.0"));
         assert!(written.contains("RecentROM = [\"/home/x/rom.nds\"]"));
         assert!(written.contains("[JIT]\nEnable = false"));
+        // [3D.GL] is created (with the existing [3D] table updated in place)
+        // and Screen.VSync is added to the existing [Screen] table.
+        assert!(written.contains("Renderer = 1"));
+        assert!(written.contains("[3D.GL]\nScaleFactor = 4"));
+        assert!(written.contains("[Screen]\nUseGL = false\nVSync = true"));
+        assert!(written.contains("ScreenLayout = 1"));
     }
 
     #[test]
     fn read_config_value_preloads_melonds_settings() {
         let options = melonds_options_with_temp_target("preload_melonds.toml");
 
-        assert_eq!(
-            read_config_value(melonds_option(&options, "limit_fps")).as_deref(),
-            Some("1"),
-            "file has LimitFPS = true -> logical on"
-        );
-        assert_eq!(
-            read_config_value(melonds_option(&options, "audio_sync")).as_deref(),
-            Some("0"),
-            "file has AudioSync = false -> logical off"
-        );
         assert_eq!(
             read_config_value(melonds_option(&options, "renderer_3d")).as_deref(),
             Some("Software"),
@@ -1355,6 +1365,9 @@ ScreenLayout = 0
             Some("Natural"),
             "file has ScreenLayout = 0 -> logical Natural"
         );
+        // Keys melonDS has not written yet read as None (caller falls back to
+        // the TOML default).
+        assert_eq!(read_config_value(melonds_option(&options, "vsync")), None);
     }
 
     #[test]

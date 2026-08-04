@@ -16,8 +16,17 @@
 //! formatting and comments of every untouched key, so a patch only rewrites the
 //! single target key. Writes are atomic (temp file + rename).
 //!
-//! This module never invents keys: if a path is missing it errors out and
-//! leaves the file untouched.
+//! Two behaviors differ from the line-based patchers on purpose:
+//! - A patched value KEEPS its existing TOML type: booleans stay unquoted
+//!   `true`/`false`, integers stay numeric, floats keep a decimal point, and
+//!   strings stay double quoted.
+//! - melonDS only writes keys that have been touched in its GUI, so the
+//!   `[3D.GL]` table and `Screen.VSync` are often absent from a real config.
+//!   Patching therefore AUTO-CREATES missing intermediate tables and the target
+//!   key (inferring the new key's type from the incoming value string) instead
+//!   of erroring. Missing intermediate elements that are not tables (e.g. a
+//!   scalar in the middle of the path) still error and leave the file
+//!   untouched.
 
 use std::fs;
 use std::path::Path;
@@ -78,10 +87,16 @@ pub fn read_melonds_toml_value(
 ///
 /// - Only the target key is rewritten; every other key keeps its exact on-disk
 ///   formatting (including arrays like `RecentROM`).
-/// - The value keeps the TOML type it already had: a boolean stays `true`/
-///   `false` (unquoted), an integer stays numeric, a float keeps a decimal
-///   point, a string stays quoted.
-/// - Missing path is an error and the file is left completely untouched.
+/// - An existing value keeps the TOML type it already had: a boolean stays
+///   `true`/`false` (unquoted), an integer stays numeric, a float keeps a
+///   decimal point, a string stays quoted.
+/// - A missing intermediate table or target key is CREATED, with the new key's
+///   type inferred from the incoming string (`"true"`/`"false"` → boolean,
+///   integer-looking → integer, float-looking → float, otherwise string). This
+///   mirrors melonDS's own behavior: it only writes keys that were touched in
+///   its GUI, so `[3D.GL]`/`Screen.VSync` are often absent until patched.
+/// - A path that runs through a non-table scalar (e.g. patching under
+///   `3D.Renderer`) is an error and the file is left completely untouched.
 pub fn patch_melonds_toml(
     path: &Path,
     key_path: &[&str],
@@ -91,28 +106,56 @@ pub fn patch_melonds_toml(
     let mut doc = parse_document(&content, path)?;
 
     let dotted = key_path.join(".");
-    let Some(original) = lookup(&doc, key_path) else {
+    // Build the replacement typed value BEFORE mutating: existing keys keep
+    // their on-disk type, brand-new keys get their type inferred from the
+    // incoming string.
+    let replacement = match lookup(&doc, key_path) {
+        Some(original) => build_typed_value(original, new_value, path, &dotted)?,
+        None => infer_typed_value(new_value),
+    };
+    let old_value = lookup(&doc, key_path)
+        .and_then(toml_value)
+        .map(|v| v.to_file_string());
+
+    // Walk the path, creating any missing intermediate table and the target
+    // key, then write the final value.
+    let Some((last_key, parents)) = key_path.split_last() else {
         return Err(PatchError::TomlKeyNotFound {
             path: path.to_path_buf(),
             key: dotted,
         });
     };
-    let old_value = toml_value(original).map(|v| v.to_file_string());
-    let replacement = build_typed_value(original, new_value, path, &dotted)?;
-
-    // Locate the target mutably and replace only that item. Every intermediate
-    // table is already known to exist from the immutable walk above, so this
-    // never invents new keys.
     let mut target = doc.as_item_mut();
-    for key in key_path {
-        target = target
-            .get_mut(*key)
-            .ok_or_else(|| PatchError::TomlKeyNotFound {
-                path: path.to_path_buf(),
-                key: dotted.clone(),
-            })?;
+    for key in parents {
+        if target.get(*key).is_none() {
+            insert_into_table(target, key, toml_edit::Item::Table(toml_edit::Table::new()))
+                .map_err(|_| PatchError::TomlKeyNotFound {
+                    path: path.to_path_buf(),
+                    key: dotted.clone(),
+                })?;
+        }
+        target = target.get_mut(*key).ok_or_else(|| PatchError::TomlKeyNotFound {
+            path: path.to_path_buf(),
+            key: dotted.clone(),
+        })?;
     }
-    *target = toml_edit::value(replacement);
+    if target.get(last_key).is_none() {
+        insert_into_table(
+            target,
+            last_key,
+            toml_edit::Item::Value(replacement.clone()),
+        )
+        .map_err(|_| PatchError::TomlKeyNotFound {
+            path: path.to_path_buf(),
+            key: dotted.clone(),
+        })?;
+    }
+    *target
+        .get_mut(last_key)
+        .ok_or_else(|| PatchError::TomlKeyNotFound {
+            path: path.to_path_buf(),
+            key: dotted.clone(),
+        })? = toml_edit::Item::Value(replacement);
 
     write_atomic(path, doc.to_string().as_bytes())?;
 
@@ -121,6 +164,21 @@ pub fn patch_melonds_toml(
         old_value,
         new_value: new_value.to_string(),
     })
+}
+
+/// Insert `item` under `key` in the table `target`. Fails when `target` is not
+/// a table (e.g. the path runs through a scalar value).
+fn insert_into_table(
+    target: &mut toml_edit::Item,
+    key: &str,
+    item: toml_edit::Item,
+) -> Result<(), ()> {
+    if let toml_edit::Item::Table(table) = target {
+        table.insert(key, item);
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 /// Walk `key_path` from the document root, returning the item found or `None`
@@ -187,6 +245,25 @@ fn build_typed_value(
             new_value,
             "a boolean, number or string",
         ))
+    }
+}
+
+/// Infer the TOML type of a BRAND-NEW key from the incoming value string:
+/// `"true"`/`"false"` → boolean, integer-looking → integer, float-looking →
+/// float, anything else → string. Used only when the key does not exist yet.
+fn infer_typed_value(new_value: &str) -> toml_edit::Value {
+    match new_value {
+        "true" => toml_edit::Value::from(true),
+        "false" => toml_edit::Value::from(false),
+        _ => {
+            if let Ok(i) = new_value.parse::<i64>() {
+                toml_edit::Value::from(i)
+            } else if let Ok(f) = new_value.parse::<f64>() {
+                toml_edit::Value::from(f)
+            } else {
+                toml_edit::Value::from(new_value.to_string())
+            }
+        }
     }
 }
 
@@ -379,21 +456,61 @@ ShowOSD = true
     }
 
     #[test]
-    fn missing_path_errors_and_leaves_file_untouched() {
-        let path = temp_file("patch_missing_path.toml", FIXTURE);
+    fn missing_leaf_key_is_created_with_inferred_type() {
+        let path = temp_file("patch_create_leaf.toml", FIXTURE);
+
+        // Screen.VSync does not exist in the fixture -> created as a boolean.
+        let res = patch_melonds_toml(&path, &["Screen", "VSync"], "true").unwrap();
+        assert_eq!(res.old_value, None, "new key has no old value");
+        assert_eq!(res.new_value, "true");
+
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("[Screen]\nUseGL = false\nVSync = true"));
+        assert!(!written.contains("VSync = \"true\""), "boolean stays unquoted");
+
+        assert_eq!(
+            read_melonds_toml_value(&path, &["Screen", "VSync"]).unwrap(),
+            Some(TomlValue::Bool(true))
+        );
+    }
+
+    #[test]
+    fn missing_table_is_created_with_its_leaf_key() {
+        let path = temp_file("patch_create_table.toml", FIXTURE);
+        assert!(!fs::read_to_string(&path).unwrap().contains("[3D.GL]"));
+
+        // [3D.GL] does not exist -> the whole table is created with the key.
+        let res = patch_melonds_toml(&path, &["3D", "GL", "ScaleFactor"], "4").unwrap();
+        assert_eq!(res.old_value, None);
+        assert_eq!(res.new_value, "4");
+
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(
+            written.contains("[3D.GL]\nScaleFactor = 4"),
+            "created [3D.GL] table with integer ScaleFactor, got:\n{written}"
+        );
+        assert!(!written.contains("ScaleFactor = \"4\""), "integer stays numeric");
+
+        assert_eq!(
+            read_melonds_toml_value(&path, &["3D", "GL", "ScaleFactor"]).unwrap(),
+            Some(TomlValue::Int(4))
+        );
+        // Existing sibling keys in [3D] stay untouched.
+        assert!(written.contains("[3D]\nRenderer = 0"));
+        assert!(written.contains("[3D.Soft]\nThreaded = true"));
+    }
+
+    #[test]
+    fn patch_through_scalar_path_errors_and_leaves_file_untouched() {
+        let path = temp_file("patch_scalar_middle.toml", FIXTURE);
         let original = fs::read_to_string(&path).unwrap();
 
-        // Missing leaf in an existing table.
-        let err = patch_melonds_toml(&path, &["3D", "NoSuchKey"], "1").unwrap_err();
+        // "Renderer" is a scalar (0), not a table — cannot patch under it.
+        let err = patch_melonds_toml(&path, &["3D", "Renderer", "nested"], "1").unwrap_err();
         assert!(
             matches!(err, PatchError::TomlKeyNotFound { .. }),
             "unexpected error: {err}"
         );
-
-        // Missing intermediate table.
-        let err = patch_melonds_toml(&path, &["NoTable", "Renderer"], "1").unwrap_err();
-        assert!(matches!(err, PatchError::TomlKeyNotFound { .. }));
-
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
 

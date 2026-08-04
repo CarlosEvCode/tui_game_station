@@ -5,6 +5,10 @@
 # file with toml_edit, so every key keeps its existing TOML type (booleans stay
 # true/false unquoted, numbers stay numeric).
 #
+# melonDS only writes keys that have been touched in its GUI, so the `[3D.GL]`
+# table and `Screen.VSync` are often absent from a fresh config. The melonds_toml
+# patcher creates missing tables/keys on save instead of failing.
+#
 # WARNING: renderer_3d and screen_layout value_map codes are PLACEHOLDERS.
 # Confirm by changing the setting in melonDS's GUI, closing, and checking the
 # resulting values in melonDS.toml.
@@ -19,32 +23,6 @@ default = "0"
 # melonDS CLI accepts -f/--fullscreen plus a positional ROM path; no config
 # file touch needed.
 flag_template = "-f"
-
-[[options]]
-key = "limit_fps"
-name = "Limit FPS"
-kind = "toggle"
-default = "1"
-[options.config_target]
-file = "~/.config/melonDS/melonDS.toml"
-format = "melonds_toml"
-toml_path = ["LimitFPS"]
-[options.config_target.value_map]
-"0" = "false"
-"1" = "true"
-
-[[options]]
-key = "audio_sync"
-name = "Audio Sync"
-kind = "toggle"
-default = "0"
-[options.config_target]
-file = "~/.config/melonDS/melonDS.toml"
-format = "melonds_toml"
-toml_path = ["AudioSync"]
-[options.config_target.value_map]
-"0" = "false"
-"1" = "true"
 
 # PLACEHOLDER: the numeric codes for 3D.Renderer are a guess (0 = Software,
 # 1 = OpenGL). Confirm by testing in melonDS's GUI and inspecting melonDS.toml.
@@ -96,3 +74,81 @@ toml_path = ["Instance0", "Window0", "ScreenLayout"]
 "Vertical" = "1"   # PLACEHOLDER — confirm
 "Horizontal" = "2" # PLACEHOLDER — confirm
 "Hybrid" = "3"     # PLACEHOLDER — confirm
+
+# [3D.GL] only applies when the 3D renderer is OpenGL. melonDS writes this
+# table on demand, so the patcher creates it if absent.
+
+[[options]]
+key = "scale_factor"
+name = "GL Scale Factor"
+kind = "choice"
+default = "2"
+# melonDS GUI shows this as "Nx native"; range 1x..16x confirmed in
+# melonDS's Config.cpp IntRanges for 3D.GL.ScaleFactor.
+[[options.choices]]
+value = "1"
+label = "1X (Native)"
+[[options.choices]]
+value = "2"
+label = "2X"
+[[options.choices]]
+value = "3"
+label = "3X"
+[[options.choices]]
+value = "4"
+label = "4X"
+[[options.choices]]
+value = "5"
+label = "5X"
+[[options.choices]]
+value = "6"
+label = "6X"
+[[options.choices]]
+value = "7"
+label = "7X"
+[[options.choices]]
+value = "8"
+label = "8X"
+[[options.choices]]
+value = "9"
+label = "9X"
+[[options.choices]]
+value = "10"
+label = "10X"
+[[options.choices]]
+value = "11"
+label = "11X"
+[[options.choices]]
+value = "12"
+label = "12X"
+[[options.choices]]
+value = "13"
+label = "13X"
+[[options.choices]]
+value = "14"
+label = "14X"
+[[options.choices]]
+value = "15"
+label = "15X"
+[[options.choices]]
+value = "16"
+label = "16X"
+[options.config_target]
+file = "~/.config/melonDS/melonDS.toml"
+format = "melonds_toml"
+toml_path = ["3D", "GL", "ScaleFactor"]
+
+# VSync lives in [Screen] (not [3D.GL]); confirmed in melonDS's
+# VideoSettingsDialog (Screen.VSync / Screen.VSyncInterval).
+[[options]]
+key = "vsync"
+name = "VSync"
+kind = "toggle"
+default = "0"
+[options.config_target]
+file = "~/.config/melonDS/melonDS.toml"
+format = "melonds_toml"
+toml_path = ["Screen", "VSync"]
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
