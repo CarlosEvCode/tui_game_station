@@ -112,9 +112,17 @@ pub fn spawn_gamepad_thread() -> Option<(mpsc::Receiver<GamepadEvent>, Arc<Atomi
             // TUI commands (e.g. "Confirm") the instant the game closes,
             // causing a phantom relaunch. Events are still consumed so the
             // controller state stays fresh.
-            let suspended_now = suspended_flag.load(Ordering::Relaxed);
-
+            //
+            // The `suspended` flag is reloaded for EVERY event, not cached for
+            // the whole batch: `gilrs.next_event()` blocks, and a controller
+            // hot-plugged or a button pressed while the game started in the
+            // meantime must be evaluated against the CURRENT flag value, or a
+            // stale `false` would leak the first few gameplay events into the
+            // TUI channel. The centralized action guard in `App::update` is
+            // the real defense; this flag just keeps stale events out of the
+            // channel in the first place (no unbounded pile-up).
             while let Some(Event { id, event, .. }) = gilrs.next_event() {
+                let suspended_now = suspended_flag.load(Ordering::Relaxed);
                 match event {
                     EventType::Connected => {
                         let name = gilrs.gamepad(id).name().to_string();
@@ -146,6 +154,7 @@ pub fn spawn_gamepad_thread() -> Option<(mpsc::Receiver<GamepadEvent>, Arc<Atomi
                 }
             }
 
+            let suspended_now = suspended_flag.load(Ordering::Relaxed);
             if suspended_now {
                 // Discard any held-button auto-repeat state while the game runs.
                 repeat_state = AxisRepeatState::new();

@@ -5,6 +5,7 @@ mod figlet_title;
 pub mod gamepad;
 mod mouse_handler;
 mod panic_hook;
+mod single_instance;
 mod toast;
 mod ui;
 pub mod updater;
@@ -99,6 +100,23 @@ async fn main() -> Result<()> {
 
     // File-based diagnostics log (timestamps + PIDs) for the launch/resume flow.
     init_file_logging();
+
+    // Single-instance lock: refuse to start a second TUI while another one is
+    // already running (two instances would compete for the same terminal and
+    // gamepad and produce unpredictable input). Uses a real flock, so a crash
+    // (kill -9) never leaves a blocking ghost lock. Done BEFORE raw mode / the
+    // alternate screen, so a rejected instance never touches the terminal.
+    let _single_instance_lock = match single_instance::acquire_single_instance_lock() {
+        Ok(Some(file)) => Some(file),
+        Ok(None) => {
+            eprintln!("tui_game_station ya está en ejecución.");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            tracing::warn!("No se pudo adquirir el lock de instancia única ({e}); se continúa sin él.");
+            None
+        }
+    };
 
     // Enable Crossterm raw mode, alternate screen & mouse capture
     enable_raw_mode()?;
