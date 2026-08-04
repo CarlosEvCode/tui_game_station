@@ -21,6 +21,16 @@ kind = "choice"
 default = "opengl"
 flag_template = "--renderer {value}"
 choices = ["software", "opengl", "vulkan"]
+[options.config_target]
+# Azahar (standard) and Azahar Plus are separate builds that write to different,
+# FIXED config directories. The launcher picks which qt-config.ini to patch at
+# save time: the only existing one, or the most recently modified one if both
+# exist. Nothing is written when neither exists (non-blocking).
+file_candidates = ["~/.config/azahar-emu/qt-config.ini", "~/.config/azaharplus-emu/qt-config.ini"]
+format = "qt_ini"
+# TODO: real section/key once the actual qt-config.ini is shared.
+section = "TODO"
+key = "TODO"
 
 [[options]]
 key = "accurate_bus"

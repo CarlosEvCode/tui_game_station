@@ -36,6 +36,12 @@ pub enum EmulatorOptionKind {
 pub struct ConfigTarget {
     /// Path to the emulator config file. A leading `~` expands to the user home.
     pub file: String,
+    /// Optional alternative to `file`: candidate config paths, resolved at
+    /// read/patch time. When exactly one exists it is used; when several exist
+    /// the most recently modified one wins; when none exist the target is
+    /// skipped (non-blocking). A leading `~` expands to the user home.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_candidates: Option<Vec<String>>,
     /// Config format: `"qt_ini"` or `"cemu_xml"`.
     pub format: String,
     /// Section in the config file (qt_ini only, e.g. "Renderer").
@@ -130,7 +136,10 @@ enum RawChoice {
 
 #[derive(Debug, Deserialize)]
 struct RawConfigTarget {
+    #[serde(default)]
     file: String,
+    #[serde(default)]
+    file_candidates: Option<Vec<String>>,
     format: String,
     #[serde(default)]
     section: Option<String>,
@@ -203,6 +212,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         });
         let config_target = opt.config_target.map(|ct| ConfigTarget {
             file: ct.file,
+            file_candidates: ct.file_candidates,
             format: ct.format,
             section: ct.section,
             key: ct.key,
@@ -306,6 +316,51 @@ pub fn resolve_config_file(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Pick the config file to use among `candidates`: the only one when exactly one
+/// exists, otherwise the most recently modified one. Returns `None` when no
+/// candidate exists (the caller treats that as "no config file" and skips).
+///
+/// Used by emulators that ship as two variants with separate fixed config
+/// directories (e.g. Azahar standard vs. Azahar Plus): which one is in use is
+/// decided by what exists on disk at read/patch time, never cached.
+pub fn resolve_config_path(candidates: &[PathBuf]) -> Option<PathBuf> {
+    let existing: Vec<&PathBuf> = candidates.iter().filter(|c| c.exists()).collect();
+    match existing.len() {
+        0 => None,
+        1 => Some(existing[0].clone()),
+        _ => {
+            let mut best: Option<(&PathBuf, std::time::SystemTime)> = None;
+            for path in existing {
+                if let Ok(mtime) = std::fs::metadata(path).and_then(|m| m.modified()) {
+                    if best.as_ref().map(|(_, t)| mtime > *t).unwrap_or(true) {
+                        best = Some((path, mtime));
+                    }
+                }
+            }
+            best.map(|(path, _)| path.clone())
+                .or_else(|| candidates.first().cloned())
+        }
+    }
+}
+
+/// Resolve the config file a target actually points at: `file_candidates` are
+/// resolved by existence / most-recent mtime when present and non-empty,
+/// otherwise `file` is used unchanged (backwards compatible). Returns `None`
+/// when nothing usable exists (callers skip the target, non-blocking).
+pub fn resolve_config_target_path(target: &ConfigTarget) -> Option<PathBuf> {
+    if let Some(candidates) = &target.file_candidates {
+        if !candidates.is_empty() {
+            let paths: Vec<PathBuf> =
+                candidates.iter().map(|c| resolve_config_file(c)).collect();
+            return resolve_config_path(&paths);
+        }
+    }
+    if target.file.is_empty() {
+        return None;
+    }
+    Some(resolve_config_file(&target.file))
+}
+
 /// Read the REAL current value of a config-target option straight from the
 /// emulator's config file, translated back to the logical option value.
 ///
@@ -313,7 +368,7 @@ pub fn resolve_config_file(path: &str) -> PathBuf {
 /// the key/section is not present (callers fall back to the TOML `default`).
 pub fn read_config_value(opt: &EmulatorOption) -> Option<String> {
     let target = opt.config_target.as_ref()?;
-    let path = resolve_config_file(&target.file);
+    let path = resolve_config_target_path(target)?;
     let raw = read_raw_value(&path, target).ok().flatten()?;
     match &target.value_map {
         Some(map) => {
@@ -400,7 +455,11 @@ pub fn apply_config_patches(
             .as_ref()
             .and_then(|map| map.get(&value).cloned())
             .unwrap_or_else(|| value.clone());
-        let path = resolve_config_file(&target.file);
+        let Some(path) = resolve_config_target_path(target) else {
+            // No candidate config file exists (e.g. emulator never launched):
+            // skip silently, like a missing `file`.
+            continue;
+        };
         if let Err(err) = apply_single_patch(&path, target, &translated) {
             failures.push(ConfigPatchFailure {
                 option_key: opt.key.clone(),
@@ -1440,6 +1499,7 @@ EECycleRate = 0
         let mut missing = renderer_backend(&options).clone();
         missing.config_target = Some(ConfigTarget {
             file: missing.config_target.unwrap().file,
+            file_candidates: None,
             format: "qt_ini".to_string(),
             section: Some("NoSection".to_string()),
             key: Some("backend".to_string()),
@@ -1629,5 +1689,182 @@ ScreenLayout = 0
             resolve_config_file("/abs/path.ini"),
             PathBuf::from("/abs/path.ini")
         );
+    }
+
+    // --- Azahar `file_candidates` multi-path resolution -------------------
+
+    /// Minimal qt-config.ini sample shared by both Azahar variants. The marker
+    /// value lets tests tell which file was patched (A standard, B Plus).
+    const AZAHAR_QT_INI_A: &str = "[Renderer]\nbackend=0\n";
+    const AZAHAR_QT_INI_B: &str = "[Renderer]\nbackend=1\n";
+
+    fn azahar_temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tui_game_station_azahar_{tag}_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Override the mtime of `path` to `age_secs` in the past, so tests can
+    /// control which candidate is "most recently modified".
+    fn set_mtime(path: &std::path::Path, age_secs: u64) {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap();
+        file.set_modified(
+            std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs),
+        )
+        .unwrap();
+    }
+
+    /// Build the `renderer` option with a `file_candidates` config_target
+    /// pointing at the two given temp files (standard first, Plus second —
+    /// matching the TOML order). Does NOT create the files; callers decide.
+    fn azahar_renderer_with_candidates(
+        standard: &std::path::Path,
+        plus: &std::path::Path,
+    ) -> EmulatorOption {
+        let mut options = azahar();
+        let opt = options.iter_mut().find(|o| o.key == "renderer").unwrap();
+        opt.config_target = Some(ConfigTarget {
+            file: String::new(),
+            file_candidates: Some(vec![
+                standard.to_string_lossy().into_owned(),
+                plus.to_string_lossy().into_owned(),
+            ]),
+            format: "qt_ini".to_string(),
+            section: Some("Renderer".to_string()),
+            key: Some("backend".to_string()),
+            xml_path: None,
+            toml_path: None,
+            value_map: None,
+        });
+        opt.clone()
+    }
+
+    #[test]
+    fn azahar_loads_file_candidates_from_toml() {
+        let options = azahar();
+        let renderer = options.iter().find(|o| o.key == "renderer").unwrap();
+        let target = renderer.config_target.as_ref().unwrap();
+        assert_eq!(target.format, "qt_ini");
+        assert!(
+            target.file.is_empty(),
+            "file_candidates replaces file for Azahar"
+        );
+        assert_eq!(
+            target.file_candidates.as_deref(),
+            Some(&[
+                "~/.config/azahar-emu/qt-config.ini".to_string(),
+                "~/.config/azaharplus-emu/qt-config.ini".to_string(),
+            ][..])
+        );
+    }
+
+    #[test]
+    fn resolve_config_path_uses_whichever_variant_exists() {
+        let dir = azahar_temp_dir("single");
+        let standard = dir.join("qt-config.ini");
+        let plus = dir.join("qt-config-plus.ini");
+
+        std::fs::write(&standard, AZAHAR_QT_INI_A).unwrap();
+        assert_eq!(
+            resolve_config_path(&[standard.clone(), plus.clone()]).as_deref(),
+            Some(standard.as_path()),
+            "only the standard config exists -> standard"
+        );
+
+        std::fs::remove_file(&standard).unwrap();
+        std::fs::write(&plus, AZAHAR_QT_INI_B).unwrap();
+        assert_eq!(
+            resolve_config_path(&[standard.clone(), plus.clone()]).as_deref(),
+            Some(plus.as_path()),
+            "only the Plus config exists -> Plus"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_config_path_prefers_most_recent_without_first_bias() {
+        let dir = azahar_temp_dir("mtime");
+        let standard = dir.join("qt-config.ini");
+        let plus = dir.join("qt-config-plus.ini");
+        std::fs::write(&standard, AZAHAR_QT_INI_A).unwrap();
+        std::fs::write(&plus, AZAHAR_QT_INI_B).unwrap();
+
+        set_mtime(&standard, 100);
+        set_mtime(&plus, 10);
+        assert_eq!(
+            resolve_config_path(&[standard.clone(), plus.clone()]).as_deref(),
+            Some(plus.as_path()),
+            "Plus is more recent -> Plus, despite standard being first in the list"
+        );
+
+        set_mtime(&standard, 10);
+        set_mtime(&plus, 100);
+        assert_eq!(
+            resolve_config_path(&[standard.clone(), plus.clone()]).as_deref(),
+            Some(standard.as_path()),
+            "standard is now more recent -> standard"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_config_path_with_no_existing_candidate_is_non_blocking() {
+        let dir = azahar_temp_dir("none");
+        let standard = dir.join("qt-config.ini");
+        let plus = dir.join("qt-config-plus.ini");
+        assert_eq!(
+            resolve_config_path(&[standard.clone(), plus.clone()]),
+            None,
+            "no existing candidate -> None"
+        );
+
+        // read_config_value falls back (None) and apply_config_patches writes
+        // nothing, reporting no failures — like the Cemu settings.xml case.
+        let opt = azahar_renderer_with_candidates(&standard, &plus);
+        let options = vec![opt];
+        assert_eq!(read_config_value(&options[0]), None);
+        let failures = apply_config_patches(&options, &default_map(&options));
+        assert!(failures.is_empty(), "missing candidates must not report failures");
+        assert!(
+            !standard.exists() && !plus.exists(),
+            "nothing may be created when no candidate exists"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn apply_config_patches_writes_only_the_most_recent_candidate() {
+        let dir = azahar_temp_dir("e2e");
+        let standard = dir.join("qt-config.ini");
+        let plus = dir.join("qt-config-plus.ini");
+        std::fs::write(&standard, AZAHAR_QT_INI_A).unwrap();
+        std::fs::write(&plus, AZAHAR_QT_INI_B).unwrap();
+        set_mtime(&standard, 100);
+        set_mtime(&plus, 10);
+
+        let opt = azahar_renderer_with_candidates(&standard, &plus);
+        let options = vec![opt];
+        let mut values = default_map(&options);
+        values.insert("renderer".to_string(), "vulkan".to_string());
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+
+        let patched = std::fs::read_to_string(&plus).unwrap();
+        assert!(
+            patched.contains("backend=vulkan"),
+            "the most-recent candidate must be patched: {patched:?}"
+        );
+        let untouched = std::fs::read_to_string(&standard).unwrap();
+        assert_eq!(
+            untouched, AZAHAR_QT_INI_A,
+            "the older candidate must stay byte-identical"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
