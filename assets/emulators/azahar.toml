@@ -3,8 +3,26 @@
 # and expanded into CLI flags when the chosen value differs from `default`.
 # `kind` is extensible: "toggle" (flag present/absent) and "choice" (pick one
 # value, inserted where `{value}` appears in `flag_template`).
+#
+# Azahar (standard) and Azahar Plus are separate builds that each keep their own
+# FIXED config dir: ~/.config/azahar-emu/ and ~/.config/azaharplus-emu/. The
+# launcher resolves which qt-config.ini to read/patch at save time via
+# `file_candidates`: the only existing one, or the most recently modified one if
+# both exist. Nothing is written when neither exists (non-blocking).
+#
+# Section/key names and enum values were verified against the real
+# qt-config.ini files on this system and Azahar's src/common/settings.h:
+#   [Renderer] graphics_api    GraphicsAPI: Software=0 OpenGL=1 Vulkan=2
+#   [Renderer] resolution_factor (0=auto, 1=native, .. 10=10x; default 1)
+#   [Renderer] use_vsync_new   current VSync key; the old azahar-emu builds use
+#                              the legacy `use_vsync` key instead, so the vsync
+#                              patch only takes effect on configs that have
+#                              use_vsync_new (missing key -> non-blocking warn).
+#   [Layout]   layout_option   LayoutOption: Default=0 SingleScreen=1
+#                              LargeScreen=2 SideScreen=3 SeparateWindows=4
+#                              HybridScreen=5 CustomLayout=6
 
-note = "Azahar Plus command line options"
+note = "Azahar / Azahar Plus configuration file options"
 process_name = "azahar"
 
 [[options]]
@@ -12,8 +30,11 @@ key = "fullscreen"
 name = "Fullscreen"
 kind = "toggle"
 default = "0"
+# Azahar CLI accepts -f/--fullscreen; no config file touch needed.
 flag_template = "-f"
 
+# Graphics API backend. The --renderer flag forces the backend at launch AND the
+# config patch persists it, so both channels stay in sync (Dolphin-style).
 [[options]]
 key = "renderer"
 name = "Renderer"
@@ -22,15 +43,112 @@ default = "opengl"
 flag_template = "--renderer {value}"
 choices = ["software", "opengl", "vulkan"]
 [options.config_target]
-# Azahar (standard) and Azahar Plus are separate builds that write to different,
-# FIXED config directories. The launcher picks which qt-config.ini to patch at
-# save time: the only existing one, or the most recently modified one if both
-# exist. Nothing is written when neither exists (non-blocking).
 file_candidates = ["~/.config/azahar-emu/qt-config.ini", "~/.config/azaharplus-emu/qt-config.ini"]
 format = "qt_ini"
-# TODO: real section/key once the actual qt-config.ini is shared.
-section = "TODO"
-key = "TODO"
+section = "Renderer"
+key = "graphics_api"
+[options.config_target.value_map]
+software = "0"
+opengl = "1"
+vulkan = "2"
+
+[[options]]
+key = "screen_layout"
+name = "Screen Layout"
+kind = "choice"
+default = "Default"
+[[options.choices]]
+value = "Default"
+label = "Default"
+[[options.choices]]
+value = "SingleScreen"
+label = "Single Screen"
+[[options.choices]]
+value = "LargeScreen"
+label = "Large Screen"
+[[options.choices]]
+value = "SideScreen"
+label = "Side Screen"
+[[options.choices]]
+value = "SeparateWindows"
+label = "Separate Windows"
+[[options.choices]]
+value = "HybridScreen"
+label = "Hybrid Screen"
+[[options.choices]]
+value = "CustomLayout"
+label = "Custom Layout"
+[options.config_target]
+file_candidates = ["~/.config/azahar-emu/qt-config.ini", "~/.config/azaharplus-emu/qt-config.ini"]
+format = "qt_ini"
+section = "Layout"
+key = "layout_option"
+[options.config_target.value_map]
+Default = "0"
+SingleScreen = "1"
+LargeScreen = "2"
+SideScreen = "3"
+SeparateWindows = "4"
+HybridScreen = "5"
+CustomLayout = "6"
+
+# Internal rendering resolution (1 = native, 2 = 2x, ...). Ignored by the
+# Software renderer. Azahar also accepts 0 = auto; left out to keep the choice
+# unambiguous — set 0 from the emulator GUI if you want it.
+[[options]]
+key = "resolution_factor"
+name = "Resolution Scale"
+kind = "choice"
+default = "1"
+[[options.choices]]
+value = "1"
+label = "1X (Native)"
+[[options.choices]]
+value = "2"
+label = "2X"
+[[options.choices]]
+value = "3"
+label = "3X"
+[[options.choices]]
+value = "4"
+label = "4X"
+[[options.choices]]
+value = "5"
+label = "5X"
+[[options.choices]]
+value = "6"
+label = "6X"
+[[options.choices]]
+value = "7"
+label = "7X"
+[[options.choices]]
+value = "8"
+label = "8X"
+[[options.choices]]
+value = "9"
+label = "9X"
+[[options.choices]]
+value = "10"
+label = "10X"
+[options.config_target]
+file_candidates = ["~/.config/azahar-emu/qt-config.ini", "~/.config/azaharplus-emu/qt-config.ini"]
+format = "qt_ini"
+section = "Renderer"
+key = "resolution_factor"
+
+[[options]]
+key = "vsync"
+name = "VSync"
+kind = "toggle"
+default = "1"
+[options.config_target]
+file_candidates = ["~/.config/azahar-emu/qt-config.ini", "~/.config/azaharplus-emu/qt-config.ini"]
+format = "qt_ini"
+section = "Renderer"
+key = "use_vsync_new"
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
 
 [[options]]
 key = "accurate_bus"

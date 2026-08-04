@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn loads_toml_definitions_for_known_emulators() {
         let azahar = azahar();
-        assert_eq!(azahar.len(), 3);
+        assert_eq!(azahar.len(), 6);
         assert!(azahar.iter().any(|o| o.key == "fullscreen"));
         let renderer = azahar.iter().find(|o| o.key == "renderer").unwrap();
         assert_eq!(
@@ -1693,10 +1693,33 @@ ScreenLayout = 0
 
     // --- Azahar `file_candidates` multi-path resolution -------------------
 
-    /// Minimal qt-config.ini sample shared by both Azahar variants. The marker
-    /// value lets tests tell which file was patched (A standard, B Plus).
-    const AZAHAR_QT_INI_A: &str = "[Renderer]\nbackend=0\n";
-    const AZAHAR_QT_INI_B: &str = "[Renderer]\nbackend=1\n";
+    /// Realistic qt-config.ini fragments shared by both Azahar variants. The
+    /// differing values let tests tell which file was patched (A standard,
+    /// B Plus) and exercise value_map reverse-lookup on preload.
+    const AZAHAR_QT_INI_A: &str = r#"[Renderer]
+graphics_api=1
+graphics_api\default=false
+resolution_factor=2
+resolution_factor\default=false
+use_vsync_new=true
+use_vsync_new\default=true
+
+[Layout]
+layout_option=0
+layout_option\default=true
+"#;
+    const AZAHAR_QT_INI_B: &str = r#"[Renderer]
+graphics_api=2
+graphics_api\default=false
+resolution_factor=1
+resolution_factor\default=false
+use_vsync_new=true
+use_vsync_new\default=true
+
+[Layout]
+layout_option=3
+layout_option\default=true
+"#;
 
     fn azahar_temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -1720,41 +1743,106 @@ ScreenLayout = 0
         .unwrap();
     }
 
-    /// Build the `renderer` option with a `file_candidates` config_target
-    /// pointing at the two given temp files (standard first, Plus second —
-    /// matching the TOML order). Does NOT create the files; callers decide.
-    fn azahar_renderer_with_candidates(
+    /// Load the real Azahar TOML definitions with every config_target's
+    /// `file_candidates` pointing at the two given temp files (standard first,
+    /// Plus second — matching the TOML order). Does NOT create the files;
+    /// callers decide. Tests never touch the user's real qt-config.ini.
+    fn azahar_options_with_candidates(
         standard: &std::path::Path,
         plus: &std::path::Path,
-    ) -> EmulatorOption {
+    ) -> Vec<EmulatorOption> {
         let mut options = azahar();
-        let opt = options.iter_mut().find(|o| o.key == "renderer").unwrap();
-        opt.config_target = Some(ConfigTarget {
-            file: String::new(),
-            file_candidates: Some(vec![
-                standard.to_string_lossy().into_owned(),
-                plus.to_string_lossy().into_owned(),
-            ]),
-            format: "qt_ini".to_string(),
-            section: Some("Renderer".to_string()),
-            key: Some("backend".to_string()),
-            xml_path: None,
-            toml_path: None,
-            value_map: None,
-        });
-        opt.clone()
+        for opt in &mut options {
+            if let Some(target) = &mut opt.config_target {
+                target.file = String::new();
+                target.file_candidates = Some(vec![
+                    standard.to_string_lossy().into_owned(),
+                    plus.to_string_lossy().into_owned(),
+                ]);
+            }
+        }
+        options
+    }
+
+    fn azahar_option<'a>(options: &'a [EmulatorOption], key: &str) -> &'a EmulatorOption {
+        options.iter().find(|o| o.key == key).unwrap()
+    }
+
+    #[test]
+    fn azahar_loads_real_config_targets() {
+        let options = azahar();
+
+        // Fullscreen and accurate_bus stay pure CLI flags.
+        let fullscreen = azahar_option(&options, "fullscreen");
+        assert_eq!(fullscreen.flag_template, "-f");
+        assert!(fullscreen.config_target.is_none());
+        assert!(azahar_option(&options, "accurate_bus").config_target.is_none());
+
+        // Renderer patches [Renderer] graphics_api with a value_map.
+        let renderer = azahar_option(&options, "renderer");
+        assert_eq!(renderer.flag_template, "--renderer {value}");
+        let target = renderer.config_target.as_ref().unwrap();
+        assert_eq!(target.format, "qt_ini");
+        assert_eq!(target.file, "", "file_candidates replaces file for Azahar");
+        assert_eq!(
+            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            ("Renderer", "graphics_api")
+        );
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("software"), Some(&"0".to_string()));
+        assert_eq!(map.get("opengl"), Some(&"1".to_string()));
+        assert_eq!(map.get("vulkan"), Some(&"2".to_string()));
+
+        // Screen layout is config-only ([Layout] layout_option, no CLI flag).
+        let layout = azahar_option(&options, "screen_layout");
+        assert!(layout.flag_template.is_empty(), "layout must be config-only");
+        let target = layout.config_target.as_ref().unwrap();
+        assert_eq!(
+            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            ("Layout", "layout_option")
+        );
+        assert_eq!(layout.default, "Default");
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("Default"), Some(&"0".to_string()));
+        assert_eq!(map.get("SideScreen"), Some(&"3".to_string()));
+        assert_eq!(map.get("CustomLayout"), Some(&"6".to_string()));
+        assert_eq!(
+            layout.choice_labels.get("SingleScreen").map(String::as_str),
+            Some("Single Screen")
+        );
+
+        // Resolution scale maps identically (no value_map), range 1x-10x.
+        let scale = azahar_option(&options, "resolution_factor");
+        let target = scale.config_target.as_ref().unwrap();
+        assert_eq!(
+            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            ("Renderer", "resolution_factor")
+        );
+        assert!(target.value_map.is_none(), "scale factor maps identically");
+        assert_eq!(scale.default, "1");
+        assert_eq!(
+            scale.choice_labels.get("1").map(String::as_str),
+            Some("1X (Native)")
+        );
+
+        // VSync writes the modern Azahar key under [Renderer].
+        let vsync = azahar_option(&options, "vsync");
+        assert!(vsync.flag_template.is_empty(), "vsync must be config-only");
+        let target = vsync.config_target.as_ref().unwrap();
+        assert_eq!(
+            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            ("Renderer", "use_vsync_new")
+        );
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("0"), Some(&"false".to_string()));
+        assert_eq!(map.get("1"), Some(&"true".to_string()));
     }
 
     #[test]
     fn azahar_loads_file_candidates_from_toml() {
         let options = azahar();
-        let renderer = options.iter().find(|o| o.key == "renderer").unwrap();
+        let renderer = azahar_option(&options, "renderer");
         let target = renderer.config_target.as_ref().unwrap();
-        assert_eq!(target.format, "qt_ini");
-        assert!(
-            target.file.is_empty(),
-            "file_candidates replaces file for Azahar"
-        );
         assert_eq!(
             target.file_candidates.as_deref(),
             Some(&[
@@ -1826,9 +1914,8 @@ ScreenLayout = 0
 
         // read_config_value falls back (None) and apply_config_patches writes
         // nothing, reporting no failures — like the Cemu settings.xml case.
-        let opt = azahar_renderer_with_candidates(&standard, &plus);
-        let options = vec![opt];
-        assert_eq!(read_config_value(&options[0]), None);
+        let options = azahar_options_with_candidates(&standard, &plus);
+        assert_eq!(read_config_value(azahar_option(&options, "renderer")), None);
         let failures = apply_config_patches(&options, &default_map(&options));
         assert!(failures.is_empty(), "missing candidates must not report failures");
         assert!(
@@ -1848,8 +1935,7 @@ ScreenLayout = 0
         set_mtime(&standard, 100);
         set_mtime(&plus, 10);
 
-        let opt = azahar_renderer_with_candidates(&standard, &plus);
-        let options = vec![opt];
+        let options = azahar_options_with_candidates(&standard, &plus);
         let mut values = default_map(&options);
         values.insert("renderer".to_string(), "vulkan".to_string());
         let failures = apply_config_patches(&options, &values);
@@ -1857,12 +1943,79 @@ ScreenLayout = 0
 
         let patched = std::fs::read_to_string(&plus).unwrap();
         assert!(
-            patched.contains("backend=vulkan"),
+            patched.contains("graphics_api=2"),
             "the most-recent candidate must be patched: {patched:?}"
+        );
+        assert!(
+            patched.contains("graphics_api\\default=false"),
+            "patch must clear the \\default sibling: {patched:?}"
         );
         let untouched = std::fs::read_to_string(&standard).unwrap();
         assert_eq!(
             untouched, AZAHAR_QT_INI_A,
+            "the older candidate must stay byte-identical"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn azahar_reads_and_patches_real_targets_e2e() {
+        let dir = azahar_temp_dir("real");
+        let standard = dir.join("qt-config.ini");
+        let plus = dir.join("qt-config-plus.ini");
+        std::fs::write(&standard, AZAHAR_QT_INI_A).unwrap();
+        std::fs::write(&plus, AZAHAR_QT_INI_B).unwrap();
+        set_mtime(&standard, 100);
+        set_mtime(&plus, 10);
+
+        let options = azahar_options_with_candidates(&standard, &plus);
+
+        // Preload translates raw config values back to logical option values.
+        assert_eq!(
+            read_config_value(azahar_option(&options, "renderer")).as_deref(),
+            Some("vulkan"),
+            "graphics_api=2 -> vulkan"
+        );
+        assert_eq!(
+            read_config_value(azahar_option(&options, "screen_layout")).as_deref(),
+            Some("SideScreen"),
+            "layout_option=3 -> SideScreen"
+        );
+        assert_eq!(
+            read_config_value(azahar_option(&options, "resolution_factor")).as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            read_config_value(azahar_option(&options, "vsync")).as_deref(),
+            Some("1"),
+            "use_vsync_new=true -> 1"
+        );
+
+        // Patching a full save writes every option to the active (Plus) file.
+        let mut values = default_map(&options);
+        values.insert("renderer".to_string(), "software".to_string());
+        values.insert("screen_layout".to_string(), "LargeScreen".to_string());
+        values.insert("resolution_factor".to_string(), "4".to_string());
+        values.insert("vsync".to_string(), "0".to_string());
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+
+        let patched = std::fs::read_to_string(&plus).unwrap();
+        assert!(patched.contains("graphics_api=0\n"), "{patched:?}");
+        assert!(patched.contains("layout_option=2\n"), "{patched:?}");
+        assert!(patched.contains("resolution_factor=4\n"), "{patched:?}");
+        assert!(patched.contains("use_vsync_new=false\n"), "{patched:?}");
+        for sibling in [
+            "graphics_api\\default=false",
+            "layout_option\\default=false",
+            "resolution_factor\\default=false",
+            "use_vsync_new\\default=false",
+        ] {
+            assert!(patched.contains(sibling), "missing {sibling}: {patched:?}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(&standard).unwrap(),
+            AZAHAR_QT_INI_A,
             "the older candidate must stay byte-identical"
         );
         std::fs::remove_dir_all(&dir).ok();
