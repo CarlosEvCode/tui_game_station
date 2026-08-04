@@ -13,7 +13,7 @@ note = "Cemu (Wii U) configuration file options"
 
 [[options]]
 key = "fullscreen"
-name = "Pantalla completa"
+name = "Fullscreen"
 kind = "toggle"
 default = "0"
 # Cemu's -f flag is the simplest mechanism for fullscreen; the XML element

@@ -345,6 +345,13 @@ impl Database {
             [],
         )?;
 
+        // Cemu requires -g before the ROM path to auto-launch games.
+        self.conn.execute(
+            "UPDATE runners SET command_template = '\"{executable_path}\" -g \"{rom}\"'
+             WHERE name = 'Cemu' AND command_template NOT LIKE '%-g%'",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -1047,7 +1054,7 @@ mod tests {
             .into_iter()
             .find(|runner| runner.name == "Cemu")
             .unwrap();
-        assert_eq!(cemu.command_template, "\"{executable_path}\" \"{rom}\"");
+        assert_eq!(cemu.command_template, "\"{executable_path}\" -g \"{rom}\"");
         assert_eq!(
             cemu.download_url.as_deref(),
             Some("https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage")
