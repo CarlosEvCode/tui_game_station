@@ -36,12 +36,17 @@ pub enum EmulatorOptionKind {
 pub struct ConfigTarget {
     /// Path to the emulator config file. A leading `~` expands to the user home.
     pub file: String,
-    /// Config format; `"qt_ini"` today, extensible to other formats later.
+    /// Config format: `"qt_ini"` or `"cemu_xml"`.
     pub format: String,
-    /// Section in the config file (e.g. "Renderer").
-    pub section: String,
-    /// Key in the section (e.g. "backend").
-    pub key: String,
+    /// Section in the config file (qt_ini only, e.g. "Renderer").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    /// Key in the section (qt_ini only, e.g. "backend").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Full XML path from root (cemu_xml only, e.g. ["Graphic", "api"]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xml_path: Option<Vec<String>>,
     /// Translates the logical option value (e.g. "vulkan") to the value the
     /// config file expects (e.g. "1"). Absent/empty means identity mapping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,6 +138,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         "eden" => include_str!("../../assets/emulators/eden.toml"),
         "duckstation" => include_str!("../../assets/emulators/duckstation.toml"),
         "pcsx2" => include_str!("../../assets/emulators/pcsx2.toml"),
+        "cemu" => include_str!("../../assets/emulators/cemu.toml"),
         _ => return Ok(Vec::new()),
     };
 
@@ -173,8 +179,9 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         let config_target = opt.config_target.map(|ct| ConfigTarget {
             file: ct.file,
             format: ct.format,
-            section: ct.section,
-            key: ct.key,
+            section: Some(ct.section),
+            key: Some(ct.key),
+            xml_path: None,
             value_map: if ct.value_map.is_empty() {
                 None
             } else {
@@ -269,9 +276,7 @@ pub fn resolve_config_file(path: &str) -> PathBuf {
 pub fn read_config_value(opt: &EmulatorOption) -> Option<String> {
     let target = opt.config_target.as_ref()?;
     let path = resolve_config_file(&target.file);
-    let raw = crate::config_patch::qt_ini::read_qt_ini_value(&path, &target.section, &target.key)
-        .ok()
-        .flatten()?;
+    let raw = read_raw_value(&path, target).ok().flatten()?;
     match &target.value_map {
         Some(map) => {
             map.iter()
@@ -279,6 +284,41 @@ pub fn read_config_value(opt: &EmulatorOption) -> Option<String> {
                 .map(|(logical, _)| logical.clone())
         }
         None => Some(raw),
+    }
+}
+
+/// Dispatch a raw read to the appropriate format-specific backend.
+fn read_raw_value(
+    path: &std::path::Path,
+    target: &ConfigTarget,
+) -> Result<Option<String>, crate::config_patch::qt_ini::PatchError> {
+    match target.format.as_str() {
+        "cemu_xml" => {
+            let xml_path = target
+                .xml_path
+                .as_ref()
+                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+                    path: path.to_path_buf(),
+                    section: "cemu_xml".to_string(),
+                    key: "missing xml_path in config_target".to_string(),
+                })?;
+            crate::config_patch::cemu_xml::read_cemu_xml_value(
+                path,
+                &xml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            )
+        }
+        _ => {
+            // Default: qt_ini
+            let section = target
+                .section
+                .as_deref()
+                .unwrap_or_default();
+            let key = target
+                .key
+                .as_deref()
+                .unwrap_or_default();
+            crate::config_patch::qt_ini::read_qt_ini_value(path, section, key)
+        }
     }
 }
 
@@ -308,12 +348,7 @@ pub fn apply_config_patches(
             .and_then(|map| map.get(&value).cloned())
             .unwrap_or_else(|| value.clone());
         let path = resolve_config_file(&target.file);
-        if let Err(err) = crate::config_patch::qt_ini::patch_qt_ini(
-            &path,
-            &target.section,
-            &target.key,
-            &translated,
-        ) {
+        if let Err(err) = apply_single_patch(&path, target, &translated) {
             failures.push(ConfigPatchFailure {
                 option_key: opt.key.clone(),
                 message: err.to_string(),
@@ -321,6 +356,45 @@ pub fn apply_config_patches(
         }
     }
     failures
+}
+
+/// Dispatch a single patch to the appropriate format-specific backend.
+fn apply_single_patch(
+    path: &std::path::Path,
+    target: &ConfigTarget,
+    new_value: &str,
+) -> Result<(), crate::config_patch::qt_ini::PatchError> {
+    match target.format.as_str() {
+        "cemu_xml" => {
+            let xml_path = target
+                .xml_path
+                .as_ref()
+                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+                    path: path.to_path_buf(),
+                    section: "cemu_xml".to_string(),
+                    key: "missing xml_path in config_target".to_string(),
+                })?;
+            crate::config_patch::cemu_xml::patch_cemu_xml(
+                path,
+                &xml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                new_value,
+            )?;
+            Ok(())
+        }
+        _ => {
+            // Default: qt_ini
+            let section = target
+                .section
+                .as_deref()
+                .unwrap_or_default();
+            let key = target
+                .key
+                .as_deref()
+                .unwrap_or_default();
+            crate::config_patch::qt_ini::patch_qt_ini(path, section, key, new_value)?;
+            Ok(())
+        }
+    }
 }
 
 /// Expand every non-default option into its CLI flags.
@@ -565,8 +639,8 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
         let options = load_emulator_options("Eden").unwrap();
         let backend = renderer_backend(&options);
         let target = backend.config_target.as_ref().unwrap();
-        assert_eq!(target.section, "Renderer");
-        assert_eq!(target.key, "backend");
+        assert_eq!(target.section.as_deref().unwrap(), "Renderer");
+        assert_eq!(target.key.as_deref().unwrap(), "backend");
         assert_eq!(target.format, "qt_ini");
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("opengl"), Some(&"0".to_string()));
@@ -575,11 +649,11 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
 
         let docked = options.iter().find(|o| o.key == "docked_mode").unwrap();
         let target = docked.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("System", "use_docked_mode"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("System", "use_docked_mode"));
 
         let res = options.iter().find(|o| o.key == "resolution_scale").unwrap();
         let target = res.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("Renderer", "resolution_setup"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("Renderer", "resolution_setup"));
         assert_eq!(
             res.choice_labels.get("3").map(String::as_str),
             Some("1X (Nativo)")
@@ -644,7 +718,7 @@ Theme = Dark
 
         let fullscreen = duckstation_option(&options, "fullscreen");
         let target = fullscreen.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("Main", "StartFullscreen"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("Main", "StartFullscreen"));
         assert_eq!(target.format, "qt_ini");
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("0"), Some(&"false".to_string()));
@@ -653,7 +727,7 @@ Theme = Dark
 
         let renderer = duckstation_option(&options, "renderer");
         let target = renderer.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("GPU", "Renderer"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("GPU", "Renderer"));
         assert_eq!(
             renderer.kind,
             EmulatorOptionKind::Choice(vec![
@@ -665,12 +739,12 @@ Theme = Dark
 
         let aspect = duckstation_option(&options, "aspect_ratio");
         let target = aspect.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("Display", "AspectRatio"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("Display", "AspectRatio"));
         assert_eq!(aspect.default, "16:9");
 
         let res = duckstation_option(&options, "resolution_scale");
         let target = res.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("GPU", "ResolutionScale"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("GPU", "ResolutionScale"));
         assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("1X (Nativo)"));
         assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8X"));
         assert_eq!(
@@ -799,7 +873,7 @@ EECycleRate = 0
 
         let fullscreen = pcsx2_option(&options, "fullscreen");
         let target = fullscreen.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("UI", "StartFullscreen"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("UI", "StartFullscreen"));
         assert_eq!(target.format, "qt_ini");
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("0"), Some(&"false".to_string()));
@@ -808,7 +882,7 @@ EECycleRate = 0
 
         let renderer = pcsx2_option(&options, "renderer");
         let target = renderer.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("EmuCore/GS", "Renderer"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("EmuCore/GS", "Renderer"));
         // Logical names map to PCSX2 v2.6.3 numeric enum codes.
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("Auto"), Some(&"-1".to_string()));
@@ -827,7 +901,7 @@ EECycleRate = 0
 
         let aspect = pcsx2_option(&options, "aspect_ratio");
         let target = aspect.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("EmuCore/GS", "AspectRatio"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("EmuCore/GS", "AspectRatio"));
         assert_eq!(aspect.default, "Auto 4:3/3:2");
         assert!(aspect.config_target.as_ref().unwrap().value_map.is_none(), "identity strings");
         assert_eq!(
@@ -843,7 +917,7 @@ EECycleRate = 0
 
         let res = pcsx2_option(&options, "resolution_scale");
         let target = res.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_str(), target.key.as_str()), ("EmuCore/GS", "upscale_multiplier"));
+        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("EmuCore/GS", "upscale_multiplier"));
         assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("1X (Nativo)"));
         assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8X"));
         assert_eq!(
@@ -1067,8 +1141,9 @@ EECycleRate = 0
         missing.config_target = Some(ConfigTarget {
             file: missing.config_target.unwrap().file,
             format: "qt_ini".to_string(),
-            section: "NoSection".to_string(),
-            key: "backend".to_string(),
+            section: Some("NoSection".to_string()),
+            key: Some("backend".to_string()),
+            xml_path: None,
             value_map: None,
         });
         assert_eq!(read_config_value(&missing), None);

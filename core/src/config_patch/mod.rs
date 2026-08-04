@@ -12,6 +12,8 @@
 //! or any launch flow yet — it is intentionally isolated so it can be proven
 //! reliable first.
 
+pub mod cemu_xml;
 pub mod qt_ini;
 
+pub use cemu_xml::{CemuPatchResult, patch_cemu_xml, read_cemu_xml_value};
 pub use qt_ini::{PatchError, PatchResult, patch_qt_ini, read_qt_ini_value};

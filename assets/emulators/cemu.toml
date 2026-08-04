@@ -1,0 +1,57 @@
+# Emulator launch options for Cemu (Wii U).
+#
+# Cemu persists its settings at `~/.config/Cemu/settings.xml` in a custom XML
+# format (tinyxml2). Leaf elements appear as <tag>value</tag> on a single line.
+# The `cemu_xml` config patcher uses full path-based element lookup (not tag
+# name alone) to handle ambiguous tag names across branches.
+#
+# WARNING: renderer_backend and vsync value_map numbers are PLACEHOLDERS.
+# Confirm by changing the setting in Cemu's GUI, closing, and checking the
+# resulting XML values in settings.xml.
+
+note = "Cemu (Wii U) configuration file options"
+
+[[options]]
+key = "fullscreen"
+name = "Pantalla completa"
+kind = "toggle"
+default = "0"
+# Cemu's -f flag is the simplest mechanism for fullscreen; the XML element
+# <fullscreen> exists too but the CLI flag suffices here.
+flag_template = "-f"
+
+[[options]]
+key = "renderer_backend"
+name = "Renderer Backend"
+kind = "choice"
+default = "vulkan"
+# PLACEHOLDER values — confirm by testing in Cemu's GUI:
+#   change renderer, close Cemu, inspect <Graphic><api> in settings.xml.
+#   Current file has <api>1</api> with Vulkan selected.
+choices = ["opengl", "vulkan"]
+[[options.choices]]
+value = "opengl"
+label = "OpenGL"
+[[options.choices]]
+value = "vulkan"
+label = "Vulkan"
+[options.config_target]
+file = "~/.config/Cemu/settings.xml"
+format = "cemu_xml"
+xml_path = ["Graphic", "api"]
+[options.config_target.value_map]
+opengl = "0"   # PLACEHOLDER — confirm
+vulkan = "1"   # PLACEHOLDER — confirm (current file: <api>1</api> with Vulkan)
+
+[[options]]
+key = "vsync"
+name = "VSync"
+kind = "choice"
+default = "0"
+# PLACEHOLDER values — the real meaning of 0/1/2 needs manual confirmation:
+#   change VSync in Cemu's GUI, close, inspect <Graphic><VSync> in settings.xml.
+choices = ["0", "1", "2"]
+[options.config_target]
+file = "~/.config/Cemu/settings.xml"
+format = "cemu_xml"
+xml_path = ["Graphic", "VSync"]
