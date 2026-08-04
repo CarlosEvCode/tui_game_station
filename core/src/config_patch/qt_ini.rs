@@ -69,6 +69,17 @@ pub enum PatchError {
         section: String,
         key: String,
     },
+    #[error("failed to parse config file '{path}' as TOML: {message}")]
+    TomlParse { path: PathBuf, message: String },
+    #[error("config file '{path}' has no TOML key '{key}'")]
+    TomlKeyNotFound { path: PathBuf, key: String },
+    #[error("config file '{path}' key '{key}': cannot write value '{value}' (expected {expected})")]
+    InvalidValue {
+        path: PathBuf,
+        key: String,
+        value: String,
+        expected: String,
+    },
 }
 
 /// Read the current (unquoted, unescaped) value of `section`/`key`.

@@ -47,6 +47,9 @@ pub struct ConfigTarget {
     /// Full XML path from root (cemu_xml only, e.g. ["Graphic", "api"]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub xml_path: Option<Vec<String>>,
+    /// Full dotted path from root (melonds_toml only, e.g. ["3D", "Renderer"]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toml_path: Option<Vec<String>>,
     /// Translates the logical option value (e.g. "vulkan") to the value the
     /// config file expects (e.g. "1"). Absent/empty means identity mapping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,6 +133,8 @@ struct RawConfigTarget {
     #[serde(default)]
     xml_path: Option<Vec<String>>,
     #[serde(default)]
+    toml_path: Option<Vec<String>>,
+    #[serde(default)]
     value_map: BTreeMap<String, String>,
 }
 
@@ -144,6 +149,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         "pcsx2" => include_str!("../../assets/emulators/pcsx2.toml"),
         "cemu" => include_str!("../../assets/emulators/cemu.toml"),
         "ppsspp" => include_str!("../../assets/emulators/ppsspp.toml"),
+        "melonds" => include_str!("../../assets/emulators/melonds.toml"),
         _ => return Ok(Vec::new()),
     };
 
@@ -187,6 +193,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
             section: ct.section,
             key: ct.key,
             xml_path: ct.xml_path,
+            toml_path: ct.toml_path,
             value_map: if ct.value_map.is_empty() {
                 None
             } else {
@@ -312,6 +319,21 @@ fn read_raw_value(
                 &xml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             )
         }
+        "melonds_toml" => {
+            let toml_path = target
+                .toml_path
+                .as_ref()
+                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+                    path: path.to_path_buf(),
+                    section: "melonds_toml".to_string(),
+                    key: "missing toml_path in config_target".to_string(),
+                })?;
+            crate::config_patch::melonds_toml::read_melonds_toml_value(
+                path,
+                &toml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            )
+            .map(|opt| opt.map(|v| v.to_file_string()))
+        }
         _ => {
             // Default: qt_ini
             let section = target
@@ -382,6 +404,22 @@ fn apply_single_patch(
             crate::config_patch::cemu_xml::patch_cemu_xml(
                 path,
                 &xml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                new_value,
+            )?;
+            Ok(())
+        }
+        "melonds_toml" => {
+            let toml_path = target
+                .toml_path
+                .as_ref()
+                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+                    path: path.to_path_buf(),
+                    section: "melonds_toml".to_string(),
+                    key: "missing toml_path in config_target".to_string(),
+                })?;
+            crate::config_patch::melonds_toml::patch_melonds_toml(
+                path,
+                &toml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 new_value,
             )?;
             Ok(())
@@ -496,6 +534,7 @@ fn canonical_emulator_key(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config_patch::melonds_toml::{TomlValue, read_melonds_toml_value};
     use crate::config_patch::qt_ini::read_qt_ini_value;
 
     fn azahar() -> Vec<EmulatorOption> {
@@ -1160,9 +1199,162 @@ EECycleRate = 0
             section: Some("NoSection".to_string()),
             key: Some("backend".to_string()),
             xml_path: None,
+            toml_path: None,
             value_map: None,
         });
         assert_eq!(read_config_value(&missing), None);
+    }
+
+    /// A representative melonDS `melonDS.toml` sample (real TOML format with
+    /// nested tables, kept close to the real file so path depth matters).
+    const MELONDS_TOML_SAMPLE: &str = "\
+LimitFPS = true
+AudioSync = false
+TargetFPS = 60.0
+RecentROM = [\"/home/x/rom.nds\"]
+
+[3D]
+Renderer = 0
+
+[JIT]
+Enable = false
+
+[Instance0.Window0]
+ScreenLayout = 0
+";
+
+    /// Load the real melonDS TOML definitions with every config_target pointing
+    /// at a temp file, so tests never touch the user's melonDS.toml.
+    fn melonds_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
+        let dir = std::env::temp_dir().join(format!(
+            "tui_game_station_options_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, MELONDS_TOML_SAMPLE).unwrap();
+        let mut options = load_emulator_options("melonDS").unwrap();
+        for opt in &mut options {
+            if let Some(target) = &mut opt.config_target {
+                target.file = file.to_string_lossy().into_owned();
+            }
+        }
+        options
+    }
+
+    fn melonds_option<'a>(options: &'a [EmulatorOption], key: &str) -> &'a EmulatorOption {
+        options.iter().find(|o| o.key == key).unwrap()
+    }
+
+    #[test]
+    fn melonds_loads_config_target_definitions() {
+        let options = load_emulator_options("melonDS").unwrap();
+        assert_eq!(options.len(), 5);
+
+        // Fullscreen is CLI-only, no config file touch.
+        let fullscreen = melonds_option(&options, "fullscreen");
+        assert_eq!(fullscreen.flag_template, "-f");
+        assert!(fullscreen.config_target.is_none());
+
+        let limit = melonds_option(&options, "limit_fps");
+        let target = limit.config_target.as_ref().unwrap();
+        assert_eq!(target.format, "melonds_toml");
+        assert_eq!(target.toml_path.as_deref().unwrap(), ["LimitFPS"]);
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("0"), Some(&"false".to_string()));
+        assert_eq!(map.get("1"), Some(&"true".to_string()));
+        assert!(limit.flag_template.is_empty(), "config-only option must not emit CLI flags");
+
+        let renderer = melonds_option(&options, "renderer_3d");
+        let target = renderer.config_target.as_ref().unwrap();
+        assert_eq!(
+            target.toml_path.as_deref().unwrap(),
+            ["3D", "Renderer"]
+        );
+
+        let layout = melonds_option(&options, "screen_layout");
+        let target = layout.config_target.as_ref().unwrap();
+        assert_eq!(
+            target.toml_path.as_deref().unwrap(),
+            ["Instance0", "Window0", "ScreenLayout"]
+        );
+    }
+
+    #[test]
+    fn apply_config_patches_writes_melonds_settings() {
+        let options = melonds_options_with_temp_target("apply_melonds.toml");
+        let file = resolve_config_file(
+            &melonds_option(&options, "limit_fps")
+                .config_target
+                .as_ref()
+                .unwrap()
+                .file,
+        );
+
+        let mut values = default_map(&options);
+        values.insert("limit_fps".to_string(), "0".to_string());
+        values.insert("audio_sync".to_string(), "1".to_string());
+        values.insert("renderer_3d".to_string(), "OpenGL".to_string());
+        values.insert("screen_layout".to_string(), "Vertical".to_string());
+
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+
+        // Booleans keep their TOML type (unquoted true/false).
+        assert_eq!(
+            read_melonds_toml_value(&file, &["LimitFPS"]).unwrap(),
+            Some(TomlValue::Bool(false))
+        );
+        assert_eq!(
+            read_melonds_toml_value(&file, &["AudioSync"]).unwrap(),
+            Some(TomlValue::Bool(true))
+        );
+        // Nested integer codes keep their numeric type.
+        assert_eq!(
+            read_melonds_toml_value(&file, &["3D", "Renderer"]).unwrap(),
+            Some(TomlValue::Int(1))
+        );
+        assert_eq!(
+            read_melonds_toml_value(&file, &["Instance0", "Window0", "ScreenLayout"]).unwrap(),
+            Some(TomlValue::Int(1))
+        );
+
+        // Unrelated lines (RecentROM array, JIT block) stay byte-identical.
+        let written = std::fs::read_to_string(&file).unwrap();
+        let expected = MELONDS_TOML_SAMPLE
+            .replace("LimitFPS = true", "LimitFPS = false")
+            .replace("AudioSync = false", "AudioSync = true")
+            .replace("Renderer = 0", "Renderer = 1")
+            .replace("ScreenLayout = 0", "ScreenLayout = 1");
+        assert_eq!(written, expected);
+        assert!(written.contains("RecentROM = [\"/home/x/rom.nds\"]"));
+        assert!(written.contains("[JIT]\nEnable = false"));
+    }
+
+    #[test]
+    fn read_config_value_preloads_melonds_settings() {
+        let options = melonds_options_with_temp_target("preload_melonds.toml");
+
+        assert_eq!(
+            read_config_value(melonds_option(&options, "limit_fps")).as_deref(),
+            Some("1"),
+            "file has LimitFPS = true -> logical on"
+        );
+        assert_eq!(
+            read_config_value(melonds_option(&options, "audio_sync")).as_deref(),
+            Some("0"),
+            "file has AudioSync = false -> logical off"
+        );
+        assert_eq!(
+            read_config_value(melonds_option(&options, "renderer_3d")).as_deref(),
+            Some("Software"),
+            "file has 3D.Renderer = 0 -> logical Software"
+        );
+        assert_eq!(
+            read_config_value(melonds_option(&options, "screen_layout")).as_deref(),
+            Some("Natural"),
+            "file has ScreenLayout = 0 -> logical Natural"
+        );
     }
 
     #[test]

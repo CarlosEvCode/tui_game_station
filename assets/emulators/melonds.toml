@@ -1,0 +1,98 @@
+# Emulator launch options for melonDS (Nintendo DS/DSi).
+#
+# melonDS persists its settings as a real TOML document at
+# `~/.config/melonDS/melonDS.toml`. The `melonds_toml` config patcher edits that
+# file with toml_edit, so every key keeps its existing TOML type (booleans stay
+# true/false unquoted, numbers stay numeric).
+#
+# WARNING: renderer_3d and screen_layout value_map codes are PLACEHOLDERS.
+# Confirm by changing the setting in melonDS's GUI, closing, and checking the
+# resulting values in melonDS.toml.
+
+note = "melonDS (Nintendo DS/DSi) configuration file options"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+# melonDS CLI accepts -f/--fullscreen plus a positional ROM path; no config
+# file touch needed.
+flag_template = "-f"
+
+[[options]]
+key = "limit_fps"
+name = "Limit FPS"
+kind = "toggle"
+default = "1"
+[options.config_target]
+file = "~/.config/melonDS/melonDS.toml"
+format = "melonds_toml"
+toml_path = ["LimitFPS"]
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
+
+[[options]]
+key = "audio_sync"
+name = "Audio Sync"
+kind = "toggle"
+default = "0"
+[options.config_target]
+file = "~/.config/melonDS/melonDS.toml"
+format = "melonds_toml"
+toml_path = ["AudioSync"]
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
+
+# PLACEHOLDER: the numeric codes for 3D.Renderer are a guess (0 = Software,
+# 1 = OpenGL). Confirm by testing in melonDS's GUI and inspecting melonDS.toml.
+[[options]]
+key = "renderer_3d"
+name = "3D Renderer"
+kind = "choice"
+default = "Software"
+[[options.choices]]
+value = "Software"
+label = "Software"
+[[options.choices]]
+value = "OpenGL"
+label = "OpenGL"
+[options.config_target]
+file = "~/.config/melonDS/melonDS.toml"
+format = "melonds_toml"
+toml_path = ["3D", "Renderer"]
+[options.config_target.value_map]
+"Software" = "0"   # PLACEHOLDER — confirm
+"OpenGL" = "1"     # PLACEHOLDER — confirm
+
+# PLACEHOLDER: the numeric codes for Instance0.Window0.ScreenLayout are a
+# guess (0 = Natural, 1 = Vertical, 2 = Horizontal, 3 = Hybrid). Confirm by
+# testing in melonDS's GUI and inspecting melonDS.toml.
+[[options]]
+key = "screen_layout"
+name = "Screen Layout"
+kind = "choice"
+default = "Natural"
+[[options.choices]]
+value = "Natural"
+label = "Natural"
+[[options.choices]]
+value = "Vertical"
+label = "Vertical"
+[[options.choices]]
+value = "Horizontal"
+label = "Horizontal"
+[[options.choices]]
+value = "Hybrid"
+label = "Hybrid"
+[options.config_target]
+file = "~/.config/melonDS/melonDS.toml"
+format = "melonds_toml"
+toml_path = ["Instance0", "Window0", "ScreenLayout"]
+[options.config_target.value_map]
+"Natural" = "0"    # PLACEHOLDER — confirm
+"Vertical" = "1"   # PLACEHOLDER — confirm
+"Horizontal" = "2" # PLACEHOLDER — confirm
+"Hybrid" = "3"     # PLACEHOLDER — confirm
