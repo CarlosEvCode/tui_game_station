@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.8.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.7.0...v1.8.0) (2026-08-04)
+
+
+### Features
+
+* **core:** Add isolated Qt INI config patching module with tests ([8c08f6e](https://github.com/CarlosEvCode/tui_game_station/commit/8c08f6e810870fb301d7513b4c23cb959152446c))
+* **emulators:** Add Cemu XML config patcher and options (fullscreen, renderer, vsync) ([11a1845](https://github.com/CarlosEvCode/tui_game_station/commit/11a184574aa23dd40599882c3af2cdbb0932bd25))
+* **emulators:** Add data-driven runner options with Step2 TUI config editor ([c2341a8](https://github.com/CarlosEvCode/tui_game_station/commit/c2341a859f8532b57c7772e8be880707dc5b3718))
+* **emulators:** Add DuckStation config-file options (fullscreen, renderer, aspect ratio, resolution scale) ([1cf9758](https://github.com/CarlosEvCode/tui_game_station/commit/1cf97583b265dcd40b61dfbce94c0a3135dae80c))
+* **emulators:** Add Eden as second Nintendo Switch emulator ([d3a3e04](https://github.com/CarlosEvCode/tui_game_station/commit/d3a3e04e1859130dcb3ed2019ef43269997b1cbb))
+* **emulators:** Add PCSX2 config-file options (fullscreen, renderer, aspect ratio, resolution scale) ([eb3d2a3](https://github.com/CarlosEvCode/tui_game_station/commit/eb3d2a341d58b0ef71e8cb076ea3b679a5b393d6))
+* **emulators:** Add PPSSPP (PSP) emulator config with fullscreen, renderer, and resolution options ([924fd4e](https://github.com/CarlosEvCode/tui_game_station/commit/924fd4e3c164237706d93e9ba83f39c18810644a))
+* **emulators:** Wire config-file options for Eden (config_target) with preload and save ([ac12e6f](https://github.com/CarlosEvCode/tui_game_station/commit/ac12e6fdac378616d60a3189494e261211048718))
+* **install:** Add Fish shell PATH support with fish_add_path and detect all common shells ([9105089](https://github.com/CarlosEvCode/tui_game_station/commit/9105089699ae91a33e3b1b4cd620d1b8d56c39d0))
+* **switch:** Group Title ID families into single entries with components ([03d8aff](https://github.com/CarlosEvCode/tui_game_station/commit/03d8afff208116cd129dd1e6b7b5333763b1c122))
+
+
+### Bug Fixes
+
+* **db:** Add -g flag to Cemu command template for auto-launching games ([74fa22b](https://github.com/CarlosEvCode/tui_game_station/commit/74fa22bb6d210ee0c43d562098f08b98259ed0f9))
+* **emulators:** Invert Eden docked_mode mapping (use_docked_mode: 0=docked, 1=handheld) ([18ecb78](https://github.com/CarlosEvCode/tui_game_station/commit/18ecb7881a1d714d41f43e7ec307426212fcb028))
+* **install:** Auto-source shell rc after PATH injection; show PATH note only when needed ([9b24e79](https://github.com/CarlosEvCode/tui_game_station/commit/9b24e79a25bdd5545a10798e7ec257049f197536))
+* **install:** Replace bash-only [[ ]] with POSIX case statement and auto-inject PATH in shell rc files ([84e6014](https://github.com/CarlosEvCode/tui_game_station/commit/84e6014416faf03775470351c052f4e846bd1bc4))
+* **options:** Make RawConfigTarget section/key optional for cemu_xml format ([04b7ee4](https://github.com/CarlosEvCode/tui_game_station/commit/04b7ee4a4b4c2f0d4652561dde4c9e2edff47853))
+* **scan:** Restore persisting the scanned folder path per platform ([5da7976](https://github.com/CarlosEvCode/tui_game_station/commit/5da7976a12ce475ba054f81749e18aef5472ea87))
+* **switch:** Filter by configured extensions and merge orphan DLC/update groups by name ([5d1f97e](https://github.com/CarlosEvCode/tui_game_station/commit/5d1f97e7304d436efa0d0fc982447ad710045cff))
+
 ## [1.7.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.6.0...v1.7.0) (2026-08-03)
 
 
