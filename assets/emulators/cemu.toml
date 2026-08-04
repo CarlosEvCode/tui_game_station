@@ -28,7 +28,6 @@ default = "vulkan"
 # PLACEHOLDER values — confirm by testing in Cemu's GUI:
 #   change renderer, close Cemu, inspect <Graphic><api> in settings.xml.
 #   Current file has <api>1</api> with Vulkan selected.
-choices = ["opengl", "vulkan"]
 [[options.choices]]
 value = "opengl"
 label = "OpenGL"

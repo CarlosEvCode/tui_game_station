@@ -123,8 +123,12 @@ enum RawChoice {
 struct RawConfigTarget {
     file: String,
     format: String,
-    section: String,
-    key: String,
+    #[serde(default)]
+    section: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    xml_path: Option<Vec<String>>,
     #[serde(default)]
     value_map: BTreeMap<String, String>,
 }
@@ -179,9 +183,9 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         let config_target = opt.config_target.map(|ct| ConfigTarget {
             file: ct.file,
             format: ct.format,
-            section: Some(ct.section),
-            key: Some(ct.key),
-            xml_path: None,
+            section: ct.section,
+            key: ct.key,
+            xml_path: ct.xml_path,
             value_map: if ct.value_map.is_empty() {
                 None
             } else {
@@ -516,6 +520,17 @@ mod tests {
         let eden = load_emulator_options("Eden").unwrap();
         assert!(eden.iter().any(|o| o.key == "singlecore"));
         assert_eq!(load_emulator_options("Ryujinx").unwrap().len(), 0);
+
+        let cemu = load_emulator_options("Cemu").unwrap();
+        assert_eq!(cemu.len(), 3, "Cemu should have 3 options (fullscreen, renderer_backend, vsync)");
+        assert!(cemu.iter().any(|o| o.key == "fullscreen"));
+        assert!(cemu.iter().any(|o| o.key == "renderer_backend"));
+        assert!(cemu.iter().any(|o| o.key == "vsync"));
+        let renderer = cemu.iter().find(|o| o.key == "renderer_backend").unwrap();
+        let target = renderer.config_target.as_ref().unwrap();
+        assert_eq!(target.format, "cemu_xml");
+        let xml_path = target.xml_path.as_ref().unwrap();
+        assert_eq!(xml_path, &vec!["Graphic".to_string(), "api".to_string()]);
     }
 
     #[test]
