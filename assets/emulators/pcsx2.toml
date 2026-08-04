@@ -1,0 +1,105 @@
+# Emulator launch options for PCSX2 (Sony PlayStation 2).
+#
+# PCSX2 persists its settings at `~/.config/PCSX2/inis/PCSX2.ini` using the
+# same `Key = Value` (spaces around `=`) format with true/false booleans as
+# DuckStation. The qt_ini patcher handles that format; booleans are translated
+# with value_map ("0"/"1" logical <-> "false"/"true" in the file) and enum-based
+# settings use value_map to translate the logical names into PCSX2's numeric
+# codes. Confirmed against this system's PCSX2.ini and PCSX2 v2.6.3 source.
+
+note = "PCSX2 (PS2) configuration file options"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+[options.config_target]
+file = "~/.config/PCSX2/inis/PCSX2.ini"
+format = "qt_ini"
+section = "UI"
+key = "StartFullscreen"
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
+
+[[options]]
+key = "renderer"
+name = "Renderer Backend"
+kind = "choice"
+default = "Auto"
+# PCSX2 stores Renderer as a numeric enum code (v2.6.3):
+# Auto=-1, DX11=3, Null=11, OGL=12, SW=13, VK=14, Metal=17, DX12=15.
+# D3D/Metal are platform-specific, so only the cross-platform ones are offered.
+[[options.choices]]
+value = "Auto"
+label = "Auto"
+[[options.choices]]
+value = "Vulkan"
+label = "Vulkan"
+[[options.choices]]
+value = "OpenGL"
+label = "OpenGL"
+[[options.choices]]
+value = "Software"
+label = "Software"
+[options.config_target]
+file = "~/.config/PCSX2/inis/PCSX2.ini"
+format = "qt_ini"
+section = "EmuCore/GS"
+key = "Renderer"
+[options.config_target.value_map]
+"Auto" = "-1"
+"Vulkan" = "14"
+"OpenGL" = "12"
+"Software" = "13"
+
+[[options]]
+key = "aspect_ratio"
+name = "Aspect Ratio"
+kind = "choice"
+default = "Auto 4:3/3:2"
+# Stored strings match PCSX2's AspectRatioNames (v2.6.3).
+choices = ["Auto 4:3/3:2", "4:3", "16:9", "10:7", "Stretch"]
+[options.config_target]
+file = "~/.config/PCSX2/inis/PCSX2.ini"
+format = "qt_ini"
+section = "EmuCore/GS"
+key = "AspectRatio"
+
+[[options]]
+key = "resolution_scale"
+name = "Resolution Scale"
+kind = "choice"
+default = "1"
+# PCSX2 uses a direct internal-resolution multiplier (upscale_multiplier),
+# stored as an integer 1..8 in the ini.
+[[options.choices]]
+value = "1"
+label = "1X (Nativo)"
+[[options.choices]]
+value = "2"
+label = "2X"
+[[options.choices]]
+value = "3"
+label = "3X"
+[[options.choices]]
+value = "4"
+label = "4X"
+[[options.choices]]
+value = "5"
+label = "5X"
+[[options.choices]]
+value = "6"
+label = "6X"
+[[options.choices]]
+value = "7"
+label = "7X"
+[[options.choices]]
+value = "8"
+label = "8X"
+[options.config_target]
+file = "~/.config/PCSX2/inis/PCSX2.ini"
+format = "qt_ini"
+section = "EmuCore/GS"
+key = "upscale_multiplier"

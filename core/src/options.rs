@@ -132,6 +132,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         "azahar" => include_str!("../../assets/emulators/azahar.toml"),
         "eden" => include_str!("../../assets/emulators/eden.toml"),
         "duckstation" => include_str!("../../assets/emulators/duckstation.toml"),
+        "pcsx2" => include_str!("../../assets/emulators/pcsx2.toml"),
         _ => return Ok(Vec::new()),
     };
 
@@ -748,6 +749,179 @@ Theme = Dark
         assert_eq!(
             read_config_value(duckstation_option(&options, "resolution_scale")).as_deref(),
             Some("3")
+        );
+    }
+
+    /// A representative PCSX2 `PCSX2.ini` sample (same `Key = Value` format as
+    /// DuckStation, with true/false booleans and numeric enum codes).
+    const PCSX2_INI_SAMPLE: &str = "\
+[UI]
+StartFullscreen = false
+ConfirmShutdown = true
+
+[EmuCore/GS]
+AspectRatio = Auto 4:3/3:2
+Renderer = -1
+upscale_multiplier = 1
+VsyncEnable = false
+
+[EmuCore/Speedhacks]
+EECycleRate = 0
+";
+
+    /// Load the real PCSX2 TOML definitions with every config_target pointing at
+    /// a temp file, so tests never touch the user's PCSX2.ini.
+    fn pcsx2_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
+        let dir = std::env::temp_dir().join(format!(
+            "tui_game_station_options_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, PCSX2_INI_SAMPLE).unwrap();
+        let mut options = load_emulator_options("PCSX2").unwrap();
+        for opt in &mut options {
+            if let Some(target) = &mut opt.config_target {
+                target.file = file.to_string_lossy().into_owned();
+            }
+        }
+        options
+    }
+
+    fn pcsx2_option<'a>(options: &'a [EmulatorOption], key: &str) -> &'a EmulatorOption {
+        options.iter().find(|o| o.key == key).unwrap()
+    }
+
+    #[test]
+    fn pcsx2_loads_config_target_definitions() {
+        let options = load_emulator_options("PCSX2").unwrap();
+        assert_eq!(options.len(), 4);
+
+        let fullscreen = pcsx2_option(&options, "fullscreen");
+        let target = fullscreen.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("UI", "StartFullscreen"));
+        assert_eq!(target.format, "qt_ini");
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("0"), Some(&"false".to_string()));
+        assert_eq!(map.get("1"), Some(&"true".to_string()));
+        assert!(fullscreen.flag_template.is_empty(), "config-only option must not emit CLI flags");
+
+        let renderer = pcsx2_option(&options, "renderer");
+        let target = renderer.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("EmuCore/GS", "Renderer"));
+        // Logical names map to PCSX2 v2.6.3 numeric enum codes.
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("Auto"), Some(&"-1".to_string()));
+        assert_eq!(map.get("Vulkan"), Some(&"14".to_string()));
+        assert_eq!(map.get("OpenGL"), Some(&"12".to_string()));
+        assert_eq!(map.get("Software"), Some(&"13".to_string()));
+        assert_eq!(
+            renderer.kind,
+            EmulatorOptionKind::Choice(vec![
+                "Auto".to_string(),
+                "Vulkan".to_string(),
+                "OpenGL".to_string(),
+                "Software".to_string()
+            ])
+        );
+
+        let aspect = pcsx2_option(&options, "aspect_ratio");
+        let target = aspect.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("EmuCore/GS", "AspectRatio"));
+        assert_eq!(aspect.default, "Auto 4:3/3:2");
+        assert!(aspect.config_target.as_ref().unwrap().value_map.is_none(), "identity strings");
+        assert_eq!(
+            aspect.kind,
+            EmulatorOptionKind::Choice(vec![
+                "Auto 4:3/3:2".to_string(),
+                "4:3".to_string(),
+                "16:9".to_string(),
+                "10:7".to_string(),
+                "Stretch".to_string()
+            ])
+        );
+
+        let res = pcsx2_option(&options, "resolution_scale");
+        let target = res.config_target.as_ref().unwrap();
+        assert_eq!((target.section.as_str(), target.key.as_str()), ("EmuCore/GS", "upscale_multiplier"));
+        assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("1X (Nativo)"));
+        assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8X"));
+        assert_eq!(
+            res.kind,
+            EmulatorOptionKind::Choice((1..=8).map(|n| n.to_string()).collect::<Vec<_>>())
+        );
+    }
+
+    #[test]
+    fn apply_config_patches_writes_pcsx2_settings() {
+        let options = pcsx2_options_with_temp_target("apply_pcsx2.ini");
+        let file = resolve_config_file(
+            &pcsx2_option(&options, "fullscreen")
+                .config_target
+                .as_ref()
+                .unwrap()
+                .file,
+        );
+
+        let mut values = default_map(&options);
+        values.insert("fullscreen".to_string(), "1".to_string());
+        values.insert("renderer".to_string(), "Vulkan".to_string());
+        values.insert("aspect_ratio".to_string(), "16:9".to_string());
+        values.insert("resolution_scale".to_string(), "4".to_string());
+
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+
+        assert_eq!(
+            read_qt_ini_value(&file, "UI", "StartFullscreen").unwrap().as_deref(),
+            Some("true")
+        );
+        // Logical Vulkan -> numeric code 14, spacing around `=` preserved.
+        assert_eq!(
+            read_qt_ini_value(&file, "EmuCore/GS", "Renderer").unwrap().as_deref(),
+            Some("14")
+        );
+        assert_eq!(
+            read_qt_ini_value(&file, "EmuCore/GS", "AspectRatio").unwrap().as_deref(),
+            Some("16:9")
+        );
+        assert_eq!(
+            read_qt_ini_value(&file, "EmuCore/GS", "upscale_multiplier").unwrap().as_deref(),
+            Some("4")
+        );
+
+        // Unrelated lines stay byte-identical.
+        let written = std::fs::read_to_string(&file).unwrap();
+        let expected = PCSX2_INI_SAMPLE
+            .replace("StartFullscreen = false", "StartFullscreen = true")
+            .replace("Renderer = -1", "Renderer = 14")
+            .replace("AspectRatio = Auto 4:3/3:2", "AspectRatio = 16:9")
+            .replace("upscale_multiplier = 1", "upscale_multiplier = 4");
+        assert_eq!(written, expected);
+        assert!(written.contains("EECycleRate = 0"));
+    }
+
+    #[test]
+    fn read_config_value_preloads_pcsx2_settings() {
+        let options = pcsx2_options_with_temp_target("preload_pcsx2.ini");
+
+        assert_eq!(
+            read_config_value(pcsx2_option(&options, "fullscreen")).as_deref(),
+            Some("0"),
+            "file has StartFullscreen = false -> logical off"
+        );
+        assert_eq!(
+            read_config_value(pcsx2_option(&options, "renderer")).as_deref(),
+            Some("Auto"),
+            "file has Renderer = -1 -> logical Auto"
+        );
+        assert_eq!(
+            read_config_value(pcsx2_option(&options, "aspect_ratio")).as_deref(),
+            Some("Auto 4:3/3:2")
+        );
+        assert_eq!(
+            read_config_value(pcsx2_option(&options, "resolution_scale")).as_deref(),
+            Some("1")
         );
     }
 
