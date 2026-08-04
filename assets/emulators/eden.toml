@@ -2,6 +2,7 @@
 # See eden-emulator/mirror docs/CommandLine.md for the supported flags.
 
 note = "Eden (Switch) command line options"
+process_name = "eden"
 
 [[options]]
 key = "fullscreen"

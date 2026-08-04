@@ -14,6 +14,7 @@
 # resulting values in melonDS.toml.
 
 note = "melonDS (Nintendo DS/DSi) configuration file options"
+process_name = "melonDS"
 
 [[options]]
 key = "fullscreen"

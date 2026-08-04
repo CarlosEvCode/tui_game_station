@@ -1,0 +1,8 @@
+# Emulator launch options for Dolphin (GameCube / Wii).
+#
+# Dolphin currently ships no per-option definitions: this file exists so the
+# launcher can resolve the real game process name (`process_name`) for AppImage
+# process tracking. The Dolphin AppImage runs its binary as `dolphin-emu`.
+
+note = "Dolphin (GameCube/Wii) process identification"
+process_name = "dolphin-emu"

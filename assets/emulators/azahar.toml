@@ -5,6 +5,7 @@
 # value, inserted where `{value}` appears in `flag_template`).
 
 note = "Azahar Plus command line options"
+process_name = "azahar"
 
 [[options]]
 key = "fullscreen"

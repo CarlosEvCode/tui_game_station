@@ -1,16 +1,93 @@
 use anyhow::{Context, Result};
 use game_core::models::{Game, Runner};
-use game_core::options::{load_emulator_options, merge_runner_options, resolve_flags, RunnerOptionEnv};
-use std::collections::HashMap;
+use game_core::options::{emulator_process_name, load_emulator_options, merge_runner_options, resolve_flags, RunnerOptionEnv};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
+
+/// The real game process (and its AppImage mount) currently being run, so the
+/// TUI can show a "running" indicator and force-close it from outside the
+/// `spawn_and_wait` future. The wrapper PID is always known; the real PID is
+/// the process that actually runs the emulator/game.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunningProcess {
+    pub wrapper_pid: u32,
+    pub real_pid: Option<u32>,
+    /// SquashFS mount point exposed by the AppImage runtime (`APPDIR`), when
+    /// the launch went through an AppImage.
+    pub mount_path: Option<String>,
+}
+
+static RUNNING: Mutex<Option<RunningProcess>> = Mutex::new(None);
 
 pub struct GameRunner;
 
 impl GameRunner {
+    /// The process(es) the currently running game is using, if any. Shared with
+    /// the TUI so it can render the running indicator and force-close the game.
+    pub fn current_running() -> Option<RunningProcess> {
+        RUNNING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Kill the currently running game: real process + its whole child tree +
+    /// the AppImage wrapper + a best-effort FUSE unmount of its SquashFS mount.
+    /// Returns a human-readable summary (best-effort, never fails hard).
+    pub fn force_close_current_game() -> std::result::Result<String, String> {
+        let Some(info) = Self::current_running() else {
+            return Err("No hay un juego en ejecución para forzar su cierre.".to_string());
+        };
+
+        let mut killed: Vec<u32> = Vec::new();
+        if let Some(real) = info.real_pid.filter(|p| *p != 0) {
+            killed.extend(kill_process_tree(real));
+        }
+        if info.wrapper_pid != 0 {
+            killed.extend(kill_process_tree(info.wrapper_pid));
+        }
+        killed.sort_unstable();
+        killed.dedup();
+
+        let mut unmounted: Vec<String> = Vec::new();
+        if let Some(mount) = &info.mount_path {
+            // Kill any lingering mounter still holding our own mount, then
+            // release it (best-effort; FUSE usually auto-unmounts on daemon exit).
+            for pid in proc_all_pids() {
+                if is_known_mount_or_runtime(&proc_comm(pid).unwrap_or_default())
+                    && proc_cmdline(pid)
+                        .is_some_and(|c| c.contains(mount))
+                {
+                    kill_pid(pid);
+                }
+            }
+            if try_unmount_mount_path(mount) {
+                unmounted.push(mount.clone());
+            }
+        }
+
+        let summary = format!(
+            "Forzado cierre: {} procesos terminados{}",
+            killed.len(),
+            if unmounted.is_empty() {
+                String::new()
+            } else {
+                format!(", {} montaje(s) FUSE liberado(s)", unmounted.len())
+            }
+        );
+        tracing::warn!(
+            "[force-close] {summary} (pids={:?}, mounts={:?})",
+            killed,
+            unmounted
+        );
+        Ok(summary)
+    }
+
     /// Format and build executable command line string for a game.
     pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
         let mut base_envs = HashMap::new();
@@ -140,8 +217,11 @@ impl GameRunner {
     /// Launch game process asynchronously, isolating stdout/stderr to a log file to avoid TUI terminal corruption.
     pub async fn launch_game(game: &Game, runner: Option<&Runner>) -> Result<ExitStatus> {
         let (exe, args, envs) = Self::build_command_line(game, runner)?;
+        let expected = runner
+            .as_ref()
+            .and_then(|r| emulator_process_name(&r.name));
         let work_dir = game.working_dir.clone();
-        Self::spawn_and_wait(&exe, &args, &envs, work_dir.as_deref()).await
+        Self::spawn_and_wait(&exe, &args, &envs, work_dir.as_deref(), expected.as_deref()).await
     }
 
     /// Launch an emulator standalone (no ROM) reusing its configured options,
@@ -155,8 +235,9 @@ impl GameRunner {
             anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}).", runner.name, exe);
         }
 
+        let expected = emulator_process_name(&runner.name);
         let args = resolved_runner_flags(runner);
-        Self::spawn_and_wait(&exe, &args, &HashMap::new(), None).await
+        Self::spawn_and_wait(&exe, &args, &HashMap::new(), None, expected.as_deref()).await
     }
 
     async fn spawn_and_wait(
@@ -164,6 +245,7 @@ impl GameRunner {
         args: &[String],
         envs: &HashMap<String, String>,
         work_dir: Option<&str>,
+        expected_process: Option<&str>,
     ) -> Result<ExitStatus> {
         let mut cmd = Command::new(exe);
         cmd.args(args);
@@ -215,12 +297,45 @@ impl GameRunner {
         // wrapper rather than the process that runs the game. The runtime
         // either execs the real binary into the same PID or forks it as a
         // child (itself mounted under /tmp/.mount_*). Give it a moment to
-        // settle, log the process tree, and remember the "real" process.
+        // settle, log the process tree, and remember the "real" process by its
+        // emulator name (the FUSE mounter `memfd:dwarfs` is excluded).
         let mut real_pid: Option<u32> = None;
         if is_appimage(exe) {
             tokio::time::sleep(Duration::from_millis(600)).await;
             log_process_tree(pid, "appimage-settle");
-            real_pid = find_mount_process(pid);
+
+            if let Some(name) = expected_process {
+                if let Some(found) = find_process_by_name(pid, name) {
+                    real_pid = Some(found);
+                    tracing::info!(
+                        "[launch] identified real game process by name {:?}: pid={} comm={:?}",
+                        name,
+                        found,
+                        proc_comm(found).unwrap_or_default()
+                    );
+                } else {
+                    tracing::warn!(
+                        "[launch] no process matching {:?} under pid={}; falling back to mount-based detection",
+                        name,
+                        pid
+                    );
+                }
+            }
+            if real_pid.is_none() {
+                if let Some(found) = find_mount_process(pid) {
+                    real_pid = Some(found);
+                    tracing::warn!(
+                        "[launch] fallback mount-based detection selected pid={} comm={:?}",
+                        found,
+                        proc_comm(found).unwrap_or_default()
+                    );
+                } else {
+                    tracing::warn!(
+                        "[launch] real game process not identified under pid={}; waiting on the direct child",
+                        pid
+                    );
+                }
+            }
             match real_pid {
                 Some(rp) if rp != pid => tracing::info!(
                     "[launch] pid={} is an AppImage wrapper; real game process runs as pid={}",
@@ -231,16 +346,25 @@ impl GameRunner {
                     "[launch] pid={} exec'd the AppImage binary into the same PID",
                     pid
                 ),
-                None => tracing::info!(
-                    "[launch] no /tmp/.mount_* process under pid={}; waiting on the direct child",
-                    pid
-                ),
+                None => {}
             }
         } else {
             log_process_tree(pid, "after-spawn");
         }
 
-        let status = child.wait().await?;
+        // Expose the running game to the TUI (force-close / indicator) for the
+        // whole lifetime of the process, clearing it only once the game exited.
+        let mount_path = real_pid
+            .filter(|rp| *rp != pid)
+            .and_then(|rp| env_value(rp, "APPDIR"))
+            .or_else(|| env_value(pid, "APPDIR"));
+        *RUNNING.lock().unwrap_or_else(|e| e.into_inner()) = Some(RunningProcess {
+            wrapper_pid: pid,
+            real_pid,
+            mount_path,
+        });
+
+        let status = child.wait().await;
 
         // If the wrapper exited while the real game process is still running
         // (AppImage runtime that forked instead of exec'ing), keep waiting so
@@ -263,7 +387,9 @@ impl GameRunner {
             start.elapsed()
         );
         log_leftover_mount_processes();
+        *RUNNING.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
+        let status = status?;
         Ok(status)
     }
 }
@@ -297,6 +423,26 @@ fn proc_children(pid: u32) -> Vec<u32> {
         .unwrap_or_default()
 }
 
+fn proc_all_pids() -> Vec<u32> {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("/proc") {
+        for entry in entries.flatten() {
+            if let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() {
+                out.push(pid);
+            }
+        }
+    }
+    out
+}
+
+fn env_value(pid: u32, key: &str) -> Option<String> {
+    std::fs::read(format!("/proc/{pid}/environ"))
+        .ok()?
+        .split(|b| *b == 0)
+        .filter_map(|s| std::str::from_utf8(s).ok())
+        .find_map(|e| e.strip_prefix(key)?.strip_prefix('=').map(str::to_string))
+}
+
 fn process_exists(pid: u32) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
 }
@@ -307,33 +453,198 @@ async fn wait_until_pid_gone(pid: u32) {
     }
 }
 
-/// The process (or one of its children) whose command line references a
-/// mounted AppImage (`/tmp/.mount_*`), i.e. the real game process.
-fn find_mount_process(pid: u32) -> Option<u32> {
-    if proc_cmdline(pid).is_some_and(|c| c.contains(".mount_")) {
-        return Some(pid);
+/// `comm` names of AppImage mount/runtime helper processes that serve the
+/// SquashFS but never run the game itself. They must never be picked as the
+/// "real" game process.
+const MOUNT_OR_RUNTIME_COMMS: &[&str] = &[
+    "memfd:dwarfs",
+    "dwarfs",
+    "apprun",
+    "type2-runtime",
+    "appimage-runtime",
+    "appimagelauncher",
+    "squashfuse",
+    "squashfuse_ll",
+    "fusermount",
+    "fusermount3",
+    "mount.fuse",
+    "fuse-overlayfs",
+];
+
+fn is_known_mount_or_runtime(name: &str) -> bool {
+    let lc = name.to_lowercase();
+    MOUNT_OR_RUNTIME_COMMS.iter().any(|k| lc.contains(k))
+}
+
+fn basename(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// True when a process whose `comm`/`exe`/`cmdline` are given should be treated
+/// as the real game process for the emulator `expected`.
+fn name_matches_expected(expected: &str, comm: &str, exe: &str, cmdline: &str) -> bool {
+    let exp = expected.to_lowercase();
+    if exp.is_empty() {
+        return false;
     }
-    proc_children(pid)
-        .into_iter()
-        .find(|c| proc_cmdline(*c).is_some_and(|cl| cl.contains(".mount_")))
+    let comm_lc = comm.to_lowercase();
+    let exe_lc = exe.to_lowercase();
+    let cmd_lc = cmdline.to_lowercase();
+
+    if comm_lc == exp {
+        return true;
+    }
+    if basename(&exe_lc) == exp {
+        return true;
+    }
+    // argv[0] may carry the real binary name even when /proc/pid/exe is gone.
+    if let Some(first) = cmd_lc.split_whitespace().next() {
+        if basename(first.trim_matches('"')) == exp {
+            return true;
+        }
+    }
+    // Last-resort inference: emulator binary names often prefix the real comm
+    // (e.g. "dolphin" -> "dolphin-emu").
+    !comm_lc.is_empty() && comm_lc.starts_with(&exp)
+}
+
+fn process_matches_name(pid: u32, expected: &str) -> bool {
+    let comm = proc_comm(pid).unwrap_or_default();
+    let exe = proc_exe(pid).unwrap_or_default();
+    let cmdline = proc_cmdline(pid).unwrap_or_default();
+    if comm.is_empty() && exe.is_empty() && cmdline.is_empty() {
+        return false;
+    }
+    if is_known_mount_or_runtime(&comm) {
+        return false;
+    }
+    name_matches_expected(expected, &comm, &exe, &cmdline)
+}
+
+/// Breadth-first search over `root`'s process subtree for a process matching
+/// the emulator name, excluding known AppImage mount/runtime helpers.
+fn find_process_by_name(root: u32, expected: &str) -> Option<u32> {
+    let mut queue = VecDeque::from([root]);
+    let mut seen = HashSet::new();
+    while let Some(pid) = queue.pop_front() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        if process_matches_name(pid, expected) {
+            return Some(pid);
+        }
+        for c in proc_children(pid) {
+            if !seen.contains(&c) {
+                queue.push_back(c);
+            }
+        }
+    }
+    None
+}
+
+/// The process (or one of its descendants) whose command line references a
+/// mounted AppImage (`/tmp/.mount_*`), i.e. the real game process. Descends the
+/// whole subtree and skips known mount/runtime helpers so the FUSE mounter
+/// (`memfd:dwarfs`) is never mistaken for the game.
+fn find_mount_process(pid: u32) -> Option<u32> {
+    let mut queue = VecDeque::from([pid]);
+    let mut seen = HashSet::new();
+    while let Some(p) = queue.pop_front() {
+        if !seen.insert(p) {
+            continue;
+        }
+        let comm = proc_comm(p).unwrap_or_default();
+        if is_known_mount_or_runtime(&comm) {
+            continue;
+        }
+        if proc_cmdline(p).is_some_and(|c| c.contains(".mount_")) {
+            return Some(p);
+        }
+        for c in proc_children(p) {
+            if !seen.contains(&c) {
+                queue.push_back(c);
+            }
+        }
+    }
+    None
+}
+
+fn kill_pid(pid: u32) {
+    if process_exists(pid) {
+        let _ = std::process::Command::new("kill")
+            .arg("-9")
+            .arg(pid.to_string())
+            .status();
+    }
+}
+
+/// SIGKILL `root` and every descendant, deepest first (children before their
+/// parent, so nothing gets reparented while we walk). Returns the killed PIDs.
+fn kill_process_tree(root: u32) -> Vec<u32> {
+    let mut order = Vec::new();
+    let mut stack = vec![root];
+    let mut seen = HashSet::new();
+    while let Some(pid) = stack.pop() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        order.push(pid);
+        for c in proc_children(pid) {
+            if !seen.contains(&c) {
+                stack.push(c);
+            }
+        }
+    }
+    order.reverse();
+    order.retain(|pid| process_exists(*pid));
+    for pid in &order {
+        kill_pid(*pid);
+    }
+    order
+}
+
+/// Best-effort release of an AppImage SquashFS mount point.
+fn try_unmount_mount_path(mount: &str) -> bool {
+    for cmd in ["fusermount3", "fusermount", "umount"] {
+        if std::process::Command::new(cmd)
+            .args(["-u", mount])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn log_process_tree(pid: u32, label: &str) {
+    log_process_tree_depth(pid, label, 0, 6, &mut HashSet::new());
+}
+
+fn log_process_tree_depth(
+    pid: u32,
+    label: &str,
+    depth: u32,
+    max_depth: u32,
+    seen: &mut HashSet<u32>,
+) {
+    if depth > max_depth || !seen.insert(pid) {
+        return;
+    }
     tracing::info!(
-        "[{label}] pid={} comm={:?} exe={:?} cmdline={:?}",
+        "[{label}] {}pid={} comm={:?} exe={:?} cmdline={:?}",
+        "  ".repeat(depth as usize),
         pid,
         proc_comm(pid).unwrap_or_else(|| "<gone>".to_string()),
         proc_exe(pid).unwrap_or_else(|| "<gone>".to_string()),
         proc_cmdline(pid).unwrap_or_else(|| "<gone>".to_string())
     );
     for c in proc_children(pid) {
-        tracing::info!(
-            "[{label}] pid={} child pid={} comm={:?} cmdline={:?}",
-            pid,
-            c,
-            proc_comm(c).unwrap_or_else(|| "<gone>".to_string()),
-            proc_cmdline(c).unwrap_or_else(|| "<gone>".to_string())
-        );
+        log_process_tree_depth(c, label, depth + 1, max_depth, seen);
     }
 }
 
@@ -457,9 +768,57 @@ mod tests {
     }
 
     #[test]
+    fn mount_or_runtime_names_are_recognized_and_excluded() {
+        assert!(is_known_mount_or_runtime("memfd:dwarfs"));
+        assert!(is_known_mount_or_runtime("AppRun"));
+        assert!(is_known_mount_or_runtime("fusermount3"));
+        assert!(!is_known_mount_or_runtime("azahar"));
+        assert!(!is_known_mount_or_runtime("dolphin-emu"));
+    }
+
+    #[test]
+    fn name_matching_is_case_insensitive_and_name_aware() {
+        // Exact comm match.
+        assert!(name_matches_expected("azahar", "azahar", "", ""));
+        // Real binary basename match (Dolphin AppImage runs `dolphin-emu`).
+        assert!(name_matches_expected(
+            "dolphin-emu",
+            "",
+            "/tmp/.mount_dolphin_AbCd/usr/bin/dolphin-emu",
+            ""
+        ));
+        // argv[0] basename match.
+        assert!(name_matches_expected("melonDS", "", "", "\"melonDS\""));
+        // Prefix inference ("dolphin" -> "dolphin-emu").
+        assert!(name_matches_expected("dolphin", "dolphin-emu", "", ""));
+        // Mount/runtime processes never match, even via prefix.
+        assert!(!name_matches_expected("azahar", "memfd:dwarfs", "", ""));
+        assert!(!name_matches_expected("azahar", "AppRun", "", ""));
+        assert!(!name_matches_expected("", "anything", "", ""));
+    }
+
+    #[test]
+    fn find_process_by_name_locates_a_real_child_process() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id();
+        let found = find_process_by_name(pid, "sleep");
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(found, Some(pid), "the direct child must be found by name");
+    }
+
+    #[test]
+    fn kill_process_tree_handles_a_gone_pid() {
+        assert!(kill_process_tree(u32::MAX).is_empty());
+    }
+
+    #[test]
     fn wait_until_pid_gone_returns_for_a_gone_pid() {
         // A PID that can never exist (max u32) resolves immediately.
-        let mut runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
             .unwrap();

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use game_core::db::Database;
-use game_core::models::{Game, Platform, PlatformType};
+use game_core::models::{Game, Platform, PlatformType, Runner};
 use game_core::scanner::Scanner;
 use game_core::steam_scanner::SteamScanner;
 use ratatui_image::protocol::StatefulProtocol;
@@ -16,9 +16,55 @@ use tokio::sync::mpsc;
 
 use crate::cover_renderer::CoverManager;
 
-/// How long after a game closes the TUI keeps discarding input, so stale
-/// gameplay events (e.g. a still-held confirm button) can't trigger commands.
-pub const RESUME_INPUT_GRACE: Duration = Duration::from_millis(250);
+/// Input draining right after a game closes: keep discarding stale gameplay
+/// input until the stream has been quiet for this long. Events can trickle in
+/// one-by-one for a couple of seconds (e.g. a leaked key press or a still-held
+/// gamepad button), so a fixed short window is not enough.
+pub const INPUT_DRAIN_QUIET: Duration = Duration::from_millis(300);
+/// Absolute ceiling for the post-game input drain, so a held/broken key cannot
+/// stall the TUI forever. Reaching it logs a warning and releases input.
+pub const INPUT_DRAIN_MAX: Duration = Duration::from_millis(3000);
+
+/// Whether the TUI is (temporarily) discarding stale input after a game exit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputSafeMode {
+    /// Normal operation: input is forwarded to the UI.
+    Active,
+    /// Post-game drain active: stale input is discarded and destructive
+    /// actions (quit, launch, delete...) are rejected until the drain ends.
+    Locked,
+}
+
+/// What the TUI is currently running in the background (emulator/game) so the
+/// UI can show a "Juego en ejecución" indicator and offer a force-close.
+pub struct RunningGame {
+    pub title: String,
+    pub runner_name: Option<String>,
+    pub started_at: Instant,
+}
+
+/// Result of a background game launch, sent back to the TUI when it exits.
+pub type GameExitResult = std::result::Result<std::process::ExitStatus, String>;
+
+/// Actions that must never fire while post-game input draining is active:
+/// quitting, launching games/emulators, destructive deletes/installs/scans.
+/// Navigation and rendering actions are harmless and may proceed.
+fn is_destructive_action(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::Quit
+            | Action::LaunchGame
+            | Action::OpenRunnerStandalone
+            | Action::StartRunnerDownload
+            | Action::StartAppUpdate { .. }
+            | Action::DeleteSelectedGames
+            | Action::ConfirmDeleteGameExecution
+            | Action::ConfirmDeleteRunnerExecution
+            | Action::ScanCurrentFolder
+            | Action::StartFolderScan
+            | Action::KillWineProcesses
+    )
+}
 
 pub struct WineToolCommand {
     pub exe: String,
@@ -274,6 +320,7 @@ pub enum BigPictureFocus {
 /// Action bus for the TUI. Some variants are reserved for upcoming features
 /// (fuzzy search, wine tooling, batch scanning) and are not yet dispatched.
 #[allow(dead_code, clippy::enum_variant_names)]
+#[derive(Debug)]
 pub enum Action {
     OpenAboutModal,
     CheckForUpdates { silent: bool },
@@ -379,6 +426,9 @@ pub enum Action {
     ToggleConfirmDeleteRunnerOption,
     ConfirmDeleteRunnerExecution,
     OpenRunnerStandalone,
+    /// Kill the currently running game (real process + tree + FUSE mount) from
+    /// the "Juego en ejecución" indicator. Available whenever a game runs.
+    ForceCloseGame,
 
     Quit,
     SetStatus(String),
@@ -427,8 +477,12 @@ pub struct App {
     pub active_gamepad_name: Option<String>,
     pub active_input_source: InputSource,
     pub needs_terminal_clear: bool,
-    pub input_grace_until: Option<Instant>,
+    pub input_safe_mode: InputSafeMode,
+    pub input_drain_started_at: Option<Instant>,
+    pub input_drain_last_event_at: Option<Instant>,
     pub log_next_input: bool,
+    pub running_game: Option<RunningGame>,
+    pub game_exit_rx: Option<mpsc::Receiver<GameExitResult>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -495,8 +549,12 @@ impl App {
             active_gamepad_name: None,
             active_input_source: InputSource::Keyboard,
             needs_terminal_clear: false,
-            input_grace_until: None,
+            input_safe_mode: InputSafeMode::Active,
+            input_drain_started_at: None,
+            input_drain_last_event_at: None,
             log_next_input: false,
+            running_game: None,
+            game_exit_rx: None,
         };
 
         if let Some(app_dir) = dirs::data_dir() {
@@ -1185,6 +1243,70 @@ impl App {
         self.poll_gamepad_events().await;
     }
 
+    /// Poll for a background game/emulator having exited; when it has, restore
+    /// the TUI window, flush stale input and open the post-game drain.
+    pub async fn check_game_exit(&mut self) {
+        let Some(rx) = &mut self.game_exit_rx else {
+            return;
+        };
+        let Ok(result) = rx.try_recv() else {
+            return;
+        };
+        self.game_exit_rx = None;
+        self.running_game = None;
+
+        crate::window_helper::restore_active_window();
+        self.resume_input_after_game();
+
+        match result {
+            Ok(status) => {
+                self.status_msg = match status.code() {
+                    Some(code) => format!("Game exited with code: {code}"),
+                    None => "Game exited (terminated by signal)".to_string(),
+                };
+            }
+            Err(err) => {
+                self.status_msg = format!("[Error] {}", err);
+            }
+        }
+        self.needs_terminal_clear = true;
+    }
+
+    /// Launch a game in the background, keeping the TUI alive so the running
+    /// indicator and the force-close action stay usable while the game runs.
+    fn start_game_background(&mut self, game: Game, runner: Option<Runner>) {
+        self.suspend_gamepad_input();
+        crate::window_helper::minimize_active_window();
+        self.running_game = Some(RunningGame {
+            title: game.title.clone(),
+            runner_name: runner.as_ref().map(|r| r.name.clone()),
+            started_at: Instant::now(),
+        });
+        let (tx, rx) = mpsc::channel::<GameExitResult>(1);
+        self.game_exit_rx = Some(rx);
+        tokio::spawn(async move {
+            let result = GameRunner::launch_game(&game, runner.as_ref()).await;
+            let _ = tx.send(result.map_err(|e| e.to_string())).await;
+        });
+    }
+
+    /// Launch an emulator standalone (no ROM) in the background.
+    fn start_standalone_background(&mut self, runner: Runner, title: String) {
+        self.suspend_gamepad_input();
+        crate::window_helper::minimize_active_window();
+        self.running_game = Some(RunningGame {
+            runner_name: Some(runner.name.clone()),
+            title: title.clone(),
+            started_at: Instant::now(),
+        });
+        let (tx, rx) = mpsc::channel::<GameExitResult>(1);
+        self.game_exit_rx = Some(rx);
+        tokio::spawn(async move {
+            let result = GameRunner::launch_standalone(&runner).await;
+            let _ = tx.send(result.map_err(|e| e.to_string())).await;
+        });
+    }
+
     /// Stop forwarding gamepad events while a game/emulator has focus, so
     /// gameplay button presses don't pile up in the channel and get replayed
     /// as TUI commands when the game closes.
@@ -1196,12 +1318,12 @@ impl App {
 
     /// True while the TUI is discarding stale input right after a game closes.
     pub fn is_in_input_grace(&self) -> bool {
-        self.input_grace_until.is_some_and(|t| Instant::now() < t)
+        self.input_safe_mode == InputSafeMode::Locked
     }
 
     /// Called once a game has exited: drop any keyboard/gamepad events queued
-    /// while the game had focus, resume gamepad forwarding, and open a short
-    /// grace window so late/held input can't trigger a phantom relaunch.
+    /// while the game had focus, resume gamepad forwarding, and open a
+    /// quiet-based drain so late/held input can't trigger a phantom relaunch.
     pub fn resume_input_after_game(&mut self) {
         let mut discarded_keys = 0u32;
         while let Ok(true) = crossterm::event::poll(Duration::ZERO) {
@@ -1224,26 +1346,30 @@ impl App {
         }
 
         tracing::info!(
-            "[resume] flushed queued input: {} keyboard events, {} gamepad events",
+            "[resume] flushed queued input: {} keyboard events, {} gamepad events; starting quiet-based drain",
             discarded_keys,
             discarded_gamepad
         );
 
-        self.input_grace_until = Some(Instant::now() + RESUME_INPUT_GRACE);
+        self.input_safe_mode = InputSafeMode::Locked;
+        let now = Instant::now();
+        self.input_drain_started_at = Some(now);
+        self.input_drain_last_event_at = Some(now);
         self.log_next_input = true;
     }
 
-    /// Main-loop helper: while the post-game grace window is open, discard any
-    /// keyboard input that arrives (held buttons, focus-transfer leftovers)
-    /// instead of dispatching it. Returns true while still in grace.
-    pub fn drain_input_during_grace(&mut self) -> bool {
-        let Some(until) = self.input_grace_until else {
-            return false;
-        };
-        if Instant::now() >= until {
-            self.input_grace_until = None;
+    /// Main-loop helper: while the post-game drain is open, discard any input
+    /// that still arrives (held buttons, focus-transfer leftovers, a leaked key
+    /// that would relaunch/quit) instead of dispatching it. The drain ends once
+    /// the input stream has been quiet for `INPUT_DRAIN_QUIET`, or after
+    /// `INPUT_DRAIN_MAX` at the latest. Returns true while still draining.
+    pub fn drain_stale_input(&mut self) -> bool {
+        if self.input_safe_mode != InputSafeMode::Locked {
             return false;
         }
+        let started = self.input_drain_started_at.unwrap_or_else(Instant::now);
+        let now = Instant::now();
+
         let mut discarded = 0u32;
         while let Ok(true) = crossterm::event::poll(Duration::ZERO) {
             if crossterm::event::read().is_ok() {
@@ -1252,8 +1378,37 @@ impl App {
                 break;
             }
         }
+        if let Some(ref rx) = self.gamepad_rx {
+            while let Ok(_evt) = rx.try_recv() {
+                discarded += 1;
+            }
+        }
         if discarded > 0 {
-            tracing::info!("[resume] grace window: discarded {discarded} late keyboard events");
+            self.input_drain_last_event_at = Some(Instant::now());
+            tracing::info!("[resume] drain: discarded {discarded} late input events");
+        }
+
+        let last = self.input_drain_last_event_at.unwrap_or(started);
+        if now.duration_since(last) >= INPUT_DRAIN_QUIET {
+            self.input_safe_mode = InputSafeMode::Active;
+            self.input_drain_started_at = None;
+            self.input_drain_last_event_at = None;
+            tracing::info!(
+                "[resume] drain complete: input quiet for {:?}",
+                now.duration_since(last)
+            );
+            return false;
+        }
+        if now.duration_since(started) >= INPUT_DRAIN_MAX {
+            self.input_safe_mode = InputSafeMode::Active;
+            self.input_drain_started_at = None;
+            self.input_drain_last_event_at = None;
+            tracing::warn!(
+                "[resume] drain cut short after {:?} (max {:?}); input may still be stale",
+                now.duration_since(started),
+                INPUT_DRAIN_MAX
+            );
+            return false;
         }
         true
     }
@@ -1779,13 +1934,39 @@ impl App {
     }
 
     pub async fn update(&mut self, action: Action) {
+        // Input-safe-mode guard (TAREA 3): while the post-game drain is open,
+        // a stale key/button must never quit, relaunch or delete anything.
+        if self.input_safe_mode == InputSafeMode::Locked && is_destructive_action(&action) {
+            tracing::warn!("acción destructiva bloqueada durante input-safe-mode: {action:?}");
+            return;
+        }
         match action {
             Action::Quit => {
+                if self.running_game.is_some() {
+                    self.status_msg = "Un juego está en ejecución. Ciérralo o presiona [F] para forzar su cierre antes de salir.".to_string();
+                    return;
+                }
                 if self.modal_state != ModalState::None {
                     self.modal_state = ModalState::None;
                 } else {
                     self.should_quit = true;
                 }
+            }
+            Action::ForceCloseGame => {
+                if self.running_game.is_none() {
+                    self.status_msg = "No hay un juego en ejecución para cerrar.".to_string();
+                    return;
+                }
+                match GameRunner::force_close_current_game() {
+                    Ok(summary) => {
+                        self.status_msg = format!("[OK] {}", summary);
+                        self.show_toast(summary, crate::toast::ToastKind::Warning);
+                    }
+                    Err(err) => {
+                        self.status_msg = format!("[Error] {}", err);
+                    }
+                }
+                self.needs_terminal_clear = true;
             }
             Action::TogglePane => {
                 if self.modal_state == ModalState::None {
@@ -1951,6 +2132,12 @@ impl App {
                     self.status_msg = "No games available to launch.".to_string();
                     return;
                 }
+                if self.running_game.is_some() {
+                    self.status_msg =
+                        "Un juego ya está en ejecución. Ciérralo o presiona [F] para forzar su cierre."
+                            .to_string();
+                    return;
+                }
 
                 let game = self.games[self.selected_game_idx].clone();
                 let runner = self
@@ -1980,42 +2167,7 @@ impl App {
                 }
 
                 self.status_msg = format!("Launching {}...", game.title);
-
-                self.suspend_gamepad_input();
-                crate::window_helper::minimize_active_window();
-
-                let _ = crossterm::terminal::disable_raw_mode();
-                let _ = crossterm::execute!(
-                    std::io::stdout(),
-                    crossterm::terminal::LeaveAlternateScreen,
-                    crossterm::event::DisableMouseCapture,
-                    crossterm::cursor::Show
-                );
-
-                let launch_res = GameRunner::launch_game(&game, runner.as_ref()).await;
-
-                crate::window_helper::restore_active_window();
-
-                let _ = crossterm::terminal::enable_raw_mode();
-                let _ = crossterm::execute!(
-                    std::io::stdout(),
-                    crossterm::terminal::EnterAlternateScreen,
-                    crossterm::event::EnableMouseCapture,
-                    crossterm::cursor::Hide
-                );
-
-                self.resume_input_after_game();
-
-                match launch_res {
-                    Ok(status) => {
-                        self.status_msg =
-                            format!("Game exited with code: {:?}", status.code());
-                    }
-                    Err(err) => {
-                        self.status_msg = format!("[Error] {}", err);
-                    }
-                }
-                self.needs_terminal_clear = true;
+                self.start_game_background(game, runner);
             }
             Action::ScanCurrentFolder => {
                 if self.platforms.is_empty() {
@@ -2457,43 +2609,7 @@ impl App {
                     };
 
                     self.status_msg = format!("Opening {}...", runner_info.name);
-
-                    self.suspend_gamepad_input();
-                    crate::window_helper::minimize_active_window();
-                    let _ = crossterm::terminal::disable_raw_mode();
-                    let _ = crossterm::execute!(
-                        std::io::stdout(),
-                        crossterm::terminal::LeaveAlternateScreen,
-                        crossterm::event::DisableMouseCapture,
-                        crossterm::cursor::Show
-                    );
-
-                    let launch_res = GameRunner::launch_standalone(&runner).await;
-
-                    crate::window_helper::restore_active_window();
-                    let _ = crossterm::terminal::enable_raw_mode();
-                    let _ = crossterm::execute!(
-                        std::io::stdout(),
-                        crossterm::terminal::EnterAlternateScreen,
-                        crossterm::event::EnableMouseCapture,
-                        crossterm::cursor::Hide
-                    );
-
-                    self.resume_input_after_game();
-
-                    match launch_res {
-                        Ok(status) => {
-                            self.status_msg = format!(
-                                "{} exited with code: {:?}",
-                                runner_info.name,
-                                status.code()
-                            );
-                        }
-                        Err(err) => {
-                            self.status_msg = format!("[Error] {}", err);
-                        }
-                    }
-                    self.needs_terminal_clear = true;
+                    self.start_standalone_background(runner, runner_info.name.clone());
                 }
             }
             Action::StartRunnerDownload => {
@@ -5317,4 +5433,27 @@ pub fn get_clipboard_text() -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn destructive_actions_are_rejected_during_input_safe_mode() {
+        assert!(is_destructive_action(&Action::Quit));
+        assert!(is_destructive_action(&Action::LaunchGame));
+        assert!(is_destructive_action(&Action::OpenRunnerStandalone));
+        assert!(is_destructive_action(&Action::DeleteSelectedGames));
+        assert!(is_destructive_action(&Action::StartRunnerDownload));
+        assert!(is_destructive_action(&Action::StartAppUpdate {
+            download_url: String::new(),
+            new_version: String::new(),
+        }));
+        assert!(!is_destructive_action(&Action::NextGame));
+        assert!(!is_destructive_action(&Action::PrevPlatform));
+        assert!(!is_destructive_action(&Action::ToggleViewMode));
+        assert!(!is_destructive_action(&Action::CloseModal));
+    }
+
 }

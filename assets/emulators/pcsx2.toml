@@ -8,6 +8,7 @@
 # codes. Confirmed against this system's PCSX2.ini and PCSX2 v2.6.3 source.
 
 note = "PCSX2 (PS2) configuration file options"
+process_name = "pcsx2"
 
 [[options]]
 key = "fullscreen"

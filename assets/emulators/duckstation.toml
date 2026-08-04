@@ -8,6 +8,7 @@
 # Confirmed against this system's settings.ini.
 
 note = "DuckStation (PS1) configuration file options"
+process_name = "duckstation"
 
 [[options]]
 key = "fullscreen"

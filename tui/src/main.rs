@@ -114,6 +114,7 @@ async fn main() -> Result<()> {
     // Main event loop
     loop {
         app.check_download_events().await;
+        app.check_game_exit().await;
         if app.needs_terminal_clear {
             app.needs_terminal_clear = false;
             terminal.clear()?;
@@ -123,7 +124,7 @@ async fn main() -> Result<()> {
         // Right after a game closes, discard any input still arriving while
         // the terminal focus settles, so stale gameplay input (held confirm
         // buttons, leftover key presses) can't trigger a phantom relaunch.
-        if app.drain_input_during_grace() {
+        if app.drain_stale_input() {
             continue;
         }
 
@@ -1082,6 +1083,9 @@ async fn main() -> Result<()> {
                                 }
                                 KeyCode::Char('g') => {
                                     app.update(Action::FetchGameMedia).await;
+                                }
+                                KeyCode::Char('f') => {
+                                    app.update(Action::ForceCloseGame).await;
                                 }
                                 KeyCode::Char(' ') => {
                                     app.update(Action::ToggleSelectGame).await;

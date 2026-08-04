@@ -95,6 +95,12 @@ pub struct RunnerOptionEnv {
 struct RawOptionsFile {
     #[serde(rename = "note")]
     _note: Option<String>,
+    /// Real process name the emulator runs as once launched (e.g. "azahar",
+    /// "dolphin-emu"). Used by the launcher to tell the real game process
+    /// apart from AppImage mount/runtime helpers like `memfd:dwarfs`.
+    #[serde(default)]
+    process_name: Option<String>,
+    #[serde(default)]
     options: Vec<RawOption>,
 }
 
@@ -138,19 +144,27 @@ struct RawConfigTarget {
     value_map: BTreeMap<String, String>,
 }
 
+/// Embedded TOML source for an emulator, keyed by its canonical name.
+fn emulator_toml_source(key: &str) -> Option<&'static str> {
+    match key {
+        "azahar" => Some(include_str!("../../assets/emulators/azahar.toml")),
+        "eden" => Some(include_str!("../../assets/emulators/eden.toml")),
+        "duckstation" => Some(include_str!("../../assets/emulators/duckstation.toml")),
+        "pcsx2" => Some(include_str!("../../assets/emulators/pcsx2.toml")),
+        "cemu" => Some(include_str!("../../assets/emulators/cemu.toml")),
+        "ppsspp" => Some(include_str!("../../assets/emulators/ppsspp.toml")),
+        "melonds" => Some(include_str!("../../assets/emulators/melonds.toml")),
+        "dolphin" => Some(include_str!("../../assets/emulators/dolphin.toml")),
+        _ => None,
+    }
+}
+
 /// Load the option definitions embedded for an emulator by its display name.
 /// Unknown emulators return an empty list (no options popup section).
 pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> {
     let key = canonical_emulator_key(name);
-    let source = match key.as_str() {
-        "azahar" => include_str!("../../assets/emulators/azahar.toml"),
-        "eden" => include_str!("../../assets/emulators/eden.toml"),
-        "duckstation" => include_str!("../../assets/emulators/duckstation.toml"),
-        "pcsx2" => include_str!("../../assets/emulators/pcsx2.toml"),
-        "cemu" => include_str!("../../assets/emulators/cemu.toml"),
-        "ppsspp" => include_str!("../../assets/emulators/ppsspp.toml"),
-        "melonds" => include_str!("../../assets/emulators/melonds.toml"),
-        _ => return Ok(Vec::new()),
+    let Some(source) = emulator_toml_source(&key) else {
+        return Ok(Vec::new());
     };
 
     let raw: RawOptionsFile = toml::from_str(source)?;
@@ -217,6 +231,18 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
         });
     }
     Ok(out)
+}
+
+/// Real process name the emulator runs as once launched (defined per emulator
+/// in its TOML as `process_name`), so the launcher can identify the actual
+/// game process among AppImage mount/runtime helpers. Unknown emulators -> None.
+pub fn emulator_process_name(name: &str) -> Option<String> {
+    let key = canonical_emulator_key(name);
+    let source = emulator_toml_source(&key)?;
+    let raw: RawOptionsFile = toml::from_str(source).ok()?;
+    raw.process_name
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
 }
 
 /// Build a full map with every option set to its default value.
@@ -539,6 +565,17 @@ mod tests {
 
     fn azahar() -> Vec<EmulatorOption> {
         load_emulator_options("Azahar").unwrap()
+    }
+
+    #[test]
+    fn emulator_process_names_resolve_from_toml() {
+        assert_eq!(emulator_process_name("Azahar").as_deref(), Some("azahar"));
+        assert_eq!(emulator_process_name("Eden").as_deref(), Some("eden"));
+        assert_eq!(emulator_process_name("Dolphin").as_deref(), Some("dolphin-emu"));
+        assert_eq!(emulator_process_name("melonDS").as_deref(), Some("melonDS"));
+        assert_eq!(emulator_process_name("DuckStation").as_deref(), Some("duckstation"));
+        assert_eq!(emulator_process_name("Ryujinx"), None);
+        assert_eq!(emulator_process_name(""), None);
     }
 
     #[test]

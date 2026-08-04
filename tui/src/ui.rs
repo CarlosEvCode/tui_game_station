@@ -564,7 +564,36 @@ fn render_activity_status_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     frame.render_widget(status_paragraph, bar_chunks[0]);
 
-    if let Some(ref progress) = app.download_progress {
+    if let Some(ref running) = app.running_game {
+        let elapsed = running.started_at.elapsed().as_secs();
+        let mut spans = vec![
+            Span::styled(" RUNNING: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(&running.title, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("  ({:02}:{:02})", elapsed / 60, elapsed % 60),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ];
+        if let Some(ref runner_name) = running.runner_name {
+            spans.push(Span::styled(
+                format!("  via {}", runner_name),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        spans.push(Span::styled(
+            "   [F] Forzar cierre",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
+        let running_paragraph = Paragraph::new(Line::from(spans))
+            .block(
+                Block::default()
+                    .title(Span::styled(" Running Game ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Green)),
+            );
+        frame.render_widget(running_paragraph, bar_chunks[1]);
+    } else if let Some(ref progress) = app.download_progress {
         let is_item_progress = progress.runner_name.contains("Scan")
             || progress.runner_name.contains("Identif")
             || progress.runner_name.contains("SteamGridDB")
@@ -3375,7 +3404,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Span::styled("Space ", Style::default().fg(Color::Cyan)),
                     Span::raw("Select | "),
                     Span::styled("Del ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Delete Game"),
+                    Span::raw("Delete Game | "),
+                    Span::styled("F ", Style::default().fg(Color::Red)),
+                    Span::raw("Force Close Running Game"),
                 ]),
                 Line::from(vec![
                     Span::styled(" [Media/ROMs] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),

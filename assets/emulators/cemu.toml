@@ -10,6 +10,7 @@
 # resulting XML values in settings.xml.
 
 note = "Cemu (Wii U) configuration file options"
+process_name = "Cemu"
 
 [[options]]
 key = "fullscreen"
