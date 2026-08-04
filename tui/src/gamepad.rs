@@ -1,6 +1,7 @@
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -80,8 +81,10 @@ impl AxisRepeatState {
     }
 }
 
-pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
+pub fn spawn_gamepad_thread() -> Option<(mpsc::Receiver<GamepadEvent>, Arc<AtomicBool>)> {
     let (tx, rx) = mpsc::channel();
+    let suspended = Arc::new(AtomicBool::new(false));
+    let suspended_flag = Arc::clone(&suspended);
 
     thread::spawn(move || {
         let mut gilrs = match Gilrs::new() {
@@ -103,18 +106,30 @@ pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
         }
 
         loop {
+            // While the TUI is away (a game has focus) the gilrs thread must
+            // NOT forward events: every button pressed during gameplay would
+            // otherwise pile up in the unbounded channel and be replayed as
+            // TUI commands (e.g. "Confirm") the instant the game closes,
+            // causing a phantom relaunch. Events are still consumed so the
+            // controller state stays fresh.
+            let suspended_now = suspended_flag.load(Ordering::Relaxed);
+
             while let Some(Event { id, event, .. }) = gilrs.next_event() {
                 match event {
                     EventType::Connected => {
                         let name = gilrs.gamepad(id).name().to_string();
                         known_gamepads.insert(id, name.clone());
-                        let _ = tx.send(GamepadEvent::Connected { name });
+                        if !suspended_now {
+                            let _ = tx.send(GamepadEvent::Connected { name });
+                        }
                     }
                     EventType::Disconnected => {
                         let name = known_gamepads
                             .remove(&id)
                             .unwrap_or_else(|| "Controller".to_string());
-                        let _ = tx.send(GamepadEvent::Disconnected { name });
+                        if !suspended_now {
+                            let _ = tx.send(GamepadEvent::Disconnected { name });
+                        }
                     }
                     EventType::ButtonPressed(btn, _) => {
                         if let Some(action) = map_button_to_action(btn) {
@@ -122,67 +137,74 @@ pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
                                 .get(&id)
                                 .cloned()
                                 .unwrap_or_else(|| "Controller".to_string());
-                            let _ = tx.send(GamepadEvent::Action { action, name });
+                            if !suspended_now {
+                                let _ = tx.send(GamepadEvent::Action { action, name });
+                            }
                         }
                     }
                     _ => {}
                 }
             }
 
-            // Poll active gamepad axis & D-Pad direction with auto-repeat
-            let mut active_pad_info: Option<(GamepadAction, String)> = None;
-            for (id, gamepad) in gilrs.gamepads() {
-                if !gamepad.is_connected() {
-                    continue;
-                }
-
-                let mut current_dir: Option<GamepadAction> = None;
-                // D-Pad buttons
-                if gamepad.is_pressed(Button::DPadUp) {
-                    current_dir = Some(GamepadAction::Up);
-                } else if gamepad.is_pressed(Button::DPadDown) {
-                    current_dir = Some(GamepadAction::Down);
-                } else if gamepad.is_pressed(Button::DPadLeft) {
-                    current_dir = Some(GamepadAction::Left);
-                } else if gamepad.is_pressed(Button::DPadRight) {
-                    current_dir = Some(GamepadAction::Right);
-                }
-                // Left Analog Stick
-                else if let Some(y) = gamepad.axis_data(Axis::LeftStickY) {
-                    if y.value() > AXIS_THRESHOLD {
-                        current_dir = Some(GamepadAction::Up);
-                    } else if y.value() < -AXIS_THRESHOLD {
-                        current_dir = Some(GamepadAction::Down);
+            if suspended_now {
+                // Discard any held-button auto-repeat state while the game runs.
+                repeat_state = AxisRepeatState::new();
+            } else {
+                // Poll active gamepad axis & D-Pad direction with auto-repeat
+                let mut active_pad_info: Option<(GamepadAction, String)> = None;
+                for (id, gamepad) in gilrs.gamepads() {
+                    if !gamepad.is_connected() {
+                        continue;
                     }
-                }
 
-                if current_dir.is_none() {
-                    if let Some(x) = gamepad.axis_data(Axis::LeftStickX) {
-                        if x.value() > AXIS_THRESHOLD {
-                            current_dir = Some(GamepadAction::Right);
-                        } else if x.value() < -AXIS_THRESHOLD {
-                            current_dir = Some(GamepadAction::Left);
+                    let mut current_dir: Option<GamepadAction> = None;
+                    // D-Pad buttons
+                    if gamepad.is_pressed(Button::DPadUp) {
+                        current_dir = Some(GamepadAction::Up);
+                    } else if gamepad.is_pressed(Button::DPadDown) {
+                        current_dir = Some(GamepadAction::Down);
+                    } else if gamepad.is_pressed(Button::DPadLeft) {
+                        current_dir = Some(GamepadAction::Left);
+                    } else if gamepad.is_pressed(Button::DPadRight) {
+                        current_dir = Some(GamepadAction::Right);
+                    }
+                    // Left Analog Stick
+                    else if let Some(y) = gamepad.axis_data(Axis::LeftStickY) {
+                        if y.value() > AXIS_THRESHOLD {
+                            current_dir = Some(GamepadAction::Up);
+                        } else if y.value() < -AXIS_THRESHOLD {
+                            current_dir = Some(GamepadAction::Down);
                         }
                     }
+
+                    if current_dir.is_none() {
+                        if let Some(x) = gamepad.axis_data(Axis::LeftStickX) {
+                            if x.value() > AXIS_THRESHOLD {
+                                current_dir = Some(GamepadAction::Right);
+                            } else if x.value() < -AXIS_THRESHOLD {
+                                current_dir = Some(GamepadAction::Left);
+                            }
+                        }
+                    }
+
+                    if let Some(act) = current_dir {
+                        let pad_name = known_gamepads
+                            .get(&id)
+                            .cloned()
+                            .unwrap_or_else(|| gamepad.name().to_string());
+                        active_pad_info = Some((act, pad_name));
+                        break;
+                    }
                 }
 
-                if let Some(act) = current_dir {
-                    let pad_name = known_gamepads
-                        .get(&id)
-                        .cloned()
-                        .unwrap_or_else(|| gamepad.name().to_string());
-                    active_pad_info = Some((act, pad_name));
-                    break;
-                }
-            }
-
-            let act_dir = active_pad_info.as_ref().map(|(act, _)| *act);
-            if let Some(action) = repeat_state.update(act_dir) {
-                if let Some((_, ref pad_name)) = active_pad_info {
-                    let _ = tx.send(GamepadEvent::Action {
-                        action,
-                        name: pad_name.clone(),
-                    });
+                let act_dir = active_pad_info.as_ref().map(|(act, _)| *act);
+                if let Some(action) = repeat_state.update(act_dir) {
+                    if let Some((_, ref pad_name)) = active_pad_info {
+                        let _ = tx.send(GamepadEvent::Action {
+                            action,
+                            name: pad_name.clone(),
+                        });
+                    }
                 }
             }
 
@@ -190,7 +212,7 @@ pub fn spawn_gamepad_thread() -> Option<mpsc::Receiver<GamepadEvent>> {
         }
     });
 
-    Some(rx)
+    Some((rx, suspended))
 }
 
 fn map_button_to_action(btn: Button) -> Option<GamepadAction> {

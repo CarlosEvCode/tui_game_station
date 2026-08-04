@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 use tokio::process::Command;
 
 pub struct GameRunner;
@@ -201,8 +202,164 @@ impl GameRunner {
             .spawn()
             .with_context(|| format!("Failed to spawn game process: {} {:?}", exe, args))?;
 
+        let start = Instant::now();
+        let pid = child.id().unwrap_or(0);
+        tracing::info!(
+            "[launch] spawned exe={:?} args={:?} pid={}",
+            exe,
+            args,
+            pid
+        );
+
+        // For AppImages the PID captured above may be the AppImage *runtime*
+        // wrapper rather than the process that runs the game. The runtime
+        // either execs the real binary into the same PID or forks it as a
+        // child (itself mounted under /tmp/.mount_*). Give it a moment to
+        // settle, log the process tree, and remember the "real" process.
+        let mut real_pid: Option<u32> = None;
+        if is_appimage(exe) {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            log_process_tree(pid, "appimage-settle");
+            real_pid = find_mount_process(pid);
+            match real_pid {
+                Some(rp) if rp != pid => tracing::info!(
+                    "[launch] pid={} is an AppImage wrapper; real game process runs as pid={}",
+                    pid,
+                    rp
+                ),
+                Some(_) => tracing::info!(
+                    "[launch] pid={} exec'd the AppImage binary into the same PID",
+                    pid
+                ),
+                None => tracing::info!(
+                    "[launch] no /tmp/.mount_* process under pid={}; waiting on the direct child",
+                    pid
+                ),
+            }
+        } else {
+            log_process_tree(pid, "after-spawn");
+        }
+
         let status = child.wait().await?;
+
+        // If the wrapper exited while the real game process is still running
+        // (AppImage runtime that forked instead of exec'ing), keep waiting so
+        // the TUI only resumes once the game actually closed.
+        if let Some(rp) = real_pid {
+            if rp != pid && process_exists(rp) {
+                tracing::info!(
+                    "[launch] wrapper pid={} exited but real game process pid={} still alive; waiting for it",
+                    pid,
+                    rp
+                );
+                wait_until_pid_gone(rp).await;
+            }
+        }
+
+        tracing::info!(
+            "[launch] game process pid={} exited: {:?} after {:?}",
+            pid,
+            status,
+            start.elapsed()
+        );
+        log_leftover_mount_processes();
+
         Ok(status)
+    }
+}
+
+fn is_appimage(exe: &str) -> bool {
+    exe.to_lowercase().contains(".appimage")
+}
+
+fn proc_cmdline(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .map(|s| s.replace('\0', " "))
+}
+
+fn proc_comm(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+fn proc_exe(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/exe"))
+        .ok()
+        .map(|p| p.display().to_string())
+}
+
+fn proc_children(pid: u32) -> Vec<u32> {
+    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+        .ok()
+        .map(|s| s.split_whitespace().filter_map(|t| t.parse().ok()).collect())
+        .unwrap_or_default()
+}
+
+fn process_exists(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+async fn wait_until_pid_gone(pid: u32) {
+    while process_exists(pid) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The process (or one of its children) whose command line references a
+/// mounted AppImage (`/tmp/.mount_*`), i.e. the real game process.
+fn find_mount_process(pid: u32) -> Option<u32> {
+    if proc_cmdline(pid).is_some_and(|c| c.contains(".mount_")) {
+        return Some(pid);
+    }
+    proc_children(pid)
+        .into_iter()
+        .find(|c| proc_cmdline(*c).is_some_and(|cl| cl.contains(".mount_")))
+}
+
+fn log_process_tree(pid: u32, label: &str) {
+    tracing::info!(
+        "[{label}] pid={} comm={:?} exe={:?} cmdline={:?}",
+        pid,
+        proc_comm(pid).unwrap_or_else(|| "<gone>".to_string()),
+        proc_exe(pid).unwrap_or_else(|| "<gone>".to_string()),
+        proc_cmdline(pid).unwrap_or_else(|| "<gone>".to_string())
+    );
+    for c in proc_children(pid) {
+        tracing::info!(
+            "[{label}] pid={} child pid={} comm={:?} cmdline={:?}",
+            pid,
+            c,
+            proc_comm(c).unwrap_or_else(|| "<gone>".to_string()),
+            proc_cmdline(c).unwrap_or_else(|| "<gone>".to_string())
+        );
+    }
+}
+
+/// Report any process still referencing an AppImage mount after a game exits,
+/// to spot orphaned FUSE mounts / leftover processes.
+fn log_leftover_mount_processes() {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
+        if let Some(cmd) = proc_cmdline(pid) {
+            if cmd.contains(".mount_") {
+                tracing::info!(
+                    "[launch] leftover AppImage process pid={} comm={:?} cmdline={:?}",
+                    pid,
+                    proc_comm(pid).unwrap_or_default(),
+                    cmd
+                );
+            }
+        }
     }
 }
 
@@ -269,3 +426,44 @@ fn shlex_split(cmd: &str) -> Vec<String> {
 
     args
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_appimage_detects_appimage_paths() {
+        assert!(is_appimage("/home/x/.local/bin/eden.AppImage"));
+        assert!(is_appimage("/opt/melonDS-x86_64.AppImage"));
+        assert!(!is_appimage("/usr/bin/steam"));
+        assert!(!is_appimage("wine"));
+    }
+
+    #[test]
+    fn proc_helpers_report_the_current_process() {
+        let self_pid = std::process::id();
+        assert!(process_exists(self_pid), "current process must exist in /proc");
+        assert!(proc_comm(self_pid).is_some_and(|c| !c.is_empty()));
+        assert!(proc_exe(self_pid).is_some_and(|p| !p.is_empty()));
+        assert!(proc_cmdline(self_pid).is_some_and(|c| !c.is_empty()));
+    }
+
+    #[test]
+    fn find_mount_process_falls_back_to_none_for_non_appimage() {
+        // The test binary itself is not an AppImage mount: detection must
+        // return None so the caller keeps waiting on the direct child.
+        let self_pid = std::process::id();
+        assert!(find_mount_process(self_pid).is_none());
+    }
+
+    #[test]
+    fn wait_until_pid_gone_returns_for_a_gone_pid() {
+        // A PID that can never exist (max u32) resolves immediately.
+        let mut runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        runtime.block_on(wait_until_pid_gone(u32::MAX));
+    }
+}
+

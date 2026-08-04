@@ -9,9 +9,16 @@ use scraper::downloader::{DownloadEvent, RunnerDownloader};
 use scraper::steam_cover::SteamCoverResolver;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::cover_renderer::CoverManager;
+
+/// How long after a game closes the TUI keeps discarding input, so stale
+/// gameplay events (e.g. a still-held confirm button) can't trigger commands.
+pub const RESUME_INPUT_GRACE: Duration = Duration::from_millis(250);
 
 pub struct WineToolCommand {
     pub exe: String,
@@ -416,9 +423,12 @@ pub struct App {
     pub update_rx: Option<mpsc::Receiver<Result<Option<crate::updater::UpdateCheckResult>, String>>>,
     pub is_manual_update_check: bool,
     pub gamepad_rx: Option<std::sync::mpsc::Receiver<crate::gamepad::GamepadEvent>>,
+    pub gamepad_suspended: Option<Arc<AtomicBool>>,
     pub active_gamepad_name: Option<String>,
     pub active_input_source: InputSource,
     pub needs_terminal_clear: bool,
+    pub input_grace_until: Option<Instant>,
+    pub log_next_input: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -438,7 +448,10 @@ impl App {
         let (cover_tx, cover_rx) = mpsc::channel::<LoadedCoverEvent>(50);
         let (preview_tx, preview_rx) = mpsc::channel::<LoadedPreviewEvent>(50);
         let cover_manager = CoverManager::new();
-        let gamepad_rx = crate::gamepad::spawn_gamepad_thread();
+        let (gamepad_rx, gamepad_suspended) = match crate::gamepad::spawn_gamepad_thread() {
+            Some((rx, flag)) => (Some(rx), Some(flag)),
+            None => (None, None),
+        };
 
         let mut app = Self {
             db,
@@ -478,9 +491,12 @@ impl App {
             update_rx: None,
             is_manual_update_check: false,
             gamepad_rx,
+            gamepad_suspended,
             active_gamepad_name: None,
             active_input_source: InputSource::Keyboard,
             needs_terminal_clear: false,
+            input_grace_until: None,
+            log_next_input: false,
         };
 
         if let Some(app_dir) = dirs::data_dir() {
@@ -1169,6 +1185,79 @@ impl App {
         self.poll_gamepad_events().await;
     }
 
+    /// Stop forwarding gamepad events while a game/emulator has focus, so
+    /// gameplay button presses don't pile up in the channel and get replayed
+    /// as TUI commands when the game closes.
+    pub fn suspend_gamepad_input(&self) {
+        if let Some(ref flag) = self.gamepad_suspended {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// True while the TUI is discarding stale input right after a game closes.
+    pub fn is_in_input_grace(&self) -> bool {
+        self.input_grace_until.is_some_and(|t| Instant::now() < t)
+    }
+
+    /// Called once a game has exited: drop any keyboard/gamepad events queued
+    /// while the game had focus, resume gamepad forwarding, and open a short
+    /// grace window so late/held input can't trigger a phantom relaunch.
+    pub fn resume_input_after_game(&mut self) {
+        let mut discarded_keys = 0u32;
+        while let Ok(true) = crossterm::event::poll(Duration::ZERO) {
+            if crossterm::event::read().is_ok() {
+                discarded_keys += 1;
+            } else {
+                break;
+            }
+        }
+
+        let mut discarded_gamepad = 0u32;
+        if let Some(ref rx) = self.gamepad_rx {
+            while let Ok(_evt) = rx.try_recv() {
+                discarded_gamepad += 1;
+            }
+        }
+
+        if let Some(ref flag) = self.gamepad_suspended {
+            flag.store(false, Ordering::Relaxed);
+        }
+
+        tracing::info!(
+            "[resume] flushed queued input: {} keyboard events, {} gamepad events",
+            discarded_keys,
+            discarded_gamepad
+        );
+
+        self.input_grace_until = Some(Instant::now() + RESUME_INPUT_GRACE);
+        self.log_next_input = true;
+    }
+
+    /// Main-loop helper: while the post-game grace window is open, discard any
+    /// keyboard input that arrives (held buttons, focus-transfer leftovers)
+    /// instead of dispatching it. Returns true while still in grace.
+    pub fn drain_input_during_grace(&mut self) -> bool {
+        let Some(until) = self.input_grace_until else {
+            return false;
+        };
+        if Instant::now() >= until {
+            self.input_grace_until = None;
+            return false;
+        }
+        let mut discarded = 0u32;
+        while let Ok(true) = crossterm::event::poll(Duration::ZERO) {
+            if crossterm::event::read().is_ok() {
+                discarded += 1;
+            } else {
+                break;
+            }
+        }
+        if discarded > 0 {
+            tracing::info!("[resume] grace window: discarded {discarded} late keyboard events");
+        }
+        true
+    }
+
     pub async fn poll_gamepad_events(&mut self) {
         let mut events = Vec::new();
 
@@ -1176,6 +1265,13 @@ impl App {
             while let Ok(evt) = rx.try_recv() {
                 events.push(evt);
             }
+        }
+
+        if self.is_in_input_grace() {
+            if !events.is_empty() {
+                tracing::info!("[resume] grace window: discarded {} late gamepad events", events.len());
+            }
+            return;
         }
 
         for evt in events {
@@ -1201,6 +1297,10 @@ impl App {
                     );
                 }
                 crate::gamepad::GamepadEvent::Action { action, name } => {
+                    if self.log_next_input {
+                        self.log_next_input = false;
+                        tracing::info!("[resume] first post-resume input: gamepad action {action:?}");
+                    }
                     self.active_gamepad_name = Some(name.clone());
                     self.active_input_source = InputSource::Gamepad(name);
                     self.handle_gamepad_action(action).await;
@@ -1881,6 +1981,7 @@ impl App {
 
                 self.status_msg = format!("Launching {}...", game.title);
 
+                self.suspend_gamepad_input();
                 crate::window_helper::minimize_active_window();
 
                 let _ = crossterm::terminal::disable_raw_mode();
@@ -1902,6 +2003,8 @@ impl App {
                     crossterm::event::EnableMouseCapture,
                     crossterm::cursor::Hide
                 );
+
+                self.resume_input_after_game();
 
                 match launch_res {
                     Ok(status) => {
@@ -2355,6 +2458,7 @@ impl App {
 
                     self.status_msg = format!("Opening {}...", runner_info.name);
 
+                    self.suspend_gamepad_input();
                     crate::window_helper::minimize_active_window();
                     let _ = crossterm::terminal::disable_raw_mode();
                     let _ = crossterm::execute!(
@@ -2374,6 +2478,8 @@ impl App {
                         crossterm::event::EnableMouseCapture,
                         crossterm::cursor::Hide
                     );
+
+                    self.resume_input_after_game();
 
                     match launch_res {
                         Ok(status) => {

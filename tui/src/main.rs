@@ -22,6 +22,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::stdout;
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[tokio::main]
@@ -96,6 +97,9 @@ async fn main() -> Result<()> {
     // Install terminal recovery panic hook
     panic_hook::init_panic_hook();
 
+    // File-based diagnostics log (timestamps + PIDs) for the launch/resume flow.
+    init_file_logging();
+
     // Enable Crossterm raw mode, alternate screen & mouse capture
     enable_raw_mode()?;
     let mut stdout_handle = stdout();
@@ -116,10 +120,21 @@ async fn main() -> Result<()> {
         }
         terminal.draw(|f| ui::render_ui(f, &mut app))?;
 
+        // Right after a game closes, discard any input still arriving while
+        // the terminal focus settles, so stale gameplay input (held confirm
+        // buttons, leftover key presses) can't trigger a phantom relaunch.
+        if app.drain_input_during_grace() {
+            continue;
+        }
+
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
                 Event::Key(key) => {
                     if key.kind == KeyEventKind::Press {
+                        if app.log_next_input {
+                            app.log_next_input = false;
+                            tracing::info!("[resume] first post-resume input: key event {key:?}");
+                        }
                         app.active_input_source = crate::app::InputSource::Keyboard;
                         // Modal Input Handling
                     if app.modal_state != ModalState::None {
@@ -1101,4 +1116,24 @@ async fn main() -> Result<()> {
 
     println!("TUI Game Station cerrado correctamente.");
     Ok(())
+}
+
+/// Initialize a file-based tracing subscriber so the game launch / TUI resume
+/// flow (spawn PID, input flush, grace window, AppImage process tree) can be
+/// diagnosed from `~/.cache/tui_game_station/logs/app.log`.
+fn init_file_logging() {
+    let logs_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.cache"))
+        .join("tui_game_station")
+        .join("logs");
+    let _ = std::fs::create_dir_all(&logs_dir);
+
+    let appender = tracing_appender::rolling::daily(&logs_dir, "app.log");
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(appender)
+        .with_timer(tracing_subscriber::fmt::time::SystemTime)
+        .with_target(true)
+        .with_level(true)
+        .finish();
+    let _ = tracing::subscriber::set_global_default(subscriber);
 }
