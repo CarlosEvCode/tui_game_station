@@ -633,6 +633,214 @@ mod tests {
     }
 
     #[test]
+    fn dolphin_loads_flag_based_definitions() {
+        let options = load_emulator_options("Dolphin").unwrap();
+        assert_eq!(options.len(), 8);
+
+        // Display options patch Dolphin.ini directly (like editing it by hand)
+        // AND emit a per-launch -C override whenever non-default.
+        let fullscreen = options.iter().find(|o| o.key == "fullscreen").unwrap();
+        assert_eq!(fullscreen.flag_template, "-C Dolphin.Display.Fullscreen={value}");
+        let target = fullscreen.config_target.as_ref().unwrap();
+        assert_eq!(
+            (target.file.as_str(), target.format.as_str()),
+            ("~/.config/dolphin-emu/Dolphin.ini", "qt_ini")
+        );
+        assert_eq!(
+            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            ("Display", "Fullscreen")
+        );
+        let map = target.value_map.as_ref().unwrap();
+        assert_eq!(map.get("0"), Some(&"False".to_string()));
+        assert_eq!(map.get("1"), Some(&"True".to_string()));
+
+        let render_to_main = options.iter().find(|o| o.key == "render_to_main").unwrap();
+        assert_eq!(render_to_main.default, "1", "Render to Main Window is on by default");
+        assert_eq!(render_to_main.flag_template, "-C Dolphin.Display.RenderToMain={value}");
+        let target = render_to_main.config_target.as_ref().unwrap();
+        assert_eq!(
+            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            ("Display", "RenderToMain")
+        );
+
+        // Only the Display options patch Dolphin.ini; Graphics stay pure flags.
+        for opt in &options {
+            let has_target = opt.config_target.is_some();
+            match opt.key.as_str() {
+                "fullscreen" | "render_to_main" => assert!(has_target, "{} must patch Dolphin.ini", opt.key),
+                _ => assert!(!has_target, "{} must stay flag-only", opt.key),
+            }
+        }
+
+        let vsync = options.iter().find(|o| o.key == "vsync").unwrap();
+        assert_eq!(vsync.flag_template, "-C Graphics.Hardware.VSync=True",
+            "VSync lives in Graphics.Hardware, not Graphics.Settings");
+
+        let res = options.iter().find(|o| o.key == "internal_resolution").unwrap();
+        assert_eq!(res.default, "1");
+        assert_eq!(
+            res.kind,
+            EmulatorOptionKind::Choice(vec![
+                "0".to_string(), "1".to_string(), "2".to_string(), "3".to_string(),
+                "4".to_string(), "5".to_string(), "6".to_string(), "8".to_string(),
+            ])
+        );
+        assert_eq!(res.choice_labels.get("0").map(String::as_str), Some("Auto (Multiple of 640x528)"));
+        assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("Native (640x528)"));
+        assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8x Native (5120x4224)"));
+
+        let aspect = options.iter().find(|o| o.key == "aspect_ratio").unwrap();
+        assert_eq!(
+            aspect.kind,
+            EmulatorOptionKind::Choice(vec![
+                "0".to_string(), "1".to_string(), "2".to_string(), "3".to_string()
+            ])
+        );
+        assert_eq!(aspect.choice_labels.get("1").map(String::as_str), Some("Force 16:9"));
+
+        let hack = options.iter().find(|o| o.key == "widescreen_hack").unwrap();
+        assert_eq!(hack.flag_template, "-C Graphics.Settings.wideScreenHack=True",
+            "Dolphin spells the key with a lowercase 'w'");
+
+        assert!(options.iter().any(|o| o.key == "crop_to_aspect"));
+        assert!(options.iter().any(|o| o.key == "show_fps"));
+    }
+
+    #[test]
+    fn dolphin_emits_config_overrides_only_when_non_default() {
+        let options = load_emulator_options("Dolphin").unwrap();
+        let mut map = default_map(&options);
+        let args = build_args(&options, &map);
+        assert!(args.is_empty(), "defaults must produce no flags");
+
+        map.insert("fullscreen".to_string(), "1".to_string());
+        map.insert("internal_resolution".to_string(), "3".to_string());
+        map.insert("aspect_ratio".to_string(), "1".to_string());
+        map.insert("widescreen_hack".to_string(), "1".to_string());
+        let args = build_args(&options, &map);
+        assert!(args.contains(&"-C".to_string()));
+        assert!(args.contains(&"Dolphin.Display.Fullscreen=1".to_string()));
+        assert!(args.contains(&"Graphics.Settings.InternalResolution=3".to_string()));
+        assert!(args.contains(&"Graphics.Settings.AspectRatio=1".to_string()));
+        assert!(args.contains(&"Graphics.Settings.wideScreenHack=True".to_string()));
+        assert!(!args.contains(&"Graphics.Hardware.VSync=True".to_string()));
+        assert!(!args.contains(&"Graphics.Settings.Crop=True".to_string()));
+        // render_to_main is ON by default, so no flag is emitted.
+        assert!(!args.contains(&"Dolphin.Display.RenderToMain=1".to_string()));
+
+        // Disabling render_to_main forces it off both via flag and file patch.
+        map.insert("render_to_main".to_string(), "0".to_string());
+        let args = build_args(&options, &map);
+        assert!(args.contains(&"Dolphin.Display.RenderToMain=0".to_string()));
+    }
+
+    /// A representative `Dolphin.ini` sample matching Dolphin's real format
+    /// (`Key = Value` with spaces, True/False booleans in [Display]).
+    const DOLPHIN_INI_SAMPLE: &str = "\
+[Analytics]
+ID = 491b10048e9cfefbaf70f98a154c6287
+[DSP]
+DSPThread = True
+[Core]
+GFXBackend = Vulkan
+[Display]
+RenderToMain = False
+Fullscreen = False
+[General]
+ISOPath0 = /home/user/ROMs/Gamecube
+[Interface]
+ThemeName = Clean
+";
+
+    /// Load the real Dolphin TOML definitions with every config_target pointing
+    /// at a temp file, so tests never touch the user's Dolphin.ini.
+    fn dolphin_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
+        let dir = std::env::temp_dir().join(format!(
+            "tui_game_station_options_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(name);
+        std::fs::write(&file, DOLPHIN_INI_SAMPLE).unwrap();
+        let mut options = load_emulator_options("Dolphin").unwrap();
+        for opt in &mut options {
+            if let Some(target) = &mut opt.config_target {
+                target.file = file.to_string_lossy().into_owned();
+            }
+        }
+        options
+    }
+
+    fn dolphin_option<'a>(options: &'a [EmulatorOption], key: &str) -> &'a EmulatorOption {
+        options.iter().find(|o| o.key == key).unwrap()
+    }
+
+    #[test]
+    fn apply_config_patches_writes_dolphin_display_settings() {
+        let options = dolphin_options_with_temp_target("apply_dolphin.ini");
+        let file = resolve_config_file(
+            &dolphin_option(&options, "fullscreen")
+                .config_target
+                .as_ref()
+                .unwrap()
+                .file,
+        );
+
+        let mut values = default_map(&options);
+        values.insert("fullscreen".to_string(), "1".to_string());
+        // render_to_main stays at its default "1" (on): the file must still be
+        // patched to True even though no CLI flag is emitted for it.
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+
+        assert_eq!(
+            read_qt_ini_value(&file, "Display", "Fullscreen").unwrap().as_deref(),
+            Some("True")
+        );
+        assert_eq!(
+            read_qt_ini_value(&file, "Display", "RenderToMain").unwrap().as_deref(),
+            Some("True")
+        );
+
+        // Unrelated lines stay byte-identical (Dolphin uses `Key = Value`).
+        let written = std::fs::read_to_string(&file).unwrap();
+        let expected = DOLPHIN_INI_SAMPLE
+            .replace("Fullscreen = False", "Fullscreen = True")
+            .replace("RenderToMain = False", "RenderToMain = True");
+        assert_eq!(written, expected);
+
+        // Turning them off writes False back.
+        values.insert("fullscreen".to_string(), "0".to_string());
+        values.insert("render_to_main".to_string(), "0".to_string());
+        let failures = apply_config_patches(&options, &values);
+        assert!(failures.is_empty(), "unexpected failures: {failures:?}");
+        assert_eq!(
+            read_qt_ini_value(&file, "Display", "Fullscreen").unwrap().as_deref(),
+            Some("False")
+        );
+        assert_eq!(
+            read_qt_ini_value(&file, "Display", "RenderToMain").unwrap().as_deref(),
+            Some("False")
+        );
+    }
+
+    #[test]
+    fn read_config_value_preloads_dolphin_display_settings() {
+        let options = dolphin_options_with_temp_target("preload_dolphin.ini");
+
+        assert_eq!(
+            read_config_value(dolphin_option(&options, "fullscreen")).as_deref(),
+            Some("0"),
+            "file has Fullscreen = False -> logical off"
+        );
+        assert_eq!(
+            read_config_value(dolphin_option(&options, "render_to_main")).as_deref(),
+            Some("0"),
+            "file has RenderToMain = False -> logical off"
+        );
+    }
+
+    #[test]
     fn resolve_flags_appends_custom_args_respecting_quotes() {
         let options = azahar();
         let map = default_map(&options);

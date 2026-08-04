@@ -1,8 +1,104 @@
 # Emulator launch options for Dolphin (GameCube / Wii).
 #
-# Dolphin currently ships no per-option definitions: this file exists so the
-# launcher can resolve the real game process name (`process_name`) for AppImage
-# process tracking. The Dolphin AppImage runs its binary as `dolphin-emu`.
+# Two independent channels (either, both, or neither — this file decides):
+# - `flag_template`: a per-launch command-line override
+#     -C <System>.<Section>.<Key>=<Value>   e.g. -C Dolphin.Display.Fullscreen=True
+#   applied for that launch only (command-line layer, never written back).
+# - `config_target`: patches the emulator's own config file on save. The
+#   Display options below target ~/.config/dolphin-emu/Dolphin.ini [Display],
+#   mirroring Dolphin's MainSettings.h keys: Dolphin.Display.Fullscreen and
+#   Dolphin.Display.RenderToMain. Graphics options stay pure CLI flags.
+#
+# Key/value codes mirror Dolphin's config system: System "Dolphin" ->
+# Dolphin.ini, System "Graphics" -> GFX.ini; booleans are True/False.
 
-note = "Dolphin (GameCube/Wii) process identification"
+note = "Dolphin (GameCube/Wii) launch options"
 process_name = "dolphin-emu"
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+flag_template = "-C Dolphin.Display.Fullscreen={value}"
+[options.config_target]
+file = "~/.config/dolphin-emu/Dolphin.ini"
+format = "qt_ini"
+section = "Display"
+key = "Fullscreen"
+[options.config_target.value_map]
+"0" = "False"
+"1" = "True"
+
+[[options]]
+key = "render_to_main"
+name = "Render to Main Window"
+kind = "toggle"
+default = "1"
+flag_template = "-C Dolphin.Display.RenderToMain={value}"
+[options.config_target]
+file = "~/.config/dolphin-emu/Dolphin.ini"
+format = "qt_ini"
+section = "Display"
+key = "RenderToMain"
+[options.config_target.value_map]
+"0" = "False"
+"1" = "True"
+
+[[options]]
+key = "vsync"
+name = "V-Sync"
+kind = "toggle"
+default = "0"
+flag_template = "-C Graphics.Hardware.VSync=True"
+
+[[options]]
+key = "internal_resolution"
+name = "Internal Resolution"
+kind = "choice"
+default = "1"
+flag_template = "-C Graphics.Settings.InternalResolution={value}"
+choices = [
+  { value = "0", label = "Auto (Multiple of 640x528)" },
+  { value = "1", label = "Native (640x528)" },
+  { value = "2", label = "2x Native (1280x1056)" },
+  { value = "3", label = "3x Native (1920x1584)" },
+  { value = "4", label = "4x Native (2560x2112)" },
+  { value = "5", label = "5x Native (3200x2640)" },
+  { value = "6", label = "6x Native (3840x3168)" },
+  { value = "8", label = "8x Native (5120x4224)" },
+]
+
+[[options]]
+key = "aspect_ratio"
+name = "Aspect Ratio"
+kind = "choice"
+default = "0"
+flag_template = "-C Graphics.Settings.AspectRatio={value}"
+choices = [
+  { value = "0", label = "Auto" },
+  { value = "1", label = "Force 16:9" },
+  { value = "2", label = "Force 4:3" },
+  { value = "3", label = "Stretch to Window" },
+]
+
+[[options]]
+key = "widescreen_hack"
+name = "Widescreen Hack"
+kind = "toggle"
+default = "0"
+flag_template = "-C Graphics.Settings.wideScreenHack=True"
+
+[[options]]
+key = "crop_to_aspect"
+name = "Crop to Aspect Ratio"
+kind = "toggle"
+default = "0"
+flag_template = "-C Graphics.Settings.Crop=True"
+
+[[options]]
+key = "show_fps"
+name = "Show FPS"
+kind = "toggle"
+default = "0"
+flag_template = "-C Graphics.Settings.ShowFPS=True"
