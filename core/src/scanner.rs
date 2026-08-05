@@ -980,7 +980,10 @@ game (
             Some("Capcom Vs. SNK 2 Millionaire Fighting 2001".to_string())
         );
         // Unknown slug falls through to clean title.
-        assert_eq!(dat_resolved_title(&parser, "mame", "unknown", None, None, None), None);
+        assert_eq!(
+            dat_resolved_title(&parser, "mame", "unknown", None, None, None),
+            None
+        );
         // Other platforms still resolve by serial.
         let nds_parser = DatParser::parse(
             r#"

@@ -859,7 +859,8 @@ mod tests {
 
     #[test]
     fn mame_template_expands_rom_dir_for_rompath() {
-        let exe_path = std::env::temp_dir().join(format!("mame_test_{}.AppImage", std::process::id()));
+        let exe_path =
+            std::env::temp_dir().join(format!("mame_test_{}.AppImage", std::process::id()));
         std::fs::write(&exe_path, []).unwrap();
         let game = game_core::models::Game {
             id: 0,

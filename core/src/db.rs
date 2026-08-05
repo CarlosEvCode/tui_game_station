@@ -1120,7 +1120,10 @@ mod tests {
             mame_runner.download_url.as_deref(),
             Some("https://api.github.com/repos/pkgforge-dev/MAME-AppImage/releases/latest")
         );
-        assert_eq!(mame_runner.download_filename.as_deref(), Some("MAME.AppImage"));
+        assert_eq!(
+            mame_runner.download_filename.as_deref(),
+            Some("MAME.AppImage")
+        );
         assert_eq!(mame_runner.runner_type, "appimage");
         assert_eq!(
             mame_runner.command_template,

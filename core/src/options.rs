@@ -669,7 +669,10 @@ mod tests {
             Some("dolphin-emu")
         );
         assert_eq!(emulator_process_name("melonDS").as_deref(), Some("melonDS"));
-        assert_eq!(emulator_process_name("DuckStation").as_deref(), Some("duckstation"));
+        assert_eq!(
+            emulator_process_name("DuckStation").as_deref(),
+            Some("duckstation")
+        );
         assert_eq!(emulator_process_name("MAME").as_deref(), Some("mame"));
         assert_eq!(emulator_process_name("Ryujinx"), None);
         assert_eq!(emulator_process_name(""), None);
@@ -2335,7 +2338,9 @@ layout_option\default=true
         assert!(frameskip.value_map.is_none(), "choices have no value_map");
 
         let video = mame_option(&options, "video");
-        assert!(matches!(&video.kind, EmulatorOptionKind::Choice(c) if c.iter().any(|v| v == "bgfx")));
+        assert!(
+            matches!(&video.kind, EmulatorOptionKind::Choice(c) if c.iter().any(|v| v == "bgfx"))
+        );
         assert_eq!(video.default, "auto");
         assert_eq!(video.flag_template, "-video {value}");
         assert!(video.value_map.is_none());
@@ -2347,11 +2352,17 @@ layout_option\default=true
         // MAME needs an explicit token for BOTH toggle states, so the default
         // state is still emitted: on-defaults -> -flag, off-defaults -> -noflag.
         let args = build_args(&options, &default_map(&options));
-        assert!(args.contains(&"-filter".to_string()), "on default explicit: {args:?}");
+        assert!(
+            args.contains(&"-filter".to_string()),
+            "on default explicit: {args:?}"
+        );
         assert!(args.contains(&"-keepaspect".to_string()));
         assert!(args.contains(&"-throttle".to_string()));
         assert!(args.contains(&"-skip_gameinfo".to_string()));
-        assert!(args.contains(&"-noautoframeskip".to_string()), "off default explicit: {args:?}");
+        assert!(
+            args.contains(&"-noautoframeskip".to_string()),
+            "off default explicit: {args:?}"
+        );
         assert!(args.contains(&"-nocheat".to_string()));
         assert!(args.contains(&"-noconfirm_quit".to_string()));
         // The opposite token of each toggle is absent for the default state.
@@ -2399,14 +2410,20 @@ layout_option\default=true
         // the whole flag is only added when it differs from the default.
         let options = azahar();
         let map = default_map(&options);
-        assert!(build_args(&options, &map).is_empty(), "defaults must produce no flags");
+        assert!(
+            build_args(&options, &map).is_empty(),
+            "defaults must produce no flags"
+        );
 
         let mut map = map;
         map.insert("fullscreen".to_string(), "1".to_string());
         assert_eq!(build_args(&options, &map), vec!["-f".to_string()]);
 
         map.insert("fullscreen".to_string(), "0".to_string());
-        assert!(build_args(&options, &map).is_empty(), "off (default) must omit -f entirely");
+        assert!(
+            build_args(&options, &map).is_empty(),
+            "off (default) must omit -f entirely"
+        );
     }
 
     #[test]
@@ -2422,7 +2439,10 @@ layout_option\default=true
 
         map.insert("frameskip".to_string(), "3".to_string());
         let args = build_args(&options, &map);
-        assert!(args.windows(2).any(|w| w == ["-frameskip", "3"]), "{args:?}");
+        assert!(
+            args.windows(2).any(|w| w == ["-frameskip", "3"]),
+            "{args:?}"
+        );
 
         // Existing choice substitution keeps working for non-MAME emulators.
         let az = azahar();

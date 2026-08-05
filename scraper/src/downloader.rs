@@ -304,7 +304,9 @@ mod tests {
     async fn mame_resolution_passes_through_non_mame_urls() {
         let url = "https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage";
         assert_eq!(
-            RunnerDownloader::resolve_mame_download_url(url).await.unwrap(),
+            RunnerDownloader::resolve_mame_download_url(url)
+                .await
+                .unwrap(),
             url
         );
     }

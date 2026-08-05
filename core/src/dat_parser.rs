@@ -66,7 +66,6 @@ impl DatParser {
         parser
     }
 
-
     /// Extract the `name` value from a `rom ( ... )` line and reduce it to its
     /// lowercase file stem (e.g. `1943u.zip` -> `1943u`). Handles both quoted
     /// and unquoted values as found in no-intro and MAME DAT files.
@@ -92,7 +91,12 @@ impl DatParser {
         }
     }
 
-    fn extract_hash(line: &str, hash_type: &str, map: &mut HashMap<String, String>, game_name: &str) {
+    fn extract_hash(
+        line: &str,
+        hash_type: &str,
+        map: &mut HashMap<String, String>,
+        game_name: &str,
+    ) {
         let key = format!("{} ", hash_type);
         if let Some(pos) = line.find(&key) {
             let rest = line[pos + key.len()..].trim_start();
@@ -209,7 +213,10 @@ game (
             parser.resolve_by_rom_slug("1943U"),
             Some(&"1943: The Battle of Midway".to_string())
         );
-        assert_eq!(parser.resolve_by_rom_slug("neogeo"), Some(&"Neo Geo".to_string()));
+        assert_eq!(
+            parser.resolve_by_rom_slug("neogeo"),
+            Some(&"Neo Geo".to_string())
+        );
         assert_eq!(parser.resolve_by_rom_slug("unknown"), None);
     }
 
@@ -223,7 +230,9 @@ game (
 "#;
         let parser = DatParser::parse(dat);
         assert_eq!(
-            parser.rom_slug_to_name.get("super mario bros. (world) (rev 1)"),
+            parser
+                .rom_slug_to_name
+                .get("super mario bros. (world) (rev 1)"),
             Some(&"Super Mario Bros.".to_string())
         );
     }

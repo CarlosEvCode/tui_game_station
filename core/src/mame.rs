@@ -146,9 +146,10 @@ mod tests {
     #[test]
     fn dat_membership_decides_games_and_fails_open_without_dat() {
         let mut parser = DatParser::default();
-        parser
-            .rom_slug_to_name
-            .insert("1943u".to_string(), "1943: The Battle of Midway".to_string());
+        parser.rom_slug_to_name.insert(
+            "1943u".to_string(),
+            "1943: The Battle of Midway".to_string(),
+        );
 
         assert!(is_mame_game("1943u", Some(&parser)));
         assert!(!is_mame_game("notaparent", Some(&parser)));
