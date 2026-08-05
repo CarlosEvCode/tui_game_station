@@ -356,6 +356,17 @@ impl Database {
             [],
         )?;
 
+        // MAME needs `-rompath` pointing at the ROMs folder. When the ROM is
+        // passed as a full path MAME only reads that zip; parent/BIOS sets
+        // (naomi.zip, neogeo.zip, ...) are located through -rompath, whose
+        // AppImage default is the read-only squashfs `roms/` dir (always
+        // empty). `{rom_dir}` is expanded by the runner to the ROM's folder.
+        self.conn.execute(
+            "UPDATE runners SET command_template = '\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\"'
+             WHERE name = 'MAME' AND command_template NOT LIKE '%rompath%'",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -1095,6 +1106,10 @@ mod tests {
         );
         assert_eq!(mame_runner.download_filename.as_deref(), Some("MAME.AppImage"));
         assert_eq!(mame_runner.runner_type, "appimage");
+        assert_eq!(
+            mame_runner.command_template,
+            "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\""
+        );
 
         drop(db);
         let _ = std::fs::remove_file(path);

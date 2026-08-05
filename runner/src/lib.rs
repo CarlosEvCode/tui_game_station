@@ -3,7 +3,7 @@ use game_core::models::{Game, Runner};
 use game_core::options::{emulator_process_name, load_emulator_options, merge_runner_options, resolve_flags, RunnerOptionEnv};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -159,6 +159,15 @@ impl GameRunner {
             let file_path = game.file_path.clone().unwrap_or_default();
             template = template.replace("{rom}", &file_path);
             template = template.replace("{file_path}", &file_path);
+            // `{rom_dir}` is the folder that contains the ROM: MAME-style
+            // emulators need it as `-rompath` so sibling/parent/BIOS sets are
+            // found when the ROM itself is passed as a full path.
+            let rom_dir = Path::new(&file_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| ".".to_string());
+            template = template.replace("{rom_dir}", &rom_dir);
 
             if let Some(ex) = &r.executable_path {
                 if !ex.trim().is_empty() && std::path::Path::new(ex).exists() {
@@ -813,6 +822,66 @@ mod tests {
     #[test]
     fn kill_process_tree_handles_a_gone_pid() {
         assert!(kill_process_tree(u32::MAX).is_empty());
+    }
+
+    #[test]
+    fn mame_template_expands_rom_dir_for_rompath() {
+        let exe_path = std::env::temp_dir().join(format!("mame_test_{}.AppImage", std::process::id()));
+        std::fs::write(&exe_path, []).unwrap();
+        let game = game_core::models::Game {
+            id: 0,
+            platform_id: 0,
+            title: "1943u".to_string(),
+            sort_title: None,
+            game_type: "emulator".to_string(),
+            file_path: Some("/roms/arcade/1943u.zip".to_string()),
+            working_dir: Some("/roms/arcade".to_string()),
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: None,
+            file_extension: None,
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        };
+        let runner = game_core::models::Runner {
+            id: 0,
+            platform_id: None,
+            name: "MAME".to_string(),
+            runner_type: "appimage".to_string(),
+            executable_path: Some(exe_path.to_string_lossy().to_string()),
+            command_template: "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\"".to_string(),
+            default_env: None,
+            download_url: None,
+            download_filename: None,
+            is_default: false,
+            env_vars: None,
+        };
+
+        let (_exe, args, _envs) = GameRunner::build_command_line(&game, Some(&runner)).unwrap();
+        let _ = std::fs::remove_file(&exe_path);
+        assert_eq!(args[0], "-rompath");
+        assert_eq!(args[1], "/roms/arcade");
+        assert_eq!(args[2], "/roms/arcade/1943u.zip");
     }
 
     #[test]
