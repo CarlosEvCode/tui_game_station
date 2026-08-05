@@ -301,7 +301,11 @@ impl Database {
             ("gamecube", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
             ("wii", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
             ("wii_u", "Cemu", "appimage", Some("https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage"), Some("Cemu-2.6-x86_64.AppImage")),
-            ("mame", "MAME", "system", None, None),
+            // MAME: the URL is the GitHub latest-release API endpoint, resolved at
+            // download time to the current anylinux-x86_64 AppImage asset (see
+            // RunnerDownloader::resolve_mame_download_url). Version/asset filename
+            // are never hardcoded so the download keeps working across releases.
+            ("mame", "MAME", "appimage", Some("https://api.github.com/repos/pkgforge-dev/MAME-AppImage/releases/latest"), Some("MAME.AppImage")),
             ("psp", "PPSSPP", "appimage", Some("https://github.com/hrydgard/ppsspp/releases/latest/download/PPSSPP-v1.20.4-anylinux-x86_64.AppImage"), Some("PPSSPP-v1.20.4-anylinux-x86_64.AppImage")),
             ("dreamcast", "Redream", "appimage", None, None),
             ("switch", "Ryujinx", "appimage", None, None),
@@ -350,6 +354,17 @@ impl Database {
         self.conn.execute(
             "UPDATE runners SET command_template = '\"{executable_path}\" -g \"{rom}\"'
              WHERE name = 'Cemu' AND command_template NOT LIKE '%-g%'",
+            [],
+        )?;
+
+        // MAME needs `-rompath` pointing at the ROMs folder. When the ROM is
+        // passed as a full path MAME only reads that zip; parent/BIOS sets
+        // (naomi.zip, neogeo.zip, ...) are located through -rompath, whose
+        // AppImage default is the read-only squashfs `roms/` dir (always
+        // empty). `{rom_dir}` is expanded by the runner to the ROM's folder.
+        self.conn.execute(
+            "UPDATE runners SET command_template = '\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\"'
+             WHERE name = 'MAME' AND command_template NOT LIKE '%rompath%'",
             [],
         )?;
 
@@ -1089,6 +1104,27 @@ mod tests {
         assert_eq!(
             melonds.download_filename.as_deref(),
             Some("melonDS-1.1-appimage-x86_64.zip")
+        );
+
+        let mame = platforms
+            .iter()
+            .find(|platform| platform.slug == "mame")
+            .unwrap();
+        let mame_runner = db
+            .get_runners_for_platform(mame.id)
+            .unwrap()
+            .into_iter()
+            .find(|runner| runner.name == "MAME")
+            .unwrap();
+        assert_eq!(
+            mame_runner.download_url.as_deref(),
+            Some("https://api.github.com/repos/pkgforge-dev/MAME-AppImage/releases/latest")
+        );
+        assert_eq!(mame_runner.download_filename.as_deref(), Some("MAME.AppImage"));
+        assert_eq!(mame_runner.runner_type, "appimage");
+        assert_eq!(
+            mame_runner.command_template,
+            "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\""
         );
 
         drop(db);

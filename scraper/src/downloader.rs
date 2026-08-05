@@ -69,6 +69,46 @@ impl RunnerDownloader {
         url.to_string()
     }
 
+    /// Resolves a MAME download URL from the pkgforge MAME-AppImage GitHub
+    /// latest-release API. The seeded URL points at the JSON endpoint; this
+    /// queries it and picks the current `anylinux-x86_64` AppImage asset, so
+    /// neither the version nor the asset filename are ever hardcoded.
+    pub async fn resolve_mame_download_url(url: &str) -> Result<String> {
+        if !url.contains("pkgforge-dev/MAME-AppImage") {
+            return Ok(url.to_string());
+        }
+        let client = Client::builder()
+            .user_agent("tui_game_station/1.0")
+            .build()?;
+        let resp = client
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .context("Failed to query GitHub for the latest MAME release")?;
+        if !resp.status().is_success() {
+            anyhow::bail!("MAME release lookup failed with HTTP {}", resp.status());
+        }
+        let json = resp.json::<serde_json::Value>().await?;
+        Self::select_mame_appimage_asset(&json).with_context(|| {
+            "No anylinux-x86_64 AppImage asset found in the latest MAME release".to_string()
+        })
+    }
+
+    /// Picks the MAME AppImage asset (contains `anylinux-x86_64`, ends with
+    /// `.AppImage`, excluding `.zsync` sidecars) from a GitHub release JSON.
+    fn select_mame_appimage_asset(json: &serde_json::Value) -> Option<String> {
+        for asset in json["assets"].as_array()? {
+            let name = asset["name"].as_str().unwrap_or("");
+            if name.contains("anylinux-x86_64") && name.ends_with(".AppImage") {
+                if let Some(dl_url) = asset["browser_download_url"].as_str() {
+                    return Some(dl_url.to_string());
+                }
+            }
+        }
+        None
+    }
+
     /// Download file from URL with chunk progress reporting to mpsc channel.
     pub async fn download_with_progress<P: AsRef<Path>>(
         url: &str,
@@ -76,8 +116,10 @@ impl RunnerDownloader {
         tx: mpsc::Sender<DownloadEvent>,
     ) -> Result<()> {
         let dest_path = dest_path.as_ref();
-        // Resolve dynamic URLs (e.g. Eden, which has no stable /latest/ AppImage path)
-        let resolved_url = Self::resolve_eden_download_url(url).await;
+        // Resolve dynamic URLs (e.g. Eden and MAME have no stable /latest/
+        // AppImage path; the seed points at a release API endpoint).
+        let eden_url = Self::resolve_eden_download_url(url).await;
+        let resolved_url = Self::resolve_mame_download_url(&eden_url).await?;
         let result = Self::download_file(&resolved_url, dest_path, &tx).await;
         match result {
             Ok(()) => {
@@ -216,5 +258,54 @@ impl RunnerDownloader {
                 task_name: None,
             })
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mame_asset_selection_prefers_anylinux_x86_64_appimage() {
+        let json = serde_json::json!({
+            "tag_name": "mame-0.268",
+            "assets": [
+                {
+                    "name": "MAME-0.268-anylinux-x86_64.AppImage.zsync",
+                    "browser_download_url": "https://github.com/pkgforge-dev/MAME-AppImage/releases/download/mame-0.268/MAME-0.268-anylinux-x86_64.AppImage.zsync"
+                },
+                {
+                    "name": "MAME-0.268.tar.gz",
+                    "browser_download_url": "https://github.com/pkgforge-dev/MAME-AppImage/releases/download/mame-0.268/MAME-0.268.tar.gz"
+                },
+                {
+                    "name": "MAME-0.268-anylinux-x86_64.AppImage",
+                    "browser_download_url": "https://github.com/pkgforge-dev/MAME-AppImage/releases/download/mame-0.268/MAME-0.268-anylinux-x86_64.AppImage"
+                }
+            ]
+        });
+        assert_eq!(
+            RunnerDownloader::select_mame_appimage_asset(&json).as_deref(),
+            Some("https://github.com/pkgforge-dev/MAME-AppImage/releases/download/mame-0.268/MAME-0.268-anylinux-x86_64.AppImage")
+        );
+    }
+
+    #[test]
+    fn mame_asset_selection_returns_none_without_a_matching_appimage() {
+        let json = serde_json::json!({
+            "assets": [
+                {"name": "MAME-0.268.tar.gz", "browser_download_url": "https://example.com/MAME.tar.gz"}
+            ]
+        });
+        assert_eq!(RunnerDownloader::select_mame_appimage_asset(&json), None);
+    }
+
+    #[tokio::test]
+    async fn mame_resolution_passes_through_non_mame_urls() {
+        let url = "https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage";
+        assert_eq!(
+            RunnerDownloader::resolve_mame_download_url(url).await.unwrap(),
+            url
+        );
     }
 }

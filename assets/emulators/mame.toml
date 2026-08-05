@@ -1,0 +1,110 @@
+# Emulator launch options for MAME (Arcade).
+#
+# MAME maps every option of its .ini files 1:1 to a command line switch of the
+# same name, so NOTHING here touches a config file: mame.ini, ui.ini and the
+# per-system .ini (e.g. pr_lday.ini) stay completely outside this integration.
+# Every option is resolved purely through `flag_template`.
+#
+# MAME toggles need an EXPLICIT flag for BOTH states: `-filter` to enable and
+# `-nofilter` to disable — omitting the flag is NOT the same as forcing "off".
+# The top-level `value_map` translates the toggle state into its CLI token and
+# `{value}` in `flag_template` is replaced with that token before the `-`.
+# Toggle states are the usual "0" (off) / "1" (on) of this launcher; MAME
+# spellings like `filter`/`nofilter` are the map VALUES. An option with a
+# `value_map` always emits its flag, so the popup state always matches the
+# running emulator regardless of what the .ini files say.
+
+note = "MAME (Arcade) command line options"
+process_name = "mame"
+
+[[options]]
+key = "filter"
+name = "Filtrado de imagen"
+kind = "toggle"
+default = "1"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "filter"
+"0" = "nofilter"
+
+[[options]]
+key = "keepaspect"
+name = "Mantener aspect ratio"
+kind = "toggle"
+default = "1"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "keepaspect"
+"0" = "nokeepaspect"
+
+[[options]]
+key = "autoframeskip"
+name = "Auto frameskip"
+kind = "toggle"
+default = "0"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "autoframeskip"
+"0" = "noautoframeskip"
+
+# Nota: frameskip solo tiene efecto real cuando autoframeskip está en "off";
+# no se implementa lógica condicional entre ambas opciones, solo se expone el
+# flag (overrides puntuales por ROM pueden usar los argumentos personalizados).
+[[options]]
+key = "frameskip"
+name = "Frameskip manual"
+kind = "choice"
+default = "0"
+choices = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+flag_template = "-frameskip {value}"
+
+[[options]]
+key = "throttle"
+name = "Throttle (limitar velocidad)"
+kind = "toggle"
+default = "1"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "throttle"
+"0" = "nothrottle"
+
+[[options]]
+key = "cheat"
+name = "Cheats"
+kind = "toggle"
+default = "0"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "cheat"
+"0" = "nocheat"
+
+[[options]]
+key = "skip_gameinfo"
+name = "Saltar pantalla de info del juego"
+kind = "toggle"
+default = "1"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "skip_gameinfo"
+"0" = "noskip_gameinfo"
+
+# Se recomienda default "0" (sin diálogo de confirmación) para que el sistema
+# de Forzar Cierre ya implementado no choque con un diálogo extra de MAME
+# preguntando si de verdad se quiere salir.
+[[options]]
+key = "confirm_quit"
+name = "Confirmar antes de salir"
+kind = "toggle"
+default = "0"
+flag_template = "-{value}"
+[options.value_map]
+"1" = "confirm_quit"
+"0" = "noconfirm_quit"
+
+[[options]]
+key = "video"
+name = "Backend de video"
+kind = "choice"
+default = "auto"
+choices = ["auto", "opengl", "bgfx", "gdi", "soft"]
+flag_template = "-video {value}"
