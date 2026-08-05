@@ -1,10 +1,10 @@
+use crate::downloader::{DownloadEvent, RunnerDownloader};
 use anyhow::{Context, Result};
 use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc;
-use crate::downloader::{DownloadEvent, RunnerDownloader};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtonReleaseAsset {
@@ -143,7 +143,8 @@ impl TargetLauncher {
                 home.join(".local/share/tui_game_station/runners/wine")
             }
             TargetLauncher::Steam => {
-                let flatpak = home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d");
+                let flatpak =
+                    home.join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d");
                 let native = home.join(".local/share/Steam/compatibilitytools.d");
                 if native.exists() || !flatpak.parent().is_some_and(|p| p.exists()) {
                     native
@@ -160,9 +161,9 @@ impl TargetLauncher {
                     home.join(".config/heroic/tools")
                 };
                 match repo {
-                    ProtonRepo::WineVanillaKron4ek | ProtonRepo::WineStagingKron4ek | ProtonRepo::WineProtonKron4ek => {
-                        base.join("wine")
-                    }
+                    ProtonRepo::WineVanillaKron4ek
+                    | ProtonRepo::WineStagingKron4ek
+                    | ProtonRepo::WineProtonKron4ek => base.join("wine"),
                     _ => base.join("proton"),
                 }
             }
@@ -175,9 +176,7 @@ impl TargetLauncher {
                     home.join(".local/share/lutris")
                 };
                 match repo {
-                    ProtonRepo::DXVK | ProtonRepo::VKD3DProton => {
-                        base.join("runtime")
-                    }
+                    ProtonRepo::DXVK | ProtonRepo::VKD3DProton => base.join("runtime"),
                     _ => base.join("runners/wine"),
                 }
             }
@@ -200,7 +199,11 @@ impl TargetLauncher {
             return TargetLauncher::TUIGameStation;
         }
         let pos = available.iter().position(|l| l == self).unwrap_or(0);
-        let prev_pos = if pos == 0 { available.len() - 1 } else { pos - 1 };
+        let prev_pos = if pos == 0 {
+            available.len() - 1
+        } else {
+            pos - 1
+        };
         available[prev_pos]
     }
 }
@@ -225,19 +228,33 @@ pub enum ProtonRepo {
 impl ProtonRepo {
     pub fn api_url(&self) -> &'static str {
         match self {
-            ProtonRepo::GEProton => "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases",
-            ProtonRepo::ProtonCachyOS => "https://api.github.com/repos/CachyOS/proton-cachyos/releases",
+            ProtonRepo::GEProton => {
+                "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases"
+            }
+            ProtonRepo::ProtonCachyOS => {
+                "https://api.github.com/repos/CachyOS/proton-cachyos/releases"
+            }
             ProtonRepo::DWProton => "https://dawn.wine/api/v1/repos/dawn-winery/dwproton/releases",
-            ProtonRepo::ProtonEM => "https://api.github.com/repos/Etaash-mathamsetty/Proton/releases",
-            ProtonRepo::WineVanillaKron4ek | ProtonRepo::WineStagingKron4ek | ProtonRepo::WineProtonKron4ek => {
+            ProtonRepo::ProtonEM => {
+                "https://api.github.com/repos/Etaash-mathamsetty/Proton/releases"
+            }
+            ProtonRepo::WineVanillaKron4ek
+            | ProtonRepo::WineStagingKron4ek
+            | ProtonRepo::WineProtonKron4ek => {
                 "https://api.github.com/repos/Kron4ek/Wine-Builds/releases"
             }
-            ProtonRepo::ProtonTkg => "https://api.github.com/repos/Frogging-Family/wine-tkg-git/releases",
+            ProtonRepo::ProtonTkg => {
+                "https://api.github.com/repos/Frogging-Family/wine-tkg-git/releases"
+            }
             ProtonRepo::Boxtron => "https://api.github.com/repos/dreamer/boxtron/releases",
-            ProtonRepo::Luxtorpeda => "https://api.github.com/repos/luxtorpeda-dev/luxtorpeda/releases",
+            ProtonRepo::Luxtorpeda => {
+                "https://api.github.com/repos/luxtorpeda-dev/luxtorpeda/releases"
+            }
             ProtonRepo::Roberta => "https://api.github.com/repos/dreamer/roberta/releases",
             ProtonRepo::DXVK => "https://api.github.com/repos/doitsujin/dxvk/releases",
-            ProtonRepo::VKD3DProton => "https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases",
+            ProtonRepo::VKD3DProton => {
+                "https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases"
+            }
         }
     }
 
@@ -300,9 +317,15 @@ pub struct ProtonDownloaderClient;
 
 impl ProtonDownloaderClient {
     /// Fetch list of releases from GitHub repository
-    pub async fn fetch_releases(repo: ProtonRepo, page: usize, per_page: usize) -> Result<Vec<ProtonRelease>> {
+    pub async fn fetch_releases(
+        repo: ProtonRepo,
+        page: usize,
+        per_page: usize,
+    ) -> Result<Vec<ProtonRelease>> {
         let fetch_limit = match repo {
-            ProtonRepo::WineVanillaKron4ek | ProtonRepo::WineStagingKron4ek | ProtonRepo::WineProtonKron4ek => 60,
+            ProtonRepo::WineVanillaKron4ek
+            | ProtonRepo::WineStagingKron4ek
+            | ProtonRepo::WineProtonKron4ek => 60,
             _ => per_page,
         };
         let url = if repo == ProtonRepo::DWProton {
@@ -331,26 +354,37 @@ impl ProtonDownloaderClient {
                 let title_low = raw_title.to_lowercase();
 
                 // Specific release-level filtering for Kron4ek multi-build repository
-                if repo == ProtonRepo::WineVanillaKron4ek || repo == ProtonRepo::WineStagingKron4ek {
+                if repo == ProtonRepo::WineVanillaKron4ek || repo == ProtonRepo::WineStagingKron4ek
+                {
                     if tag_low.contains("proton") || title_low.contains("proton") {
                         continue;
                     }
                 } else if repo == ProtonRepo::WineProtonKron4ek
-                    && !tag_low.contains("proton") && !title_low.contains("proton") {
-                        continue;
-                    }
+                    && !tag_low.contains("proton")
+                    && !title_low.contains("proton")
+                {
+                    continue;
+                }
 
                 let display_name = match repo {
                     ProtonRepo::WineVanillaKron4ek => format!("wine-{}", tag_name),
                     ProtonRepo::WineStagingKron4ek => format!("wine-staging-{}", tag_name),
-                    ProtonRepo::WineProtonKron4ek => if !tag_name.is_empty() { tag_name.clone() } else { format!("wine-proton-{}", raw_title) },
-                    _ => if !tag_name.is_empty() {
-                        tag_name.clone()
-                    } else if !raw_title.is_empty() {
-                        raw_title
-                    } else {
-                        "Unknown".to_string()
-                    },
+                    ProtonRepo::WineProtonKron4ek => {
+                        if !tag_name.is_empty() {
+                            tag_name.clone()
+                        } else {
+                            format!("wine-proton-{}", raw_title)
+                        }
+                    }
+                    _ => {
+                        if !tag_name.is_empty() {
+                            tag_name.clone()
+                        } else if !raw_title.is_empty() {
+                            raw_title
+                        } else {
+                            "Unknown".to_string()
+                        }
+                    }
                 };
                 let published_at = item["published_at"].as_str().unwrap_or("").to_string();
 
@@ -360,7 +394,10 @@ impl ProtonDownloaderClient {
                     for asset in assets {
                         let asset_name = asset["name"].as_str().unwrap_or("");
                         let lower = asset_name.to_lowercase();
-                        let download_url = asset["browser_download_url"].as_str().unwrap_or("").to_string();
+                        let download_url = asset["browser_download_url"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
                         let size = asset["size"].as_u64().unwrap_or(0);
 
                         let is_valid_archive = (lower.ends_with(".tar.gz")
@@ -381,17 +418,25 @@ impl ProtonDownloaderClient {
 
                         // Specific filtering for Kron4ek multi-build repository
                         if repo == ProtonRepo::WineVanillaKron4ek {
-                            if lower.contains("staging") || lower.contains("proton") || lower.contains("tkg") {
+                            if lower.contains("staging")
+                                || lower.contains("proton")
+                                || lower.contains("tkg")
+                            {
                                 continue;
                             }
                         } else if repo == ProtonRepo::WineStagingKron4ek {
-                            if !lower.contains("staging") || lower.contains("tkg") || lower.contains("proton") {
+                            if !lower.contains("staging")
+                                || lower.contains("tkg")
+                                || lower.contains("proton")
+                            {
                                 continue;
                             }
                         } else if repo == ProtonRepo::WineProtonKron4ek
-                            && !lower.contains("proton") && !lower.contains("tkg") {
-                                continue;
-                            }
+                            && !lower.contains("proton")
+                            && !lower.contains("tkg")
+                        {
+                            continue;
+                        }
 
                         // For CachyOS, skip arm64 binaries if present
                         if repo == ProtonRepo::ProtonCachyOS && lower.contains("arm64") {
@@ -399,7 +444,8 @@ impl ProtonDownloaderClient {
                         }
 
                         // Score assets: preferred arch amd64-wow64 (3) > amd64 (2) > x86 (1)
-                        let arch_score = if lower.contains("amd64-wow64") || lower.contains("wow64") {
+                        let arch_score = if lower.contains("amd64-wow64") || lower.contains("wow64")
+                        {
                             3
                         } else if lower.contains("amd64") || lower.contains("x86_64") {
                             2
@@ -500,7 +546,11 @@ impl ProtonDownloaderClient {
 
         if !status.success() {
             let _ = std::fs::remove_file(&temp_archive);
-            anyhow::bail!("Extraction of '{}' failed with exit code: {:?}", asset.name, status.code());
+            anyhow::bail!(
+                "Extraction of '{}' failed with exit code: {:?}",
+                asset.name,
+                status.code()
+            );
         }
 
         // 4. Remove temp archive
@@ -544,47 +594,81 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_dwproton_releases() {
         let releases = ProtonDownloaderClient::fetch_releases(ProtonRepo::DWProton, 1, 5).await;
-        assert!(releases.is_ok(), "Fetching DWProton releases failed: {:?}", releases.err());
+        assert!(
+            releases.is_ok(),
+            "Fetching DWProton releases failed: {:?}",
+            releases.err()
+        );
         let list = releases.unwrap();
         assert!(!list.is_empty(), "DWProton releases list is empty");
         let first = &list[0];
         assert!(first.asset.is_some(), "First release has no asset");
         let asset = first.asset.as_ref().unwrap();
-        assert!(asset.name.contains("dwproton"), "Asset name should contain dwproton: {}", asset.name);
+        assert!(
+            asset.name.contains("dwproton"),
+            "Asset name should contain dwproton: {}",
+            asset.name
+        );
     }
 
     #[tokio::test]
     async fn test_fetch_boxtron_releases() {
         let releases = ProtonDownloaderClient::fetch_releases(ProtonRepo::Boxtron, 1, 5).await;
-        assert!(releases.is_ok(), "Fetching Boxtron releases failed: {:?}", releases.err());
+        assert!(
+            releases.is_ok(),
+            "Fetching Boxtron releases failed: {:?}",
+            releases.err()
+        );
         let list = releases.unwrap();
         assert!(!list.is_empty(), "Boxtron releases list is empty");
         let first = &list[0];
         assert!(first.asset.is_some(), "First release has no asset");
         let asset = first.asset.as_ref().unwrap();
-        assert!(asset.name.contains("boxtron"), "Asset name should contain boxtron: {}", asset.name);
+        assert!(
+            asset.name.contains("boxtron"),
+            "Asset name should contain boxtron: {}",
+            asset.name
+        );
     }
 
     #[tokio::test]
     async fn test_fetch_kron4ek_releases() {
-        if let Ok(vanilla) = ProtonDownloaderClient::fetch_releases(ProtonRepo::WineVanillaKron4ek, 1, 5).await {
+        if let Ok(vanilla) =
+            ProtonDownloaderClient::fetch_releases(ProtonRepo::WineVanillaKron4ek, 1, 5).await
+        {
             if !vanilla.is_empty() {
                 let v_asset = vanilla[0].asset.as_ref().unwrap();
-                assert!(!v_asset.name.contains("staging") && !v_asset.name.contains("proton"), "Vanilla asset should not contain staging/proton: {}", v_asset.name);
+                assert!(
+                    !v_asset.name.contains("staging") && !v_asset.name.contains("proton"),
+                    "Vanilla asset should not contain staging/proton: {}",
+                    v_asset.name
+                );
             }
         }
 
-        if let Ok(staging) = ProtonDownloaderClient::fetch_releases(ProtonRepo::WineStagingKron4ek, 1, 5).await {
+        if let Ok(staging) =
+            ProtonDownloaderClient::fetch_releases(ProtonRepo::WineStagingKron4ek, 1, 5).await
+        {
             if !staging.is_empty() {
                 let s_asset = staging[0].asset.as_ref().unwrap();
-                assert!(s_asset.name.contains("staging"), "Staging asset should contain staging: {}", s_asset.name);
+                assert!(
+                    s_asset.name.contains("staging"),
+                    "Staging asset should contain staging: {}",
+                    s_asset.name
+                );
             }
         }
 
-        if let Ok(proton) = ProtonDownloaderClient::fetch_releases(ProtonRepo::WineProtonKron4ek, 1, 5).await {
+        if let Ok(proton) =
+            ProtonDownloaderClient::fetch_releases(ProtonRepo::WineProtonKron4ek, 1, 5).await
+        {
             if !proton.is_empty() {
                 let p_rel = &proton[0];
-                assert!(p_rel.tag_name.contains("proton"), "WineProtonKron4ek release tag should contain proton: {}", p_rel.tag_name);
+                assert!(
+                    p_rel.tag_name.contains("proton"),
+                    "WineProtonKron4ek release tag should contain proton: {}",
+                    p_rel.tag_name
+                );
             }
         }
     }

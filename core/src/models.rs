@@ -83,12 +83,12 @@ pub struct Game {
     pub title: String,
     pub sort_title: Option<String>,
     pub game_type: String,
-    
+
     pub file_path: Option<String>,
     pub working_dir: Option<String>,
     pub custom_command: Option<String>,
     pub env_vars: Option<String>,
-    
+
     pub wine_prefix: Option<String>,
     pub wine_runner_id: Option<i64>,
     pub steam_appid: Option<i64>,

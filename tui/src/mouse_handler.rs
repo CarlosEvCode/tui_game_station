@@ -1,7 +1,7 @@
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Rect;
 use crate::app::{Action, App, BigPictureFocus, FocusedPane, ModalState};
 use crate::ui::centered_rect_exact;
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
 
 /// Process incoming mouse events (scroll wheel, left clicks, pane focus, card selection)
 pub async fn handle_mouse_event(app: &mut App, mouse: MouseEvent, area: Rect) {
@@ -57,11 +57,18 @@ pub async fn handle_mouse_event(app: &mut App, mouse: MouseEvent, area: Rect) {
 }
 
 async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
-    if let ModalState::WelcomeWizard { ref mut step, ref sgdb_api_key, .. } = app.modal_state {
+    if let ModalState::WelcomeWizard {
+        ref mut step,
+        ref sgdb_api_key,
+        ..
+    } = app.modal_state
+    {
         let footer_y = area.y + area.height.saturating_sub(4);
         if y >= footer_y {
             if x < area.x + area.width / 3 {
-                if *step > 0 { *step -= 1; }
+                if *step > 0 {
+                    *step -= 1;
+                }
             } else if x > area.x + (area.width * 2) / 3 {
                 if *step < 3 {
                     *step += 1;
@@ -88,8 +95,11 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
     } = app.modal_state
     {
         let popup_area = crate::ui::runner_step2_popup_area(options.len(), area);
-        if x >= popup_area.x && x < popup_area.x + popup_area.width &&
-           y >= popup_area.y && y < popup_area.y + popup_area.height {
+        if x >= popup_area.x
+            && x < popup_area.x + popup_area.width
+            && y >= popup_area.y
+            && y < popup_area.y + popup_area.height
+        {
             let n = options.len();
             let rel_in = y.saturating_sub(popup_area.y + 1);
             let custom_line = if n == 0 { 5 } else { 6 + n };
@@ -111,10 +121,16 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                 let has_executable = !exe_path_input.trim().is_empty()
                     && std::path::Path::new(exe_path_input.trim()).exists();
                 let mut actions = vec!["browse"];
-                if runner_info.download_url.is_some() { actions.push("download"); }
+                if runner_info.download_url.is_some() {
+                    actions.push("download");
+                }
                 actions.push("save");
-                if has_executable { actions.push("open"); }
-                if has_executable { actions.push("delete"); }
+                if has_executable {
+                    actions.push("open");
+                }
+                if has_executable {
+                    actions.push("delete");
+                }
 
                 let step_w = w / (actions.len() as u16).max(1);
                 let clicked_action = ((rel_x / step_w.max(1)) as usize).min(actions.len() - 1);
@@ -135,10 +151,19 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
         return;
     }
 
-    if let ModalState::AppSettings { ref mut selected_field, ref mut is_editing_api_key, ref api_key_input, ref mut cursor_pos } = app.modal_state {
+    if let ModalState::AppSettings {
+        ref mut selected_field,
+        ref mut is_editing_api_key,
+        ref api_key_input,
+        ref mut cursor_pos,
+    } = app.modal_state
+    {
         let popup_area = centered_rect_exact(60, 10, area);
-        if x >= popup_area.x && x < popup_area.x + popup_area.width &&
-           y >= popup_area.y && y < popup_area.y + popup_area.height {
+        if x >= popup_area.x
+            && x < popup_area.x + popup_area.width
+            && y >= popup_area.y
+            && y < popup_area.y + popup_area.height
+        {
             let rel_y = y.saturating_sub(popup_area.y + 1);
             if rel_y <= 2 {
                 *selected_field = 0;
@@ -160,13 +185,25 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
     }
 
     if let ModalState::PlatformSelector { selected_idx } = app.modal_state {
-        let max_name_len = app.platforms.iter().map(|p| p.name.len()).max().unwrap_or(12);
-        let needed_w = (max_name_len as u16 + 26).clamp(42, 60).min(area.width.saturating_sub(4));
-        let needed_h = (app.platforms.len() as u16 + 2).clamp(4, 16).min(area.height.saturating_sub(2));
+        let max_name_len = app
+            .platforms
+            .iter()
+            .map(|p| p.name.len())
+            .max()
+            .unwrap_or(12);
+        let needed_w = (max_name_len as u16 + 26)
+            .clamp(42, 60)
+            .min(area.width.saturating_sub(4));
+        let needed_h = (app.platforms.len() as u16 + 2)
+            .clamp(4, 16)
+            .min(area.height.saturating_sub(2));
         let popup_area = centered_rect_exact(needed_w, needed_h, area);
 
-        if x >= popup_area.x && x < popup_area.x + popup_area.width &&
-           y >= popup_area.y && y < popup_area.y + popup_area.height {
+        if x >= popup_area.x
+            && x < popup_area.x + popup_area.width
+            && y >= popup_area.y
+            && y < popup_area.y + popup_area.height
+        {
             let content_y = popup_area.y + 1; // skip top border
             if y >= content_y {
                 let clicked_idx = (y - content_y) as usize;
@@ -174,7 +211,9 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                     if clicked_idx == selected_idx {
                         app.update(Action::ConfirmPlatformSelectorModal).await;
                     } else {
-                        app.modal_state = ModalState::PlatformSelector { selected_idx: clicked_idx };
+                        app.modal_state = ModalState::PlatformSelector {
+                            selected_idx: clicked_idx,
+                        };
                     }
                 }
             }

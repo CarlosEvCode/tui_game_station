@@ -19,6 +19,6 @@ pub mod cemu_xml;
 pub mod melonds_toml;
 pub mod qt_ini;
 
-pub use cemu_xml::{CemuPatchResult, patch_cemu_xml, read_cemu_xml_value};
-pub use melonds_toml::{TomlPatchResult, TomlValue, patch_melonds_toml, read_melonds_toml_value};
-pub use qt_ini::{PatchError, PatchResult, patch_qt_ini, read_qt_ini_value};
+pub use cemu_xml::{patch_cemu_xml, read_cemu_xml_value, CemuPatchResult};
+pub use melonds_toml::{patch_melonds_toml, read_melonds_toml_value, TomlPatchResult, TomlValue};
+pub use qt_ini::{patch_qt_ini, read_qt_ini_value, PatchError, PatchResult};

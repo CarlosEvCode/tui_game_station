@@ -41,10 +41,7 @@ pub struct CemuPatchResult {
 ///
 /// Convention: the document root element (e.g. `<content>`) is NOT part of
 /// `xml_path`. Paths start from children of the root.
-pub fn read_cemu_xml_value(
-    path: &Path,
-    xml_path: &[&str],
-) -> Result<Option<String>, PatchError> {
+pub fn read_cemu_xml_value(path: &Path, xml_path: &[&str]) -> Result<Option<String>, PatchError> {
     let content = read_file(path)?;
     let lines = split_lines(&content);
     let mut stack: Vec<String> = Vec::new();
@@ -223,13 +220,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), PatchError> {
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_else(|| "config".to_string());
     let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = dir.join(format!(".{}.{}.{}.tmp", file_name, std::process::id(), counter));
+    let tmp_path = dir.join(format!(
+        ".{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        counter
+    ));
 
     fs::write(&tmp_path, bytes).map_err(|source| PatchError::TempWrite {
         path: path.to_path_buf(),
         source,
     })?;
-    if let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(&tmp_path) {
+    if let Ok(file) = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&tmp_path)
+    {
         let _ = file.sync_all();
     }
     fs::rename(&tmp_path, path).map_err(|source| PatchError::Replace {
@@ -355,10 +361,8 @@ mod tests {
 "#;
 
     fn temp_file(name: &str, content: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_cemu_xml_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_cemu_xml_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         fs::write(&path, content).unwrap();
@@ -433,9 +437,12 @@ mod tests {
 
         let after = fs::read_to_string(&path).unwrap();
         // Only Overlay/Position changes; Notification/Position stays "1".
-        assert!(after.contains("<Position>3</Position>"), "Overlay should be patched");
-        let notif_val = read_cemu_xml_value(&path, &["Graphic", "Notification", "Position"])
-            .unwrap();
+        assert!(
+            after.contains("<Position>3</Position>"),
+            "Overlay should be patched"
+        );
+        let notif_val =
+            read_cemu_xml_value(&path, &["Graphic", "Notification", "Position"]).unwrap();
         assert_eq!(notif_val.as_deref(), Some("1"));
         // Line count unchanged.
         assert_eq!(before.lines().count(), after.lines().count());
@@ -447,7 +454,10 @@ mod tests {
         let before = fs::read_to_string(&path).unwrap();
 
         let err = patch_cemu_xml(&path, &["Graphic", "NoExiste"], "99").unwrap_err();
-        assert!(matches!(err, PatchError::KeyNotFound { .. }), "unexpected: {err}");
+        assert!(
+            matches!(err, PatchError::KeyNotFound { .. }),
+            "unexpected: {err}"
+        );
         assert_eq!(fs::read_to_string(&path).unwrap(), before);
     }
 
@@ -526,7 +536,10 @@ mod tests {
         let path = temp_file("preserve_selfclose.xml", xml);
         patch_cemu_xml(&path, &["fullscreen"], "true").unwrap();
         let after = fs::read_to_string(&path).unwrap();
-        assert!(after.contains("<GameCache/>"), "self-closing tag must survive");
+        assert!(
+            after.contains("<GameCache/>"),
+            "self-closing tag must survive"
+        );
         assert!(after.contains("<fullscreen>true</fullscreen>"));
     }
 }

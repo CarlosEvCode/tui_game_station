@@ -167,7 +167,8 @@ impl Database {
             .iter()
             .any(|name| name == "env_vars");
         if !has_runner_env {
-            self.conn.execute("ALTER TABLE runners ADD COLUMN env_vars TEXT", [])?;
+            self.conn
+                .execute("ALTER TABLE runners ADD COLUMN env_vars TEXT", [])?;
         }
 
         Ok(())
@@ -405,7 +406,11 @@ impl Database {
                 "Redream" => "DC".to_string(),
                 "Vita3K" => "PS Vita".to_string(),
                 "MAME" => "Arcade".to_string(),
-                _ => slugs.iter().map(|s| s.to_uppercase()).collect::<Vec<_>>().join(", "),
+                _ => slugs
+                    .iter()
+                    .map(|s| s.to_uppercase())
+                    .collect::<Vec<_>>()
+                    .join(", "),
             };
 
             Ok(crate::models::UniqueRunnerInfo {
@@ -464,7 +469,11 @@ impl Database {
     }
 
     /// Persist the emulator-options JSON into the runner's `env_vars` column.
-    pub fn update_runner_env_by_name(&self, runner_name: &str, env_vars: Option<&str>) -> Result<()> {
+    pub fn update_runner_env_by_name(
+        &self,
+        runner_name: &str,
+        env_vars: Option<&str>,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE runners SET env_vars = ?2 WHERE name = ?1",
             params![runner_name, env_vars],
@@ -653,7 +662,11 @@ impl Database {
         // Multi-runner platforms (e.g. Switch: Ryujinx + Eden) may only have one
         // emulator installed. Prefer a configured runner so the platform reads
         // as "ready" and launches with the emulator that is actually installed.
-        if let Some(r) = runners.iter().find(|r| r.executable_path.is_some()).cloned() {
+        if let Some(r) = runners
+            .iter()
+            .find(|r| r.executable_path.is_some())
+            .cloned()
+        {
             return Ok(Some(r));
         }
         Ok(runners.into_iter().next())
@@ -685,17 +698,18 @@ impl Database {
     // Media cache queries
     // ----------------------------------------------------
     pub fn media_statuses(&self, game_id: i64) -> Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT media_type, status FROM game_media WHERE game_id = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT media_type, status FROM game_media WHERE game_id = ?1")?;
         let rows = stmt.query_map(params![game_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn get_media_status(&self, game_id: i64, media_type: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT status FROM game_media WHERE game_id = ?1 AND media_type = ?2",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT status FROM game_media WHERE game_id = ?1 AND media_type = ?2")?;
         let mut rows = stmt.query(params![game_id, media_type])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))
@@ -874,7 +888,9 @@ impl Database {
     /// upsert so Switch components are linked to the correct (possibly reused)
     /// game row instead of a guessed rowid.
     pub fn get_game_id_by_file_path(&self, file_path: &str) -> Result<Option<i64>> {
-        let mut stmt = self.conn.prepare("SELECT id FROM games WHERE file_path = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM games WHERE file_path = ?1")?;
         let mut rows = stmt.query(params![file_path])?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))

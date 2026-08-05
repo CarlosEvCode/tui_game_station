@@ -5,7 +5,7 @@
 
 use std::sync::OnceLock;
 
-use figlet_rs::{Toilet, FIGure};
+use figlet_rs::{FIGure, Toilet};
 
 /// Maximum number of big-title lines we reserve and render. Kept FIXED so the
 /// rest of the info panel never moves between games.
@@ -60,11 +60,7 @@ fn truncate_word_to_fit(word: &str, max_width: u16) -> String {
     let body = word.trim();
     let total = body.chars().count();
     for keep in (MIN_BODY_CHARS..=total).rev() {
-        let candidate: String = body
-            .chars()
-            .take(keep)
-            .chain(ellipsis.chars())
-            .collect();
+        let candidate: String = body.chars().take(keep).chain(ellipsis.chars()).collect();
         if rendered_width(&candidate) <= max_width {
             return candidate;
         }
@@ -125,9 +121,17 @@ pub fn render_title(title: &str, max_width: u16) -> TitleArt {
                 }
             }
             if rows.is_empty() {
-                TitleArt { rows: vec![title.to_string()], line_height, is_plain: true }
+                TitleArt {
+                    rows: vec![title.to_string()],
+                    line_height,
+                    is_plain: true,
+                }
             } else {
-                TitleArt { rows, line_height, is_plain: false }
+                TitleArt {
+                    rows,
+                    line_height,
+                    is_plain: false,
+                }
             }
         }
         // Not fully renderable: plain wrapped text.
@@ -201,7 +205,10 @@ mod tests {
             let line_words: Vec<&str> = line.split_whitespace().collect();
             let mut it = words.iter();
             for w in &line_words {
-                assert!(it.any(|c| c == w), "word '{w}' not a whole word of the title");
+                assert!(
+                    it.any(|c| c == w),
+                    "word '{w}' not a whole word of the title"
+                );
             }
         }
         // And each line really fits when rendered.
@@ -234,7 +241,10 @@ mod tests {
         let lines = wrap_words(word, narrow);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].starts_with("Super"), "keep the word's beginning");
-        assert!(rendered_width(&lines[0]) <= narrow, "truncated word must fit");
+        assert!(
+            rendered_width(&lines[0]) <= narrow,
+            "truncated word must fit"
+        );
     }
 
     #[test]

@@ -134,10 +134,12 @@ pub fn patch_melonds_toml(
                     key: dotted.clone(),
                 })?;
         }
-        target = target.get_mut(*key).ok_or_else(|| PatchError::TomlKeyNotFound {
-            path: path.to_path_buf(),
-            key: dotted.clone(),
-        })?;
+        target = target
+            .get_mut(*key)
+            .ok_or_else(|| PatchError::TomlKeyNotFound {
+                path: path.to_path_buf(),
+                key: dotted.clone(),
+            })?;
     }
     if target.get(last_key).is_none() {
         insert_into_table(
@@ -222,19 +224,24 @@ fn build_typed_value(
             "true" => true,
             "false" => false,
             other => {
-                return Err(invalid_value(path, dotted, other, "a boolean ('true' or 'false')"));
+                return Err(invalid_value(
+                    path,
+                    dotted,
+                    other,
+                    "a boolean ('true' or 'false')",
+                ));
             }
         };
         Ok(toml_edit::Value::from(b))
     } else if original.as_integer().is_some() {
-        let i: i64 = new_value.parse().map_err(|_| {
-            invalid_value(path, dotted, new_value, "an integer")
-        })?;
+        let i: i64 = new_value
+            .parse()
+            .map_err(|_| invalid_value(path, dotted, new_value, "an integer"))?;
         Ok(toml_edit::Value::from(i))
     } else if original.as_float().is_some() {
-        let f: f64 = new_value.parse().map_err(|_| {
-            invalid_value(path, dotted, new_value, "a number")
-        })?;
+        let f: f64 = new_value
+            .parse()
+            .map_err(|_| invalid_value(path, dotted, new_value, "a number"))?;
         Ok(toml_edit::Value::from(f))
     } else if original.as_str().is_some() {
         Ok(toml_edit::Value::from(new_value.to_string()))
@@ -321,13 +328,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), PatchError> {
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_else(|| "config".to_string());
     let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = dir.join(format!(".{}.{}.{}.tmp", file_name, std::process::id(), counter));
+    let tmp_path = dir.join(format!(
+        ".{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        counter
+    ));
 
     fs::write(&tmp_path, bytes).map_err(|source| PatchError::TempWrite {
         path: path.to_path_buf(),
         source,
     })?;
-    if let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(&tmp_path) {
+    if let Ok(file) = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&tmp_path)
+    {
         let _ = file.sync_all();
     }
     fs::rename(&tmp_path, path).map_err(|source| PatchError::Replace {
@@ -402,7 +418,10 @@ ShowOSD = true
         let written = fs::read_to_string(&path).unwrap();
         let expected = FIXTURE.replace("LimitFPS = true", "LimitFPS = false");
         assert_eq!(written, expected, "only the target line may change");
-        assert!(written.contains("LimitFPS = false"), "boolean stays unquoted");
+        assert!(
+            written.contains("LimitFPS = false"),
+            "boolean stays unquoted"
+        );
         assert!(!written.contains("LimitFPS = \"false\""));
     }
 
@@ -444,7 +463,10 @@ ShowOSD = true
         let res = patch_melonds_toml(&path, &["TargetFPS"], "30.0").unwrap();
         assert_eq!(res.old_value.as_deref(), Some("60.0"));
         let written = fs::read_to_string(&path).unwrap();
-        assert!(written.contains("TargetFPS = 30.0"), "float keeps decimal point");
+        assert!(
+            written.contains("TargetFPS = 30.0"),
+            "float keeps decimal point"
+        );
         assert!(!written.contains("TargetFPS = 30\n"));
 
         // String stays double quoted.
@@ -466,7 +488,10 @@ ShowOSD = true
 
         let written = fs::read_to_string(&path).unwrap();
         assert!(written.contains("[Screen]\nUseGL = false\nVSync = true"));
-        assert!(!written.contains("VSync = \"true\""), "boolean stays unquoted");
+        assert!(
+            !written.contains("VSync = \"true\""),
+            "boolean stays unquoted"
+        );
 
         assert_eq!(
             read_melonds_toml_value(&path, &["Screen", "VSync"]).unwrap(),
@@ -489,7 +514,10 @@ ShowOSD = true
             written.contains("[3D.GL]\nScaleFactor = 4"),
             "created [3D.GL] table with integer ScaleFactor, got:\n{written}"
         );
-        assert!(!written.contains("ScaleFactor = \"4\""), "integer stays numeric");
+        assert!(
+            !written.contains("ScaleFactor = \"4\""),
+            "integer stays numeric"
+        );
 
         assert_eq!(
             read_melonds_toml_value(&path, &["3D", "GL", "ScaleFactor"]).unwrap(),

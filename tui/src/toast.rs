@@ -74,7 +74,10 @@ pub fn render_toasts(frame: &mut Frame, toasts: &[Toast], area: Rect) {
         frame.render_widget(Clear, rect);
 
         let paragraph = Paragraph::new(Line::from(vec![
-            Span::styled(icon, Style::default().fg(icon_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                icon,
+                Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(&toast.message, Style::default().fg(Color::White)),
         ]))
         .block(

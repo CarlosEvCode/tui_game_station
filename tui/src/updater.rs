@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Result};
 use reqwest::Client;
+use scraper::downloader::DownloadEvent;
 use serde::Deserialize;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use scraper::downloader::DownloadEvent;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ReleaseAsset {
@@ -50,7 +50,9 @@ pub async fn check_for_updates(current_version: &str) -> Result<Option<UpdateChe
             current_version: current_version.to_string(),
             latest_version: latest_tag,
             download_url: asset.browser_download_url.clone(),
-            release_notes: release.body.unwrap_or_else(|| "No release notes provided.".to_string()),
+            release_notes: release
+                .body
+                .unwrap_or_else(|| "No release notes provided.".to_string()),
         }))
     } else {
         Ok(None)
@@ -74,8 +76,8 @@ pub async fn download_and_apply_update(
     latest_version: &str,
     download_tx: mpsc::Sender<DownloadEvent>,
 ) -> Result<()> {
-    use futures_util::StreamExt;
     use flate2::read::GzDecoder;
+    use futures_util::StreamExt;
     use tar::Archive;
 
     let client = Client::builder()
@@ -158,7 +160,8 @@ pub async fn download_and_apply_update(
         None
     }
 
-    let new_bin = find_bin(&temp_dir).ok_or_else(|| anyhow!("Extracted archive did not contain tui-game-station binary"))?;
+    let new_bin = find_bin(&temp_dir)
+        .ok_or_else(|| anyhow!("Extracted archive did not contain tui-game-station binary"))?;
 
     // Self-replace the running binary
     self_replace::self_replace(&new_bin)?;

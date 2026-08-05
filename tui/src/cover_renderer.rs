@@ -16,12 +16,13 @@ pub struct CoverManager {
 
 impl CoverManager {
     pub fn new() -> Self {
-        let picker = Picker::from_query_stdio().unwrap_or_else(|_| {
-            Picker::from_fontsize((8, 16))
-        });
+        let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::from_fontsize((8, 16)));
         let halfblocks_picker = Picker::from_fontsize((8, 16));
 
-        Self { picker, halfblocks_picker }
+        Self {
+            picker,
+            halfblocks_picker,
+        }
     }
 
     pub fn load_native_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
@@ -47,7 +48,10 @@ impl CoverManager {
     /// Halfblocks protocol for full-width hero banners. The source is pre-scaled
     /// wide so the renderer can crop (cover) it across the entire hero instead of
     /// letterboxing it into a fraction of the width (Fit never upscales).
-    pub fn load_halfblocks_banner_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
+    pub fn load_halfblocks_banner_protocol_from_file(
+        &self,
+        path: &Path,
+    ) -> Option<StatefulProtocol> {
         if !path.exists() {
             return None;
         }

@@ -67,8 +67,8 @@ impl SerialExtractor {
     /// Extract PlayStation (PS1, PS2, PSP) Disc Serial (e.g. SCUS-94424, SLUS-00782).
     fn extract_playstation(file: &mut File) -> Option<String> {
         let prefixes: [&[u8]; 15] = [
-            b"SLUS", b"SCUS", b"SLES", b"SCES", b"SLPS", b"SCPS", b"SLED", b"SCED",
-            b"ULUS", b"ULEU", b"ULJS", b"UCUS", b"UCES", b"NPUG", b"NPEH",
+            b"SLUS", b"SCUS", b"SLES", b"SCES", b"SLPS", b"SCPS", b"SLED", b"SCED", b"ULUS",
+            b"ULEU", b"ULJS", b"UCUS", b"UCES", b"NPUG", b"NPEH",
         ];
 
         let chunk_size = 4 * 1024 * 1024;
@@ -87,7 +87,10 @@ impl SerialExtractor {
             for prefix in prefixes {
                 let mut pos = 0;
                 while pos + 4 <= buffer.len() {
-                    if let Some(found) = buffer[pos..].windows(4).position(|w| w.eq_ignore_ascii_case(prefix)) {
+                    if let Some(found) = buffer[pos..]
+                        .windows(4)
+                        .position(|w| w.eq_ignore_ascii_case(prefix))
+                    {
                         let abs_pos = pos + found;
                         let slice = &buffer[abs_pos..abs_pos + 20.min(buffer.len() - abs_pos)];
                         let text = String::from_utf8_lossy(slice);

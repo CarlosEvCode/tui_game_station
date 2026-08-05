@@ -85,7 +85,10 @@ impl SteamCoverResolver {
             file.write_all(&data)?;
             Ok(cached_file)
         } else {
-            anyhow::bail!("Failed to download cover from Steam CDN for appid {}", appid)
+            anyhow::bail!(
+                "Failed to download cover from Steam CDN for appid {}",
+                appid
+            )
         }
     }
 

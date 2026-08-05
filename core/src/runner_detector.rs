@@ -33,7 +33,9 @@ impl RunnerLocation {
     pub fn default_dir(&self) -> Option<PathBuf> {
         let home = dirs::home_dir()?;
         match self {
-            RunnerLocation::TUIGameStation => Some(home.join(".local/share/tui_game_station/runners/wine")),
+            RunnerLocation::TUIGameStation => {
+                Some(home.join(".local/share/tui_game_station/runners/wine"))
+            }
             RunnerLocation::Steam => Some(home.join(".local/share/Steam/compatibilitytools.d")),
             RunnerLocation::HeroicProton => Some(home.join(".config/heroic/tools/proton")),
             RunnerLocation::HeroicWine => Some(home.join(".config/heroic/tools/wine")),
@@ -244,7 +246,11 @@ impl RunnerDetector {
             }
         }
 
-        if binary_name == "steam" && dirs::home_dir().map(|h| h.join(".var/app/com.valvesoftware.Steam").exists()).unwrap_or(false) {
+        if binary_name == "steam"
+            && dirs::home_dir()
+                .map(|h| h.join(".var/app/com.valvesoftware.Steam").exists())
+                .unwrap_or(false)
+        {
             return true;
         }
 

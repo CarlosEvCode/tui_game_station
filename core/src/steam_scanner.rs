@@ -41,7 +41,9 @@ impl SteamScanner {
                     if let Ok(extra_paths) = parse_libraryfolders_vdf(&lib_vdf) {
                         for p in extra_paths {
                             let extra_steamapps = p.join("steamapps");
-                            if extra_steamapps.exists() && !steamapps_paths.contains(&extra_steamapps) {
+                            if extra_steamapps.exists()
+                                && !steamapps_paths.contains(&extra_steamapps)
+                            {
                                 steamapps_paths.push(extra_steamapps);
                             }
                         }
@@ -149,7 +151,10 @@ fn parse_acf_file(path: &Path) -> Result<(i64, String, i64)> {
 
     for line in content.lines() {
         let trimmed = line.trim();
-        let parts: Vec<&str> = trimmed.split('"').filter(|s| !s.trim().is_empty()).collect();
+        let parts: Vec<&str> = trimmed
+            .split('"')
+            .filter(|s| !s.trim().is_empty())
+            .collect();
         if parts.len() >= 2 {
             let key = parts[0].to_lowercase();
             let val = parts[1];
@@ -178,7 +183,10 @@ fn parse_libraryfolders_vdf(path: &Path) -> Result<Vec<PathBuf>> {
 
     for line in content.lines() {
         let trimmed = line.trim();
-        let parts: Vec<&str> = trimmed.split('"').filter(|s| !s.trim().is_empty()).collect();
+        let parts: Vec<&str> = trimmed
+            .split('"')
+            .filter(|s| !s.trim().is_empty())
+            .collect();
         if parts.len() >= 2 && parts[0].to_lowercase() == "path" {
             let p = PathBuf::from(parts[1]);
             if p.exists() {

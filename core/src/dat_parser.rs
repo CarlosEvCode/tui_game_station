@@ -58,7 +58,12 @@ impl DatParser {
         parser
     }
 
-    fn extract_hash(line: &str, hash_type: &str, map: &mut HashMap<String, String>, game_name: &str) {
+    fn extract_hash(
+        line: &str,
+        hash_type: &str,
+        map: &mut HashMap<String, String>,
+        game_name: &str,
+    ) {
         let key = format!("{} ", hash_type);
         if let Some(pos) = line.find(&key) {
             let rest = line[pos + key.len()..].trim_start();
@@ -70,7 +75,11 @@ impl DatParser {
     }
 
     pub fn normalize_serial(serial: &str) -> String {
-        serial.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase()
+        serial
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase()
     }
 
     pub fn clean_dat_title(name: &str) -> String {
@@ -134,6 +143,9 @@ game (
 
         let parser = DatParser::parse(dat);
         let title = parser.resolve_by_serial("AZEE");
-        assert_eq!(title, Some(&"The Legend of Zelda: Phantom Hourglass".to_string()));
+        assert_eq!(
+            title,
+            Some(&"The Legend of Zelda: Phantom Hourglass".to_string())
+        );
     }
 }

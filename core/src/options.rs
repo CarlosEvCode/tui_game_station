@@ -131,7 +131,10 @@ struct RawOption {
 #[serde(untagged)]
 enum RawChoice {
     Simple(String),
-    Labeled { value: String, label: Option<String> },
+    Labeled {
+        value: String,
+        label: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,9 +228,9 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
             },
         });
         let choice_labels = match &kind {
-            EmulatorOptionKind::Choice(_) => {
-                choice_pairs.into_iter().collect::<BTreeMap<String, String>>()
-            }
+            EmulatorOptionKind::Choice(_) => choice_pairs
+                .into_iter()
+                .collect::<BTreeMap<String, String>>(),
             EmulatorOptionKind::Toggle => BTreeMap::new(),
         };
         out.push(EmulatorOption {
@@ -276,10 +279,7 @@ pub fn filter_default_map(options: &[EmulatorOption], map: &RunnerOptions) -> Ru
 
 /// Merge a stored (filtered) map over the defaults, validating every value so a
 /// stale or corrupt value never produces an invalid flag.
-pub fn merge_runner_options(
-    options: &[EmulatorOption],
-    stored: &RunnerOptions,
-) -> RunnerOptions {
+pub fn merge_runner_options(options: &[EmulatorOption], stored: &RunnerOptions) -> RunnerOptions {
     let mut merged = default_map(options);
     for (key, value) in stored {
         if let Some(opt) = options.iter().find(|o| &o.key == key) {
@@ -350,8 +350,7 @@ pub fn resolve_config_path(candidates: &[PathBuf]) -> Option<PathBuf> {
 pub fn resolve_config_target_path(target: &ConfigTarget) -> Option<PathBuf> {
     if let Some(candidates) = &target.file_candidates {
         if !candidates.is_empty() {
-            let paths: Vec<PathBuf> =
-                candidates.iter().map(|c| resolve_config_file(c)).collect();
+            let paths: Vec<PathBuf> = candidates.iter().map(|c| resolve_config_file(c)).collect();
             return resolve_config_path(&paths);
         }
     }
@@ -371,11 +370,10 @@ pub fn read_config_value(opt: &EmulatorOption) -> Option<String> {
     let path = resolve_config_target_path(target)?;
     let raw = read_raw_value(&path, target).ok().flatten()?;
     match &target.value_map {
-        Some(map) => {
-            map.iter()
-                .find(|(_, file_value)| *file_value == &raw)
-                .map(|(logical, _)| logical.clone())
-        }
+        Some(map) => map
+            .iter()
+            .find(|(_, file_value)| *file_value == &raw)
+            .map(|(logical, _)| logical.clone()),
         None => Some(raw),
     }
 }
@@ -387,28 +385,26 @@ fn read_raw_value(
 ) -> Result<Option<String>, crate::config_patch::qt_ini::PatchError> {
     match target.format.as_str() {
         "cemu_xml" => {
-            let xml_path = target
-                .xml_path
-                .as_ref()
-                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+            let xml_path = target.xml_path.as_ref().ok_or_else(|| {
+                crate::config_patch::qt_ini::PatchError::KeyNotFound {
                     path: path.to_path_buf(),
                     section: "cemu_xml".to_string(),
                     key: "missing xml_path in config_target".to_string(),
-                })?;
+                }
+            })?;
             crate::config_patch::cemu_xml::read_cemu_xml_value(
                 path,
                 &xml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             )
         }
         "melonds_toml" => {
-            let toml_path = target
-                .toml_path
-                .as_ref()
-                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+            let toml_path = target.toml_path.as_ref().ok_or_else(|| {
+                crate::config_patch::qt_ini::PatchError::KeyNotFound {
                     path: path.to_path_buf(),
                     section: "melonds_toml".to_string(),
                     key: "missing toml_path in config_target".to_string(),
-                })?;
+                }
+            })?;
             crate::config_patch::melonds_toml::read_melonds_toml_value(
                 path,
                 &toml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -417,14 +413,8 @@ fn read_raw_value(
         }
         _ => {
             // Default: qt_ini
-            let section = target
-                .section
-                .as_deref()
-                .unwrap_or_default();
-            let key = target
-                .key
-                .as_deref()
-                .unwrap_or_default();
+            let section = target.section.as_deref().unwrap_or_default();
+            let key = target.key.as_deref().unwrap_or_default();
             crate::config_patch::qt_ini::read_qt_ini_value(path, section, key)
         }
     }
@@ -478,14 +468,13 @@ fn apply_single_patch(
 ) -> Result<(), crate::config_patch::qt_ini::PatchError> {
     match target.format.as_str() {
         "cemu_xml" => {
-            let xml_path = target
-                .xml_path
-                .as_ref()
-                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+            let xml_path = target.xml_path.as_ref().ok_or_else(|| {
+                crate::config_patch::qt_ini::PatchError::KeyNotFound {
                     path: path.to_path_buf(),
                     section: "cemu_xml".to_string(),
                     key: "missing xml_path in config_target".to_string(),
-                })?;
+                }
+            })?;
             crate::config_patch::cemu_xml::patch_cemu_xml(
                 path,
                 &xml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -494,14 +483,13 @@ fn apply_single_patch(
             Ok(())
         }
         "melonds_toml" => {
-            let toml_path = target
-                .toml_path
-                .as_ref()
-                .ok_or_else(|| crate::config_patch::qt_ini::PatchError::KeyNotFound {
+            let toml_path = target.toml_path.as_ref().ok_or_else(|| {
+                crate::config_patch::qt_ini::PatchError::KeyNotFound {
                     path: path.to_path_buf(),
                     section: "melonds_toml".to_string(),
                     key: "missing toml_path in config_target".to_string(),
-                })?;
+                }
+            })?;
             crate::config_patch::melonds_toml::patch_melonds_toml(
                 path,
                 &toml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -511,14 +499,8 @@ fn apply_single_patch(
         }
         _ => {
             // Default: qt_ini
-            let section = target
-                .section
-                .as_deref()
-                .unwrap_or_default();
-            let key = target
-                .key
-                .as_deref()
-                .unwrap_or_default();
+            let section = target.section.as_deref().unwrap_or_default();
+            let key = target.key.as_deref().unwrap_or_default();
             crate::config_patch::qt_ini::patch_qt_ini(path, section, key, new_value)?;
             Ok(())
         }
@@ -577,10 +559,18 @@ pub fn build_env_json(
 ) -> String {
     let filtered = filter_default_map(options, values);
     to_env_json(&RunnerOptionEnv {
-        emulator_options: if filtered.is_empty() { None } else { Some(filtered) },
+        emulator_options: if filtered.is_empty() {
+            None
+        } else {
+            Some(filtered)
+        },
         custom_args: {
             let t = custom_args.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         },
     })
 }
@@ -619,7 +609,7 @@ fn canonical_emulator_key(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config_patch::melonds_toml::{TomlValue, read_melonds_toml_value};
+    use crate::config_patch::melonds_toml::{read_melonds_toml_value, TomlValue};
     use crate::config_patch::qt_ini::read_qt_ini_value;
 
     fn azahar() -> Vec<EmulatorOption> {
@@ -630,9 +620,15 @@ mod tests {
     fn emulator_process_names_resolve_from_toml() {
         assert_eq!(emulator_process_name("Azahar").as_deref(), Some("azahar"));
         assert_eq!(emulator_process_name("Eden").as_deref(), Some("eden"));
-        assert_eq!(emulator_process_name("Dolphin").as_deref(), Some("dolphin-emu"));
+        assert_eq!(
+            emulator_process_name("Dolphin").as_deref(),
+            Some("dolphin-emu")
+        );
         assert_eq!(emulator_process_name("melonDS").as_deref(), Some("melonDS"));
-        assert_eq!(emulator_process_name("DuckStation").as_deref(), Some("duckstation"));
+        assert_eq!(
+            emulator_process_name("DuckStation").as_deref(),
+            Some("duckstation")
+        );
         assert_eq!(emulator_process_name("Ryujinx"), None);
         assert_eq!(emulator_process_name(""), None);
     }
@@ -658,7 +654,11 @@ mod tests {
         assert_eq!(load_emulator_options("Ryujinx").unwrap().len(), 0);
 
         let cemu = load_emulator_options("Cemu").unwrap();
-        assert_eq!(cemu.len(), 3, "Cemu should have 3 options (fullscreen, renderer_backend, vsync)");
+        assert_eq!(
+            cemu.len(),
+            3,
+            "Cemu should have 3 options (fullscreen, renderer_backend, vsync)"
+        );
         assert!(cemu.iter().any(|o| o.key == "fullscreen"));
         assert!(cemu.iter().any(|o| o.key == "renderer_backend"));
         assert!(cemu.iter().any(|o| o.key == "vsync"));
@@ -699,14 +699,20 @@ mod tests {
         // Display options patch Dolphin.ini directly (like editing it by hand)
         // AND emit a per-launch -C override whenever non-default.
         let fullscreen = options.iter().find(|o| o.key == "fullscreen").unwrap();
-        assert_eq!(fullscreen.flag_template, "-C Dolphin.Display.Fullscreen={value}");
+        assert_eq!(
+            fullscreen.flag_template,
+            "-C Dolphin.Display.Fullscreen={value}"
+        );
         let target = fullscreen.config_target.as_ref().unwrap();
         assert_eq!(
             (target.file.as_str(), target.format.as_str()),
             ("~/.config/dolphin-emu/Dolphin.ini", "qt_ini")
         );
         assert_eq!(
-            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
             ("Display", "Fullscreen")
         );
         let map = target.value_map.as_ref().unwrap();
@@ -714,11 +720,20 @@ mod tests {
         assert_eq!(map.get("1"), Some(&"True".to_string()));
 
         let render_to_main = options.iter().find(|o| o.key == "render_to_main").unwrap();
-        assert_eq!(render_to_main.default, "1", "Render to Main Window is on by default");
-        assert_eq!(render_to_main.flag_template, "-C Dolphin.Display.RenderToMain={value}");
+        assert_eq!(
+            render_to_main.default, "1",
+            "Render to Main Window is on by default"
+        );
+        assert_eq!(
+            render_to_main.flag_template,
+            "-C Dolphin.Display.RenderToMain={value}"
+        );
         let target = render_to_main.config_target.as_ref().unwrap();
         assert_eq!(
-            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
             ("Display", "RenderToMain")
         );
 
@@ -726,40 +741,70 @@ mod tests {
         for opt in &options {
             let has_target = opt.config_target.is_some();
             match opt.key.as_str() {
-                "fullscreen" | "render_to_main" => assert!(has_target, "{} must patch Dolphin.ini", opt.key),
+                "fullscreen" | "render_to_main" => {
+                    assert!(has_target, "{} must patch Dolphin.ini", opt.key)
+                }
                 _ => assert!(!has_target, "{} must stay flag-only", opt.key),
             }
         }
 
         let vsync = options.iter().find(|o| o.key == "vsync").unwrap();
-        assert_eq!(vsync.flag_template, "-C Graphics.Hardware.VSync=True",
-            "VSync lives in Graphics.Hardware, not Graphics.Settings");
+        assert_eq!(
+            vsync.flag_template, "-C Graphics.Hardware.VSync=True",
+            "VSync lives in Graphics.Hardware, not Graphics.Settings"
+        );
 
-        let res = options.iter().find(|o| o.key == "internal_resolution").unwrap();
+        let res = options
+            .iter()
+            .find(|o| o.key == "internal_resolution")
+            .unwrap();
         assert_eq!(res.default, "1");
         assert_eq!(
             res.kind,
             EmulatorOptionKind::Choice(vec![
-                "0".to_string(), "1".to_string(), "2".to_string(), "3".to_string(),
-                "4".to_string(), "5".to_string(), "6".to_string(), "8".to_string(),
+                "0".to_string(),
+                "1".to_string(),
+                "2".to_string(),
+                "3".to_string(),
+                "4".to_string(),
+                "5".to_string(),
+                "6".to_string(),
+                "8".to_string(),
             ])
         );
-        assert_eq!(res.choice_labels.get("0").map(String::as_str), Some("Auto (Multiple of 640x528)"));
-        assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("Native (640x528)"));
-        assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8x Native (5120x4224)"));
+        assert_eq!(
+            res.choice_labels.get("0").map(String::as_str),
+            Some("Auto (Multiple of 640x528)")
+        );
+        assert_eq!(
+            res.choice_labels.get("1").map(String::as_str),
+            Some("Native (640x528)")
+        );
+        assert_eq!(
+            res.choice_labels.get("8").map(String::as_str),
+            Some("8x Native (5120x4224)")
+        );
 
         let aspect = options.iter().find(|o| o.key == "aspect_ratio").unwrap();
         assert_eq!(
             aspect.kind,
             EmulatorOptionKind::Choice(vec![
-                "0".to_string(), "1".to_string(), "2".to_string(), "3".to_string()
+                "0".to_string(),
+                "1".to_string(),
+                "2".to_string(),
+                "3".to_string()
             ])
         );
-        assert_eq!(aspect.choice_labels.get("1").map(String::as_str), Some("Force 16:9"));
+        assert_eq!(
+            aspect.choice_labels.get("1").map(String::as_str),
+            Some("Force 16:9")
+        );
 
         let hack = options.iter().find(|o| o.key == "widescreen_hack").unwrap();
-        assert_eq!(hack.flag_template, "-C Graphics.Settings.wideScreenHack=True",
-            "Dolphin spells the key with a lowercase 'w'");
+        assert_eq!(
+            hack.flag_template, "-C Graphics.Settings.wideScreenHack=True",
+            "Dolphin spells the key with a lowercase 'w'"
+        );
 
         assert!(options.iter().any(|o| o.key == "crop_to_aspect"));
         assert!(options.iter().any(|o| o.key == "show_fps"));
@@ -814,10 +859,8 @@ ThemeName = Clean
     /// Load the real Dolphin TOML definitions with every config_target pointing
     /// at a temp file, so tests never touch the user's Dolphin.ini.
     fn dolphin_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_options_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_options_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join(name);
         std::fs::write(&file, DOLPHIN_INI_SAMPLE).unwrap();
@@ -853,11 +896,15 @@ ThemeName = Clean
         assert!(failures.is_empty(), "unexpected failures: {failures:?}");
 
         assert_eq!(
-            read_qt_ini_value(&file, "Display", "Fullscreen").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Display", "Fullscreen")
+                .unwrap()
+                .as_deref(),
             Some("True")
         );
         assert_eq!(
-            read_qt_ini_value(&file, "Display", "RenderToMain").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Display", "RenderToMain")
+                .unwrap()
+                .as_deref(),
             Some("True")
         );
 
@@ -874,11 +921,15 @@ ThemeName = Clean
         let failures = apply_config_patches(&options, &values);
         assert!(failures.is_empty(), "unexpected failures: {failures:?}");
         assert_eq!(
-            read_qt_ini_value(&file, "Display", "Fullscreen").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Display", "Fullscreen")
+                .unwrap()
+                .as_deref(),
             Some("False")
         );
         assert_eq!(
-            read_qt_ini_value(&file, "Display", "RenderToMain").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Display", "RenderToMain")
+                .unwrap()
+                .as_deref(),
             Some("False")
         );
     }
@@ -904,7 +955,10 @@ ThemeName = Clean
         let options = azahar();
         let map = default_map(&options);
         let flags = resolve_flags(&options, &map, "--noconsole \"un solo arg\"");
-        assert_eq!(flags, vec!["--noconsole".to_string(), "un solo arg".to_string()]);
+        assert_eq!(
+            flags,
+            vec!["--noconsole".to_string(), "un solo arg".to_string()]
+        );
     }
 
     #[test]
@@ -966,10 +1020,8 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
 ";
 
     fn temp_qt_ini(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_options_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_options_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         std::fs::write(&path, QT_INI_SAMPLE).unwrap();
@@ -990,7 +1042,10 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
     }
 
     fn renderer_backend(options: &[EmulatorOption]) -> &EmulatorOption {
-        options.iter().find(|o| o.key == "renderer_backend").unwrap()
+        options
+            .iter()
+            .find(|o| o.key == "renderer_backend")
+            .unwrap()
     }
 
     #[test]
@@ -1004,15 +1059,33 @@ Shortcuts\\Main Window\\Fullscreen\\KeySeq=F11
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("opengl"), Some(&"0".to_string()));
         assert_eq!(map.get("vulkan"), Some(&"1".to_string()));
-        assert!(backend.flag_template.is_empty(), "config-only option must not emit CLI flags");
+        assert!(
+            backend.flag_template.is_empty(),
+            "config-only option must not emit CLI flags"
+        );
 
         let docked = options.iter().find(|o| o.key == "docked_mode").unwrap();
         let target = docked.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("System", "use_docked_mode"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("System", "use_docked_mode")
+        );
 
-        let res = options.iter().find(|o| o.key == "resolution_scale").unwrap();
+        let res = options
+            .iter()
+            .find(|o| o.key == "resolution_scale")
+            .unwrap();
         let target = res.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("Renderer", "resolution_setup"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("Renderer", "resolution_setup")
+        );
         assert_eq!(
             res.choice_labels.get("3").map(String::as_str),
             Some("1X (Nativo)")
@@ -1047,10 +1120,8 @@ Theme = Dark
     /// Load the real DuckStation TOML definitions with every config_target
     /// pointing at a temp file, so tests never touch the user's settings.ini.
     fn duckstation_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_options_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_options_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join(name);
         std::fs::write(&file, DUCKSTATION_INI_SAMPLE).unwrap();
@@ -1063,10 +1134,7 @@ Theme = Dark
         options
     }
 
-    fn duckstation_option<'a>(
-        options: &'a [EmulatorOption],
-        key: &str,
-    ) -> &'a EmulatorOption {
+    fn duckstation_option<'a>(options: &'a [EmulatorOption], key: &str) -> &'a EmulatorOption {
         options.iter().find(|o| o.key == key).unwrap()
     }
 
@@ -1077,16 +1145,31 @@ Theme = Dark
 
         let fullscreen = duckstation_option(&options, "fullscreen");
         let target = fullscreen.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("Main", "StartFullscreen"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("Main", "StartFullscreen")
+        );
         assert_eq!(target.format, "qt_ini");
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("0"), Some(&"false".to_string()));
         assert_eq!(map.get("1"), Some(&"true".to_string()));
-        assert!(fullscreen.flag_template.is_empty(), "config-only option must not emit CLI flags");
+        assert!(
+            fullscreen.flag_template.is_empty(),
+            "config-only option must not emit CLI flags"
+        );
 
         let renderer = duckstation_option(&options, "renderer");
         let target = renderer.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("GPU", "Renderer"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("GPU", "Renderer")
+        );
         assert_eq!(
             renderer.kind,
             EmulatorOptionKind::Choice(vec![
@@ -1098,13 +1181,28 @@ Theme = Dark
 
         let aspect = duckstation_option(&options, "aspect_ratio");
         let target = aspect.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("Display", "AspectRatio"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("Display", "AspectRatio")
+        );
         assert_eq!(aspect.default, "16:9");
 
         let res = duckstation_option(&options, "resolution_scale");
         let target = res.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("GPU", "ResolutionScale"));
-        assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("1X (Nativo)"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("GPU", "ResolutionScale")
+        );
+        assert_eq!(
+            res.choice_labels.get("1").map(String::as_str),
+            Some("1X (Nativo)")
+        );
         assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8X"));
         assert_eq!(
             res.kind,
@@ -1134,20 +1232,28 @@ Theme = Dark
 
         // Booleans must be translated to DuckStation's true/false words.
         assert_eq!(
-            read_qt_ini_value(&file, "Main", "StartFullscreen").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Main", "StartFullscreen")
+                .unwrap()
+                .as_deref(),
             Some("true")
         );
         // Identity choices written verbatim, spacing around `=` preserved.
         assert_eq!(
-            read_qt_ini_value(&file, "GPU", "Renderer").unwrap().as_deref(),
+            read_qt_ini_value(&file, "GPU", "Renderer")
+                .unwrap()
+                .as_deref(),
             Some("OpenGL")
         );
         assert_eq!(
-            read_qt_ini_value(&file, "Display", "AspectRatio").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Display", "AspectRatio")
+                .unwrap()
+                .as_deref(),
             Some("4:3")
         );
         assert_eq!(
-            read_qt_ini_value(&file, "GPU", "ResolutionScale").unwrap().as_deref(),
+            read_qt_ini_value(&file, "GPU", "ResolutionScale")
+                .unwrap()
+                .as_deref(),
             Some("5")
         );
 
@@ -1205,10 +1311,8 @@ EECycleRate = 0
     /// Load the real PCSX2 TOML definitions with every config_target pointing at
     /// a temp file, so tests never touch the user's PCSX2.ini.
     fn pcsx2_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_options_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_options_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join(name);
         std::fs::write(&file, PCSX2_INI_SAMPLE).unwrap();
@@ -1232,16 +1336,31 @@ EECycleRate = 0
 
         let fullscreen = pcsx2_option(&options, "fullscreen");
         let target = fullscreen.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("UI", "StartFullscreen"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("UI", "StartFullscreen")
+        );
         assert_eq!(target.format, "qt_ini");
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("0"), Some(&"false".to_string()));
         assert_eq!(map.get("1"), Some(&"true".to_string()));
-        assert!(fullscreen.flag_template.is_empty(), "config-only option must not emit CLI flags");
+        assert!(
+            fullscreen.flag_template.is_empty(),
+            "config-only option must not emit CLI flags"
+        );
 
         let renderer = pcsx2_option(&options, "renderer");
         let target = renderer.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("EmuCore/GS", "Renderer"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("EmuCore/GS", "Renderer")
+        );
         // Logical names map to PCSX2 v2.6.3 numeric enum codes.
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("Auto"), Some(&"-1".to_string()));
@@ -1260,9 +1379,18 @@ EECycleRate = 0
 
         let aspect = pcsx2_option(&options, "aspect_ratio");
         let target = aspect.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("EmuCore/GS", "AspectRatio"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("EmuCore/GS", "AspectRatio")
+        );
         assert_eq!(aspect.default, "Auto 4:3/3:2");
-        assert!(aspect.config_target.as_ref().unwrap().value_map.is_none(), "identity strings");
+        assert!(
+            aspect.config_target.as_ref().unwrap().value_map.is_none(),
+            "identity strings"
+        );
         assert_eq!(
             aspect.kind,
             EmulatorOptionKind::Choice(vec![
@@ -1276,8 +1404,17 @@ EECycleRate = 0
 
         let res = pcsx2_option(&options, "resolution_scale");
         let target = res.config_target.as_ref().unwrap();
-        assert_eq!((target.section.as_deref().unwrap(), target.key.as_deref().unwrap()), ("EmuCore/GS", "upscale_multiplier"));
-        assert_eq!(res.choice_labels.get("1").map(String::as_str), Some("1X (Nativo)"));
+        assert_eq!(
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
+            ("EmuCore/GS", "upscale_multiplier")
+        );
+        assert_eq!(
+            res.choice_labels.get("1").map(String::as_str),
+            Some("1X (Nativo)")
+        );
         assert_eq!(res.choice_labels.get("8").map(String::as_str), Some("8X"));
         assert_eq!(
             res.kind,
@@ -1306,20 +1443,28 @@ EECycleRate = 0
         assert!(failures.is_empty(), "unexpected failures: {failures:?}");
 
         assert_eq!(
-            read_qt_ini_value(&file, "UI", "StartFullscreen").unwrap().as_deref(),
+            read_qt_ini_value(&file, "UI", "StartFullscreen")
+                .unwrap()
+                .as_deref(),
             Some("true")
         );
         // Logical Vulkan -> numeric code 14, spacing around `=` preserved.
         assert_eq!(
-            read_qt_ini_value(&file, "EmuCore/GS", "Renderer").unwrap().as_deref(),
+            read_qt_ini_value(&file, "EmuCore/GS", "Renderer")
+                .unwrap()
+                .as_deref(),
             Some("14")
         );
         assert_eq!(
-            read_qt_ini_value(&file, "EmuCore/GS", "AspectRatio").unwrap().as_deref(),
+            read_qt_ini_value(&file, "EmuCore/GS", "AspectRatio")
+                .unwrap()
+                .as_deref(),
             Some("16:9")
         );
         assert_eq!(
-            read_qt_ini_value(&file, "EmuCore/GS", "upscale_multiplier").unwrap().as_deref(),
+            read_qt_ini_value(&file, "EmuCore/GS", "upscale_multiplier")
+                .unwrap()
+                .as_deref(),
             Some("4")
         );
 
@@ -1375,10 +1520,16 @@ EECycleRate = 0
         let failures = apply_config_patches(&options, &values);
         assert!(failures.is_empty(), "unexpected failures: {failures:?}");
         let file = resolve_config_file(
-            &renderer_backend(&options).config_target.as_ref().unwrap().file,
+            &renderer_backend(&options)
+                .config_target
+                .as_ref()
+                .unwrap()
+                .file,
         );
         assert_eq!(
-            read_qt_ini_value(&file, "Renderer", "backend").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Renderer", "backend")
+                .unwrap()
+                .as_deref(),
             Some("0")
         );
         assert_eq!(
@@ -1392,7 +1543,9 @@ EECycleRate = 0
         let failures = apply_config_patches(&options, &values);
         assert!(failures.is_empty(), "unexpected failures: {failures:?}");
         assert_eq!(
-            read_qt_ini_value(&file, "Renderer", "backend").unwrap().as_deref(),
+            read_qt_ini_value(&file, "Renderer", "backend")
+                .unwrap()
+                .as_deref(),
             Some("1")
         );
     }
@@ -1445,7 +1598,11 @@ EECycleRate = 0
             .cloned()
             .collect();
         let file = resolve_config_file(
-            &renderer_backend(&options).config_target.as_ref().unwrap().file,
+            &renderer_backend(&options)
+                .config_target
+                .as_ref()
+                .unwrap()
+                .file,
         );
         let before = std::fs::read_to_string(&file).unwrap();
 
@@ -1535,10 +1692,8 @@ ScreenLayout = 0
     /// Load the real melonDS TOML definitions with every config_target pointing
     /// at a temp file, so tests never touch the user's melonDS.toml.
     fn melonds_options_with_temp_target(name: &str) -> Vec<EmulatorOption> {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_options_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_options_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join(name);
         std::fs::write(&file, MELONDS_TOML_SAMPLE).unwrap();
@@ -1579,14 +1734,20 @@ ScreenLayout = 0
 
         let scale = melonds_option(&options, "scale_factor");
         let target = scale.config_target.as_ref().unwrap();
-        assert_eq!(target.toml_path.as_deref().unwrap(), ["3D", "GL", "ScaleFactor"]);
+        assert_eq!(
+            target.toml_path.as_deref().unwrap(),
+            ["3D", "GL", "ScaleFactor"]
+        );
         assert!(target.value_map.is_none(), "scale factor maps identically");
         assert_eq!(scale.default, "2");
         assert_eq!(
             scale.kind,
             EmulatorOptionKind::Choice((1..=16).map(|n| n.to_string()).collect::<Vec<_>>())
         );
-        assert_eq!(scale.choice_labels.get("1").map(String::as_str), Some("1X (Native)"));
+        assert_eq!(
+            scale.choice_labels.get("1").map(String::as_str),
+            Some("1X (Native)")
+        );
 
         let vsync = melonds_option(&options, "vsync");
         let target = vsync.config_target.as_ref().unwrap();
@@ -1598,7 +1759,10 @@ ScreenLayout = 0
         let map = target.value_map.as_ref().unwrap();
         assert_eq!(map.get("0"), Some(&"false".to_string()));
         assert_eq!(map.get("1"), Some(&"true".to_string()));
-        assert!(vsync.flag_template.is_empty(), "config-only option must not emit CLI flags");
+        assert!(
+            vsync.flag_template.is_empty(),
+            "config-only option must not emit CLI flags"
+        );
     }
 
     #[test]
@@ -1733,14 +1897,9 @@ layout_option\default=true
     /// Override the mtime of `path` to `age_secs` in the past, so tests can
     /// control which candidate is "most recently modified".
     fn set_mtime(path: &std::path::Path, age_secs: u64) {
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .open(path)
+        let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs))
             .unwrap();
-        file.set_modified(
-            std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs),
-        )
-        .unwrap();
     }
 
     /// Load the real Azahar TOML definitions with every config_target's
@@ -1776,7 +1935,9 @@ layout_option\default=true
         let fullscreen = azahar_option(&options, "fullscreen");
         assert_eq!(fullscreen.flag_template, "-f");
         assert!(fullscreen.config_target.is_none());
-        assert!(azahar_option(&options, "accurate_bus").config_target.is_none());
+        assert!(azahar_option(&options, "accurate_bus")
+            .config_target
+            .is_none());
 
         // Renderer patches [Renderer] graphics_api with a value_map.
         let renderer = azahar_option(&options, "renderer");
@@ -1785,7 +1946,10 @@ layout_option\default=true
         assert_eq!(target.format, "qt_ini");
         assert_eq!(target.file, "", "file_candidates replaces file for Azahar");
         assert_eq!(
-            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
             ("Renderer", "graphics_api")
         );
         let map = target.value_map.as_ref().unwrap();
@@ -1795,10 +1959,16 @@ layout_option\default=true
 
         // Screen layout is config-only ([Layout] layout_option, no CLI flag).
         let layout = azahar_option(&options, "screen_layout");
-        assert!(layout.flag_template.is_empty(), "layout must be config-only");
+        assert!(
+            layout.flag_template.is_empty(),
+            "layout must be config-only"
+        );
         let target = layout.config_target.as_ref().unwrap();
         assert_eq!(
-            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
             ("Layout", "layout_option")
         );
         assert_eq!(layout.default, "Default");
@@ -1815,7 +1985,10 @@ layout_option\default=true
         let scale = azahar_option(&options, "resolution_factor");
         let target = scale.config_target.as_ref().unwrap();
         assert_eq!(
-            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
             ("Renderer", "resolution_factor")
         );
         assert!(target.value_map.is_none(), "scale factor maps identically");
@@ -1830,7 +2003,10 @@ layout_option\default=true
         assert!(vsync.flag_template.is_empty(), "vsync must be config-only");
         let target = vsync.config_target.as_ref().unwrap();
         assert_eq!(
-            (target.section.as_deref().unwrap(), target.key.as_deref().unwrap()),
+            (
+                target.section.as_deref().unwrap(),
+                target.key.as_deref().unwrap()
+            ),
             ("Renderer", "use_vsync_new")
         );
         let map = target.value_map.as_ref().unwrap();
@@ -1845,10 +2021,12 @@ layout_option\default=true
         let target = renderer.config_target.as_ref().unwrap();
         assert_eq!(
             target.file_candidates.as_deref(),
-            Some(&[
-                "~/.config/azahar-emu/qt-config.ini".to_string(),
-                "~/.config/azaharplus-emu/qt-config.ini".to_string(),
-            ][..])
+            Some(
+                &[
+                    "~/.config/azahar-emu/qt-config.ini".to_string(),
+                    "~/.config/azaharplus-emu/qt-config.ini".to_string(),
+                ][..]
+            )
         );
     }
 
@@ -1917,7 +2095,10 @@ layout_option\default=true
         let options = azahar_options_with_candidates(&standard, &plus);
         assert_eq!(read_config_value(azahar_option(&options, "renderer")), None);
         let failures = apply_config_patches(&options, &default_map(&options));
-        assert!(failures.is_empty(), "missing candidates must not report failures");
+        assert!(
+            failures.is_empty(),
+            "missing candidates must not report failures"
+        );
         assert!(
             !standard.exists() && !plus.exists(),
             "nothing may be created when no candidate exists"

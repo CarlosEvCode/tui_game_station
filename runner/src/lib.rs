@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use game_core::models::{Game, Runner};
-use game_core::options::{emulator_process_name, load_emulator_options, merge_runner_options, resolve_flags, RunnerOptionEnv};
+use game_core::options::{
+    emulator_process_name, load_emulator_options, merge_runner_options, resolve_flags,
+    RunnerOptionEnv,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::path::PathBuf;
@@ -30,10 +33,7 @@ impl GameRunner {
     /// The process(es) the currently running game is using, if any. Shared with
     /// the TUI so it can render the running indicator and force-close the game.
     pub fn current_running() -> Option<RunningProcess> {
-        RUNNING
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        RUNNING.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Kill the currently running game: real process + its whole child tree +
@@ -60,8 +60,7 @@ impl GameRunner {
             // release it (best-effort; FUSE usually auto-unmounts on daemon exit).
             for pid in proc_all_pids() {
                 if is_known_mount_or_runtime(&proc_comm(pid).unwrap_or_default())
-                    && proc_cmdline(pid)
-                        .is_some_and(|c| c.contains(mount))
+                    && proc_cmdline(pid).is_some_and(|c| c.contains(mount))
                 {
                     kill_pid(pid);
                 }
@@ -89,7 +88,10 @@ impl GameRunner {
     }
 
     /// Format and build executable command line string for a game.
-    pub fn build_command_line(game: &Game, runner: Option<&Runner>) -> Result<(String, Vec<String>, HashMap<String, String>)> {
+    pub fn build_command_line(
+        game: &Game,
+        runner: Option<&Runner>,
+    ) -> Result<(String, Vec<String>, HashMap<String, String>)> {
         let mut base_envs = HashMap::new();
 
         if let Some(env_str) = &game.env_vars {
@@ -105,11 +107,19 @@ impl GameRunner {
             let wine_prefix = game.wine_prefix.clone().unwrap_or_else(|| {
                 if let Some(ref wdir) = game.working_dir {
                     if !wdir.trim().is_empty() {
-                        return PathBuf::from(wdir).join("prefix").to_string_lossy().to_string();
+                        return PathBuf::from(wdir)
+                            .join("prefix")
+                            .to_string_lossy()
+                            .to_string();
                     }
                 }
                 let data_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("~/.local/share"));
-                data_dir.join("tui_game_station").join("wineprefixes").join(format!("p_{}", game.id)).to_string_lossy().to_string()
+                data_dir
+                    .join("tui_game_station")
+                    .join("wineprefixes")
+                    .join(format!("p_{}", game.id))
+                    .to_string_lossy()
+                    .to_string()
             });
 
             let _ = std::fs::create_dir_all(&wine_prefix);
@@ -118,16 +128,26 @@ impl GameRunner {
                 if !cmd.trim().is_empty() {
                     let mut local_envs = base_envs.clone();
                     if cmd.contains("proton") {
-                        local_envs.insert("STEAM_COMPAT_DATA_PATH".to_string(), wine_prefix.clone());
-                        let steam_dir = dirs::home_dir().map(|h| h.join(".local/share/Steam")).unwrap_or_default();
-                        local_envs.insert("STEAM_COMPAT_CLIENT_INSTALL_PATH".to_string(), steam_dir.to_string_lossy().to_string());
+                        local_envs
+                            .insert("STEAM_COMPAT_DATA_PATH".to_string(), wine_prefix.clone());
+                        let steam_dir = dirs::home_dir()
+                            .map(|h| h.join(".local/share/Steam"))
+                            .unwrap_or_default();
+                        local_envs.insert(
+                            "STEAM_COMPAT_CLIENT_INSTALL_PATH".to_string(),
+                            steam_dir.to_string_lossy().to_string(),
+                        );
                     } else {
                         local_envs.insert("WINEPREFIX".to_string(), wine_prefix.clone());
                     }
                     let mut shell_cmd = cmd.clone();
                     shell_cmd = shell_cmd.replace("{file_path}", &file_path);
                     shell_cmd = shell_cmd.replace("{wineprefix}", &wine_prefix);
-                    (String::from("sh"), vec!["-c".to_string(), shell_cmd], local_envs)
+                    (
+                        String::from("sh"),
+                        vec!["-c".to_string(), shell_cmd],
+                        local_envs,
+                    )
                 } else {
                     let mut local_envs = base_envs.clone();
                     local_envs.insert("WINEPREFIX".to_string(), wine_prefix);
@@ -189,7 +209,10 @@ impl GameRunner {
             pe.extend(base_envs.clone());
             (e, a, pe)
         } else {
-            anyhow::bail!("No suitable runner or executable command found for game: {}", game.title)
+            anyhow::bail!(
+                "No suitable runner or executable command found for game: {}",
+                game.title
+            )
         };
 
         // Apply Gamescope wrapper if enabled (outermost wrapper)
@@ -217,9 +240,7 @@ impl GameRunner {
     /// Launch game process asynchronously, isolating stdout/stderr to a log file to avoid TUI terminal corruption.
     pub async fn launch_game(game: &Game, runner: Option<&Runner>) -> Result<ExitStatus> {
         let (exe, args, envs) = Self::build_command_line(game, runner)?;
-        let expected = runner
-            .as_ref()
-            .and_then(|r| emulator_process_name(&r.name));
+        let expected = runner.as_ref().and_then(|r| emulator_process_name(&r.name));
         let work_dir = game.working_dir.clone();
         Self::spawn_and_wait(&exe, &args, &envs, work_dir.as_deref(), expected.as_deref()).await
     }
@@ -227,12 +248,18 @@ impl GameRunner {
     /// Launch an emulator standalone (no ROM) reusing its configured options,
     /// so users can open the emulator UI / settings directly.
     pub async fn launch_standalone(runner: &Runner) -> Result<ExitStatus> {
-        let exe = runner
-            .executable_path
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("El emulador '{}' no tiene ejecutable configurado.", runner.name))?;
+        let exe = runner.executable_path.clone().ok_or_else(|| {
+            anyhow::anyhow!(
+                "El emulador '{}' no tiene ejecutable configurado.",
+                runner.name
+            )
+        })?;
         if !std::path::Path::new(&exe).exists() {
-            anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}).", runner.name, exe);
+            anyhow::bail!(
+                "El ejecutable/AppImage para '{}' no existe en disco ({}).",
+                runner.name,
+                exe
+            );
         }
 
         let expected = emulator_process_name(&runner.name);
@@ -286,12 +313,7 @@ impl GameRunner {
 
         let start = Instant::now();
         let pid = child.id().unwrap_or(0);
-        tracing::info!(
-            "[launch] spawned exe={:?} args={:?} pid={}",
-            exe,
-            args,
-            pid
-        );
+        tracing::info!("[launch] spawned exe={:?} args={:?} pid={}", exe, args, pid);
 
         // For AppImages the PID captured above may be the AppImage *runtime*
         // wrapper rather than the process that runs the game. The runtime
@@ -419,7 +441,11 @@ fn proc_exe(pid: u32) -> Option<String> {
 fn proc_children(pid: u32) -> Vec<u32> {
     std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
         .ok()
-        .map(|s| s.split_whitespace().filter_map(|t| t.parse().ok()).collect())
+        .map(|s| {
+            s.split_whitespace()
+                .filter_map(|t| t.parse().ok())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -684,7 +710,8 @@ fn resolved_runner_flags(runner: &Runner) -> Vec<String> {
         return Vec::new();
     };
     if defs.is_empty()
-        && env.custom_args
+        && env
+            .custom_args
             .as_deref()
             .map(|s| s.trim().is_empty())
             .unwrap_or(true)
@@ -696,7 +723,10 @@ fn resolved_runner_flags(runner: &Runner) -> Vec<String> {
     resolve_flags(&defs, &merged, env.custom_args.as_deref().unwrap_or(""))
 }
 
-fn parse_command_string(full_cmd: &str, _game: &Game) -> Result<(String, Vec<String>, HashMap<String, String>)> {
+fn parse_command_string(
+    full_cmd: &str,
+    _game: &Game,
+) -> Result<(String, Vec<String>, HashMap<String, String>)> {
     let parts = shlex_split(full_cmd);
     if parts.is_empty() {
         anyhow::bail!("Empty command string");
@@ -753,7 +783,10 @@ mod tests {
     #[test]
     fn proc_helpers_report_the_current_process() {
         let self_pid = std::process::id();
-        assert!(process_exists(self_pid), "current process must exist in /proc");
+        assert!(
+            process_exists(self_pid),
+            "current process must exist in /proc"
+        );
         assert!(proc_comm(self_pid).is_some_and(|c| !c.is_empty()));
         assert!(proc_exe(self_pid).is_some_and(|p| !p.is_empty()));
         assert!(proc_cmdline(self_pid).is_some_and(|c| !c.is_empty()));
@@ -825,4 +858,3 @@ mod tests {
         runtime.block_on(wait_until_pid_gone(u32::MAX));
     }
 }
-

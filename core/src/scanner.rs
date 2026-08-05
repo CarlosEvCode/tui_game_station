@@ -41,7 +41,9 @@ impl Scanner {
             );
         }
 
-        let dat_parser = if use_dat_auto_id && crate::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug) {
+        let dat_parser = if use_dat_auto_id
+            && crate::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug)
+        {
             let dat_path = crate::dat_downloader::DatDownloader::get_local_dat_path(&platform.slug);
             if dat_path.exists() {
                 if let Ok(content) = std::fs::read_to_string(&dat_path) {
@@ -76,7 +78,14 @@ impl Scanner {
         // Nintendo Switch is grouped by Title ID (base + updates + DLCs become
         // one library entry), so it uses its own scan path.
         if platform.slug == "switch" {
-            return Self::scan_switch_folder(db, platform, folder, recursive, calculate_hashes, progress_tx);
+            return Self::scan_switch_folder(
+                db,
+                platform,
+                folder,
+                recursive,
+                calculate_hashes,
+                progress_tx,
+            );
         }
 
         let total_paths = paths.len();
@@ -112,7 +121,8 @@ impl Scanner {
                 (None, None, None, size)
             };
 
-            let extracted_serial = crate::serial_extractor::SerialExtractor::extract_serial(&path, &platform.slug);
+            let extracted_serial =
+                crate::serial_extractor::SerialExtractor::extract_serial(&path, &platform.slug);
 
             let dat_title = if let Some(ref parser) = dat_parser {
                 if let Some(ref s) = extracted_serial {
@@ -275,7 +285,14 @@ impl Scanner {
 
         // Files without a detectable Title ID keep the plain per-file flow.
         for entry in &fallback {
-            let game = game_from_reference(platform, entry, clean_game_title(&entry.stem), false, Vec::new(), calculate_hashes);
+            let game = game_from_reference(
+                platform,
+                entry,
+                clean_game_title(&entry.stem),
+                false,
+                Vec::new(),
+                calculate_hashes,
+            );
             let title = game.title.clone();
             if db.insert_game(&game).is_ok() {
                 count += 1;
@@ -290,7 +307,10 @@ impl Scanner {
         let mut primary: HashMap<String, Vec<SwitchEntry>> = HashMap::new();
         let mut orphans: Vec<Vec<SwitchEntry>> = Vec::new();
         for (base_id, group) in groups {
-            if group.iter().any(|e| e.category == Some(SwitchCategory::Base)) {
+            if group
+                .iter()
+                .any(|e| e.category == Some(SwitchCategory::Base))
+            {
                 primary.insert(base_id, group);
             } else {
                 orphans.push(group);
@@ -318,7 +338,11 @@ impl Scanner {
             let name = orphan
                 .iter()
                 .find(|e| e.category == Some(SwitchCategory::Update))
-                .or_else(|| orphan.iter().find(|e| e.category == Some(SwitchCategory::Dlc)))
+                .or_else(|| {
+                    orphan
+                        .iter()
+                        .find(|e| e.category == Some(SwitchCategory::Dlc))
+                })
                 .map(|e| clean_game_title(&e.stem))
                 .unwrap_or_default();
             let matches: Vec<String> = primary_names
@@ -339,7 +363,10 @@ impl Scanner {
         // own entries flagged as missing their base. Deterministic order.
         let mut all: Vec<(String, Vec<SwitchEntry>)> = primary.into_iter().collect();
         for orphan in unmerged {
-            let key = orphan.iter().find_map(|e| e.base_id.clone()).unwrap_or_default();
+            let key = orphan
+                .iter()
+                .find_map(|e| e.base_id.clone())
+                .unwrap_or_default();
             all.push((key, orphan));
         }
         all.sort_by(|a, b| a.0.cmp(&b.0));
@@ -347,8 +374,16 @@ impl Scanner {
             let title = group
                 .iter()
                 .find(|e| e.category == Some(SwitchCategory::Base))
-                .or_else(|| group.iter().find(|e| e.category == Some(SwitchCategory::Update)))
-                .or_else(|| group.iter().find(|e| e.category == Some(SwitchCategory::Dlc)))
+                .or_else(|| {
+                    group
+                        .iter()
+                        .find(|e| e.category == Some(SwitchCategory::Update))
+                })
+                .or_else(|| {
+                    group
+                        .iter()
+                        .find(|e| e.category == Some(SwitchCategory::Dlc))
+                })
                 .map(|e| clean_game_title(&e.stem))
                 .unwrap_or_default();
             let game = match build_switch_group_game(platform, group, calculate_hashes) {
@@ -424,10 +459,20 @@ fn file_meta(path: &Path, calculate_hashes: bool) -> FileMeta {
                 sha1: Some(hashes.sha1),
             };
         }
-        return FileMeta { size: None, crc32: None, md5: None, sha1: None };
+        return FileMeta {
+            size: None,
+            crc32: None,
+            md5: None,
+            sha1: None,
+        };
     }
     let size = std::fs::metadata(path).map(|m| m.len() as i64).ok();
-    FileMeta { size, crc32: None, md5: None, sha1: None }
+    FileMeta {
+        size,
+        crc32: None,
+        md5: None,
+        sha1: None,
+    }
 }
 
 /// Turn one Switch group into a single game entry plus its components.
@@ -454,9 +499,18 @@ fn build_switch_group_game(
     let update_sel = resolve_category(updates, false);
     let dlc_sel = resolve_category(dlcs, false);
 
-    let best_base = base_sel.iter().find(|(_, discarded)| !*discarded).map(|(e, _)| *e);
-    let best_update = update_sel.iter().find(|(_, discarded)| !*discarded).map(|(e, _)| *e);
-    let best_dlc = dlc_sel.iter().find(|(_, discarded)| !*discarded).map(|(e, _)| *e);
+    let best_base = base_sel
+        .iter()
+        .find(|(_, discarded)| !*discarded)
+        .map(|(e, _)| *e);
+    let best_update = update_sel
+        .iter()
+        .find(|(_, discarded)| !*discarded)
+        .map(|(e, _)| *e);
+    let best_dlc = dlc_sel
+        .iter()
+        .find(|(_, discarded)| !*discarded)
+        .map(|(e, _)| *e);
 
     let reference = best_base.or(best_update).or(best_dlc)?;
     let missing_base = best_base.is_none();
@@ -539,8 +593,8 @@ fn resolve_category<'a>(
 /// - Base/DLC of the same type_code: format priority (.xci > .nsp > archive).
 /// - Updates: highest version wins, then format priority.
 fn compare_files(a: &SwitchEntry, b: &SwitchEntry, is_base: bool) -> Ordering {
-    let format_cmp = crate::switch::format_priority(&a.ext)
-        .cmp(&crate::switch::format_priority(&b.ext));
+    let format_cmp =
+        crate::switch::format_priority(&a.ext).cmp(&crate::switch::format_priority(&b.ext));
     let version_cmp = b.version.cmp(&a.version);
     if is_base {
         format_cmp.then(version_cmp)
@@ -567,7 +621,10 @@ fn game_from_reference(
         sort_title: None,
         game_type: platform.platform_type.to_string(),
         file_path: Some(reference.path.to_string_lossy().to_string()),
-        working_dir: reference.path.parent().map(|p| p.to_string_lossy().to_string()),
+        working_dir: reference
+            .path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string()),
         custom_command: None,
         env_vars: None,
         wine_prefix: None,
@@ -668,7 +725,9 @@ fn select_wii_u_images(paths: Vec<PathBuf>) -> Vec<PathBuf> {
                         if let Ok(contents) = std::fs::read_to_string(&app_xml) {
                             if let Some(title_id) = xml_tag_value(&contents, "title_id") {
                                 let title_id = title_id.to_ascii_lowercase();
-                                if title_id.starts_with("0005000e") || title_id.starts_with("0005000c") {
+                                if title_id.starts_with("0005000e")
+                                    || title_id.starts_with("0005000c")
+                                {
                                     continue;
                                 }
                             }
@@ -891,8 +950,8 @@ mod tests {
 
     #[test]
     fn switch_scan_groups_files_by_title_id_into_single_entries() {
-        use crate::db::Database;
         use super::Scanner;
+        use crate::db::Database;
 
         let root = std::env::temp_dir().join(format!(
             "tui_game_station_switch_scan_test_{}",
@@ -943,7 +1002,10 @@ mod tests {
             assert!(titles.contains(&expected), "missing {expected}");
         }
 
-        let odyssey = games.iter().find(|g| g.title == "Super Mario Odyssey").unwrap();
+        let odyssey = games
+            .iter()
+            .find(|g| g.title == "Super Mario Odyssey")
+            .unwrap();
         assert!(!odyssey.is_missing_base);
         assert!(odyssey.file_path.as_deref().unwrap().ends_with(".xci"));
         assert_eq!(odyssey.components.len(), 1);
@@ -961,7 +1023,13 @@ mod tests {
         assert!(botw.file_path.as_deref().unwrap().ends_with(".xci"));
         assert_eq!(botw.components.len(), 3);
         assert!(botw.components.iter().any(|c| c.category == "update"));
-        assert_eq!(botw.components.iter().filter(|c| c.category == "dlc").count(), 2);
+        assert_eq!(
+            botw.components
+                .iter()
+                .filter(|c| c.category == "dlc")
+                .count(),
+            2
+        );
         for dlc in botw.components.iter().filter(|c| c.category == "dlc") {
             assert!(
                 dlc.title_id.as_deref() == Some("01007EF00011F001")
@@ -970,7 +1038,10 @@ mod tests {
             );
         }
 
-        let mm2 = games.iter().find(|g| g.title == "Super Mario Maker 2").unwrap();
+        let mm2 = games
+            .iter()
+            .find(|g| g.title == "Super Mario Maker 2")
+            .unwrap();
         assert!(!mm2.is_missing_base);
         assert!(mm2.file_path.as_deref().unwrap().ends_with(".xci"));
         assert_eq!(mm2.components.len(), 1, ".rar files are not scanned at all");
@@ -1000,8 +1071,8 @@ mod tests {
 
     #[test]
     fn switch_scan_groups_real_zelda_botw_ids_into_one_entry() {
-        use crate::db::Database;
         use super::Scanner;
+        use crate::db::Database;
 
         // Real Title IDs from a dump of Zelda BOTW: the DLCs live in a
         // neighbouring block (13th digit E vs F), so the 13-char prefix rule
@@ -1031,7 +1102,10 @@ mod tests {
             .expect("switch platform seeded");
 
         let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
-        assert_eq!(added, 1, "base + update + both DLCs collapse into one entry");
+        assert_eq!(
+            added, 1,
+            "base + update + both DLCs collapse into one entry"
+        );
 
         let games = db.get_games_for_platform(platform.id).unwrap();
         assert_eq!(games.len(), 1);
@@ -1041,7 +1115,11 @@ mod tests {
         assert!(botw.file_path.as_deref().unwrap().ends_with(".xci"));
         assert_eq!(botw.components.len(), 3);
 
-        let update = botw.components.iter().find(|c| c.category == "update").unwrap();
+        let update = botw
+            .components
+            .iter()
+            .find(|c| c.category == "update")
+            .unwrap();
         assert_eq!(update.version, Some(655360));
         let dlcs: Vec<&str> = botw
             .components
@@ -1057,8 +1135,8 @@ mod tests {
 
     #[test]
     fn switch_scan_ignores_extensions_not_configured_for_platform() {
-        use crate::db::Database;
         use super::Scanner;
+        use crate::db::Database;
 
         let root = std::env::temp_dir().join(format!(
             "tui_game_station_switch_ignore_ext_test_{}",

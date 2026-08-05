@@ -73,7 +73,9 @@ pub enum PatchError {
     TomlParse { path: PathBuf, message: String },
     #[error("config file '{path}' has no TOML key '{key}'")]
     TomlKeyNotFound { path: PathBuf, key: String },
-    #[error("config file '{path}' key '{key}': cannot write value '{value}' (expected {expected})")]
+    #[error(
+        "config file '{path}' key '{key}': cannot write value '{value}' (expected {expected})"
+    )]
     InvalidValue {
         path: PathBuf,
         key: String,
@@ -210,13 +212,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), PatchError> {
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_else(|| "config".to_string());
     let counter = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_path = dir.join(format!(".{}.{}.{}.tmp", file_name, std::process::id(), counter));
+    let tmp_path = dir.join(format!(
+        ".{}.{}.{}.tmp",
+        file_name,
+        std::process::id(),
+        counter
+    ));
 
     fs::write(&tmp_path, bytes).map_err(|source| PatchError::TempWrite {
         path: path.to_path_buf(),
         source,
     })?;
-    if let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(&tmp_path) {
+    if let Ok(file) = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&tmp_path)
+    {
         let _ = file.sync_all();
     }
     fs::rename(&tmp_path, path).map_err(|source| PatchError::Replace {
@@ -417,10 +428,8 @@ Shortcuts\\Main Window\\Game List\\Clear Game List\\Type=Shortcut
 ";
 
     fn temp_file(name: &str, content: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tui_game_station_qt_ini_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("tui_game_station_qt_ini_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join(name);
         fs::write(&path, content).unwrap();
@@ -544,7 +553,9 @@ Shortcuts\\Main Window\\Game List\\Clear Game List\\Type=Shortcut
         let path = temp_file("read_before_after.ini", FIXTURE);
 
         assert_eq!(
-            read_qt_ini_value(&path, "Renderer", "backend").unwrap().as_deref(),
+            read_qt_ini_value(&path, "Renderer", "backend")
+                .unwrap()
+                .as_deref(),
             Some("1")
         );
         assert_eq!(
@@ -554,7 +565,10 @@ Shortcuts\\Main Window\\Game List\\Clear Game List\\Type=Shortcut
             Some("true")
         );
         // Missing key and missing section both read as None (never an error).
-        assert_eq!(read_qt_ini_value(&path, "Renderer", "missing").unwrap(), None);
+        assert_eq!(
+            read_qt_ini_value(&path, "Renderer", "missing").unwrap(),
+            None
+        );
         assert_eq!(
             read_qt_ini_value(&path, "MissingSection", "backend").unwrap(),
             None
@@ -576,7 +590,13 @@ Shortcuts\\Main Window\\Game List\\Clear Game List\\Type=Shortcut
 
         patch_qt_ini(&path, "Renderer", "backend", "0").unwrap();
         patch_qt_ini(&path, "System", "use_docked_mode", "false").unwrap();
-        patch_qt_ini(&path, "UI", r"Shortcuts\Main Window\Fullscreen\KeySeq", "F10").unwrap();
+        patch_qt_ini(
+            &path,
+            "UI",
+            r"Shortcuts\Main Window\Fullscreen\KeySeq",
+            "F10",
+        )
+        .unwrap();
 
         let written = fs::read_to_string(&path).unwrap();
         assert_eq!(written.lines().count(), original_count);
@@ -607,9 +627,9 @@ Shortcuts\\Main Window\\Game List\\Clear Game List\\Type=Shortcut
             "empty value should be read as empty string, not None"
         );
         let written = fs::read_to_string(&path).unwrap();
-        assert!(written.contains(
-            "Shortcuts\\Main Window\\Game List\\Clear Game List\\KeySeq=Ctrl+L\n"
-        ));
+        assert!(
+            written.contains("Shortcuts\\Main Window\\Game List\\Clear Game List\\KeySeq=Ctrl+L\n")
+        );
         assert!(written.contains(
             "Shortcuts\\Main Window\\Game List\\Clear Game List\\KeySeq\\default=false\n"
         ));

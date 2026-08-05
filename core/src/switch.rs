@@ -100,10 +100,7 @@ pub fn parse_version_tag(file_name: &str) -> Option<u32> {
 
 /// True for archive extensions that are not directly launchable until extracted.
 pub fn is_archive_ext(ext: &str) -> bool {
-    matches!(
-        ext.to_ascii_lowercase().as_str(),
-        ".zip" | ".rar" | ".7z"
-    )
+    matches!(ext.to_ascii_lowercase().as_str(), ".zip" | ".rar" | ".7z")
 }
 
 /// Lower value = preferred format: .xci > .nsp > archive > anything else.
@@ -162,7 +159,10 @@ mod tests {
 
     #[test]
     fn parses_decimal_version_tag() {
-        assert_eq!(parse_version_tag("Game [v196608][0100000000010000].nsp"), Some(196608));
+        assert_eq!(
+            parse_version_tag("Game [v196608][0100000000010000].nsp"),
+            Some(196608)
+        );
         assert_eq!(parse_version_tag("Game [v0].xci"), Some(0));
         assert_eq!(parse_version_tag("Game.xci"), None);
     }

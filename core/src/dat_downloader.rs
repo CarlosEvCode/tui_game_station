@@ -1,6 +1,6 @@
+use crate::dat_parser::DatParser;
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use crate::dat_parser::DatParser;
 
 pub struct DatDownloader;
 
@@ -9,7 +9,8 @@ impl DatDownloader {
     pub fn supports_dat_identification(platform_slug: &str) -> bool {
         matches!(
             platform_slug,
-            "ps1" | "arcade"
+            "ps1"
+                | "arcade"
                 | "mame"
                 | "snes"
                 | "nes"
@@ -67,8 +68,12 @@ impl DatDownloader {
             return Ok(local_path);
         }
 
-        let rel_path = Self::get_dat_relative_path(platform_slug)
-            .with_context(|| format!("Platform {} does not have DAT database support", platform_slug))?;
+        let rel_path = Self::get_dat_relative_path(platform_slug).with_context(|| {
+            format!(
+                "Platform {} does not have DAT database support",
+                platform_slug
+            )
+        })?;
 
         let url = format!(
             "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/{}",
@@ -92,10 +97,16 @@ impl DatDownloader {
             .with_context(|| format!("Failed to download DAT for {}", platform_slug))?;
 
         if !resp.status().is_success() {
-            anyhow::bail!("Failed to download DAT file (HTTP status {})", resp.status());
+            anyhow::bail!(
+                "Failed to download DAT file (HTTP status {})",
+                resp.status()
+            );
         }
 
-        let content = resp.text().await.context("Failed to read DAT response body")?;
+        let content = resp
+            .text()
+            .await
+            .context("Failed to read DAT response body")?;
         std::fs::write(&local_path, content)?;
 
         Ok(local_path)

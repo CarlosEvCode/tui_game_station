@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use crc32fast::Hasher as Crc32Hasher;
 use md5::Context as Md5Context;
-use sha1::Sha1;
 use sha1::Digest;
+use sha1::Sha1;
 use std::fs::File;
-use std::io::{Read, BufReader};
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 #[derive(Debug, Clone, Default)]
