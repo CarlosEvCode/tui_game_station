@@ -71,6 +71,12 @@ pub struct EmulatorOption {
     pub default: String,
     /// CLI flag expansion; empty string when the option is config-file only.
     pub flag_template: String,
+    /// Optional CLI value -> token map. When set, `{value}` in `flag_template`
+    /// is replaced with the token for the current value (e.g. a MAME toggle
+    /// maps "1" -> "filter" / "0" -> "nofilter"). Unlike every other option,
+    /// an option with this map ALWAYS emits a flag: both toggle states need an
+    /// explicit token, so "off" is `-nofilter`, never a missing flag.
+    pub value_map: Option<BTreeMap<String, String>>,
     /// Optional config-file target; when set, saving also patches that file.
     pub config_target: Option<ConfigTarget>,
     /// Friendly display labels for Choice values (value -> label).
@@ -122,6 +128,8 @@ struct RawOption {
     #[serde(default)]
     flag_template: String,
     #[serde(default)]
+    value_map: BTreeMap<String, String>,
+    #[serde(default)]
     config_target: Option<RawConfigTarget>,
 }
 
@@ -164,6 +172,7 @@ fn emulator_toml_source(key: &str) -> Option<&'static str> {
         "ppsspp" => Some(include_str!("../../assets/emulators/ppsspp.toml")),
         "melonds" => Some(include_str!("../../assets/emulators/melonds.toml")),
         "dolphin" => Some(include_str!("../../assets/emulators/dolphin.toml")),
+        "mame" => Some(include_str!("../../assets/emulators/mame.toml")),
         _ => None,
     }
 }
@@ -210,6 +219,12 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
                 .map(|(v, _)| v.clone())
                 .unwrap_or_default(),
         });
+        let value_map = if opt.value_map.is_empty() {
+            None
+        } else {
+            Some(opt.value_map)
+        };
+        validate_cli_value_map(name, &opt.key, &value_map, &opt.flag_template)?;
         let config_target = opt.config_target.map(|ct| ConfigTarget {
             file: ct.file,
             file_candidates: ct.file_candidates,
@@ -236,6 +251,7 @@ pub fn load_emulator_options(name: &str) -> anyhow::Result<Vec<EmulatorOption>> 
             kind,
             default,
             flag_template: opt.flag_template,
+            value_map,
             config_target,
             choice_labels,
         });
@@ -526,6 +542,12 @@ fn apply_single_patch(
 }
 
 /// Expand every non-default option into its CLI flags.
+///
+/// Toggles with a CLI `value_map` (dual-token, e.g. MAME `-filter`/`-nofilter`)
+/// are the exception: they ALWAYS emit a flag for the current state, because the
+/// emulator needs an explicit token for both states and a missing flag is not
+/// the same as "off". Every other option only emits when it differs from its
+/// default, so plain toggles like `-f` keep working exactly as before.
 pub fn build_args(options: &[EmulatorOption], map: &RunnerOptions) -> Vec<String> {
     let mut out = Vec::new();
     for opt in options {
@@ -533,10 +555,15 @@ pub fn build_args(options: &[EmulatorOption], map: &RunnerOptions) -> Vec<String
             .get(&opt.key)
             .cloned()
             .unwrap_or_else(|| opt.default.clone());
-        if value == opt.default {
+        if opt.value_map.is_none() && value == opt.default {
             continue;
         }
-        let expanded = opt.flag_template.replace("{value}", &value);
+        let token = opt
+            .value_map
+            .as_ref()
+            .and_then(|vm| vm.get(&value).cloned())
+            .unwrap_or_else(|| value.clone());
+        let expanded = opt.flag_template.replace("{value}", &token);
         out.extend(shlex_split(&expanded));
     }
     out
@@ -616,6 +643,23 @@ fn canonical_emulator_key(name: &str) -> String {
         .collect()
 }
 
+/// An option with a CLI `value_map` must expose the `{value}` placeholder in
+/// its `flag_template`, otherwise the token would never be substituted and the
+/// map would be silently inert. Pure data validation, run at load time.
+fn validate_cli_value_map(
+    emulator: &str,
+    opt_key: &str,
+    value_map: &Option<BTreeMap<String, String>>,
+    flag_template: &str,
+) -> anyhow::Result<()> {
+    if value_map.is_some() && !flag_template.contains("{value}") {
+        anyhow::bail!(
+            "value_map option '{opt_key}' in emulator '{emulator}' needs '{{value}}' in flag_template"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -633,6 +677,7 @@ mod tests {
         assert_eq!(emulator_process_name("Dolphin").as_deref(), Some("dolphin-emu"));
         assert_eq!(emulator_process_name("melonDS").as_deref(), Some("melonDS"));
         assert_eq!(emulator_process_name("DuckStation").as_deref(), Some("duckstation"));
+        assert_eq!(emulator_process_name("MAME").as_deref(), Some("mame"));
         assert_eq!(emulator_process_name("Ryujinx"), None);
         assert_eq!(emulator_process_name(""), None);
     }
@@ -2019,5 +2064,244 @@ layout_option\default=true
             "the older candidate must stay byte-identical"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- MAME CLI dual-token toggles (no config_target at all) -----------
+
+    fn mame() -> Vec<EmulatorOption> {
+        load_emulator_options("MAME").unwrap()
+    }
+
+    fn mame_option<'a>(options: &'a [EmulatorOption], key: &str) -> &'a EmulatorOption {
+        options.iter().find(|o| o.key == key).unwrap()
+    }
+
+    /// Hand-built CLI options to unit test `build_args` in isolation.
+    fn cli_toggle(
+        key: &str,
+        default: &str,
+        flag: &str,
+        value_map: Option<&[(&str, &str)]>,
+    ) -> EmulatorOption {
+        EmulatorOption {
+            key: key.to_string(),
+            name: key.to_string(),
+            kind: EmulatorOptionKind::Toggle,
+            default: default.to_string(),
+            flag_template: flag.to_string(),
+            value_map: value_map.map(|pairs| {
+                pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect()
+            }),
+            config_target: None,
+            choice_labels: BTreeMap::new(),
+        }
+    }
+
+    fn cli_choice(key: &str, default: &str, flag: &str, choices: &[&str]) -> EmulatorOption {
+        EmulatorOption {
+            key: key.to_string(),
+            name: key.to_string(),
+            kind: EmulatorOptionKind::Choice(choices.iter().map(|c| c.to_string()).collect()),
+            default: default.to_string(),
+            flag_template: flag.to_string(),
+            value_map: None,
+            config_target: None,
+            choice_labels: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn mame_loads_flag_based_definitions() {
+        let options = mame();
+        assert_eq!(options.len(), 9);
+        for opt in &options {
+            assert!(
+                opt.config_target.is_none(),
+                "MAME never touches config files: {}",
+                opt.key
+            );
+            assert!(
+                !opt.flag_template.is_empty(),
+                "every MAME option maps to a CLI flag: {}",
+                opt.key
+            );
+        }
+
+        let filter = mame_option(&options, "filter");
+        assert_eq!(filter.kind, EmulatorOptionKind::Toggle);
+        assert_eq!(filter.default, "1");
+        assert_eq!(filter.flag_template, "-{value}");
+        let map = filter.value_map.as_ref().unwrap();
+        assert_eq!(map.get("1"), Some(&"filter".to_string()));
+        assert_eq!(map.get("0"), Some(&"nofilter".to_string()));
+
+        let keepaspect = mame_option(&options, "keepaspect");
+        assert_eq!(
+            keepaspect.value_map.as_ref().unwrap().get("0"),
+            Some(&"nokeepaspect".to_string())
+        );
+
+        let autoframeskip = mame_option(&options, "autoframeskip");
+        assert_eq!(autoframeskip.default, "0");
+        assert_eq!(
+            autoframeskip.value_map.as_ref().unwrap().get("1"),
+            Some(&"autoframeskip".to_string())
+        );
+
+        let frameskip = mame_option(&options, "frameskip");
+        assert!(matches!(&frameskip.kind, EmulatorOptionKind::Choice(c) if c.len() == 11));
+        assert_eq!(frameskip.flag_template, "-frameskip {value}");
+        assert!(frameskip.value_map.is_none(), "choices have no value_map");
+
+        let video = mame_option(&options, "video");
+        assert!(matches!(&video.kind, EmulatorOptionKind::Choice(c) if c.iter().any(|v| v == "bgfx")));
+        assert_eq!(video.default, "auto");
+        assert_eq!(video.flag_template, "-video {value}");
+        assert!(video.value_map.is_none());
+    }
+
+    #[test]
+    fn dual_token_toggles_always_emit_even_at_default() {
+        let options = mame();
+        // MAME needs an explicit token for BOTH toggle states, so the default
+        // state is still emitted: on-defaults -> -flag, off-defaults -> -noflag.
+        let args = build_args(&options, &default_map(&options));
+        assert!(args.contains(&"-filter".to_string()), "on default explicit: {args:?}");
+        assert!(args.contains(&"-keepaspect".to_string()));
+        assert!(args.contains(&"-throttle".to_string()));
+        assert!(args.contains(&"-skip_gameinfo".to_string()));
+        assert!(args.contains(&"-noautoframeskip".to_string()), "off default explicit: {args:?}");
+        assert!(args.contains(&"-nocheat".to_string()));
+        assert!(args.contains(&"-noconfirm_quit".to_string()));
+        // The opposite token of each toggle is absent for the default state.
+        assert!(!args.contains(&"-nofilter".to_string()));
+        assert!(!args.contains(&"-nokeepaspect".to_string()));
+        assert!(!args.contains(&"-autoframeskip".to_string()));
+        assert!(!args.contains(&"-cheat".to_string()));
+        // Choices at their default are still skipped entirely.
+        assert!(
+            !args.iter().any(|a| a == "-video" || a == "-frameskip"),
+            "choices at default must not emit: {args:?}"
+        );
+    }
+
+    #[test]
+    fn mame_builds_expected_command_for_mixed_states() {
+        let options = mame();
+        let mut map = default_map(&options);
+        map.insert("filter".to_string(), "0".to_string()); // off -> -nofilter
+        map.insert("keepaspect".to_string(), "1".to_string()); // on (default) -> -keepaspect
+        map.insert("video".to_string(), "opengl".to_string()); // choice -> -video opengl
+
+        let args = build_args(&options, &map);
+        assert_eq!(
+            args,
+            vec![
+                "-nofilter",
+                "-keepaspect",
+                "-noautoframeskip",
+                "-throttle",
+                "-nocheat",
+                "-skip_gameinfo",
+                "-noconfirm_quit",
+                "-video",
+                "opengl",
+            ],
+            "the command must include exactly -nofilter -keepaspect -video opengl \
+             plus the rest of explicit defaults, well formed"
+        );
+    }
+
+    #[test]
+    fn simple_single_flag_toggle_unchanged_by_value_map_support() {
+        // Regression: classic toggles (no value_map) keep the old semantics —
+        // the whole flag is only added when it differs from the default.
+        let options = azahar();
+        let map = default_map(&options);
+        assert!(build_args(&options, &map).is_empty(), "defaults must produce no flags");
+
+        let mut map = map;
+        map.insert("fullscreen".to_string(), "1".to_string());
+        assert_eq!(build_args(&options, &map), vec!["-f".to_string()]);
+
+        map.insert("fullscreen".to_string(), "0".to_string());
+        assert!(build_args(&options, &map).is_empty(), "off (default) must omit -f entirely");
+    }
+
+    #[test]
+    fn choice_with_parameterized_flag_template() {
+        let options = mame();
+        let mut map = default_map(&options);
+        map.insert("video".to_string(), "bgfx".to_string());
+        let args = build_args(&options, &map);
+        assert!(
+            args.windows(2).any(|w| w == ["-video", "bgfx"]),
+            "video choice must expand to '-video bgfx': {args:?}"
+        );
+
+        map.insert("frameskip".to_string(), "3".to_string());
+        let args = build_args(&options, &map);
+        assert!(args.windows(2).any(|w| w == ["-frameskip", "3"]), "{args:?}");
+
+        // Existing choice substitution keeps working for non-MAME emulators.
+        let az = azahar();
+        let mut am = default_map(&az);
+        am.insert("renderer".to_string(), "vulkan".to_string());
+        assert_eq!(
+            build_args(&az, &am),
+            vec!["--renderer".to_string(), "vulkan".to_string()]
+        );
+    }
+
+    #[test]
+    fn build_args_covers_all_three_flag_kinds_together() {
+        let options = vec![
+            cli_toggle("fullscreen", "0", "-f", None),
+            cli_toggle(
+                "filter",
+                "1",
+                "-{value}",
+                Some(&[("1", "filter"), ("0", "nofilter")]),
+            ),
+            cli_choice("video", "auto", "-video {value}", &["auto", "opengl"]),
+        ];
+
+        // Everything at default: the dual-token toggle still emits.
+        assert_eq!(
+            build_args(&options, &default_map(&options)),
+            vec!["-filter".to_string()]
+        );
+
+        let mut map = default_map(&options);
+        map.insert("fullscreen".to_string(), "1".to_string());
+        map.insert("filter".to_string(), "0".to_string());
+        map.insert("video".to_string(), "opengl".to_string());
+        assert_eq!(
+            build_args(&options, &map),
+            vec!["-f", "-nofilter", "-video", "opengl"]
+        );
+    }
+
+    #[test]
+    fn value_map_requires_placeholder_in_flag_template() {
+        assert!(validate_cli_value_map("mame", "filter", &None, "-{value}").is_ok());
+        assert!(validate_cli_value_map(
+            "mame",
+            "filter",
+            &Some(BTreeMap::from([("0".to_string(), "nofilter".to_string())])),
+            "-{value}"
+        )
+        .is_ok());
+        let err = validate_cli_value_map(
+            "mame",
+            "filter",
+            &Some(BTreeMap::from([("0".to_string(), "nofilter".to_string())])),
+            "-f",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("needs '{value}'"));
     }
 }
