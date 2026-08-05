@@ -51,11 +51,44 @@ impl DatParser {
                             }
                         }
                     }
+
+                    // Arcade (MAME) DATs encode the ROM set as
+                    // `rom ( name <slug>.zip ... )`. The zip basename is the
+                    // machine/driver id the folder is named after, so index it
+                    // to identify files by their ROM slug.
+                    if let Some(slug) = Self::extract_rom_slug(trimmed) {
+                        parser.rom_slug_to_name.insert(slug, game_name.clone());
+                    }
                 }
             }
         }
 
         parser
+    }
+
+    /// Extract the `name` value from a `rom ( ... )` line and reduce it to its
+    /// lowercase file stem (e.g. `1943u.zip` -> `1943u`). Handles both quoted
+    /// and unquoted values as found in no-intro and MAME DAT files.
+    fn extract_rom_slug(line: &str) -> Option<String> {
+        let after = line.find("name ")?;
+        let rest = line[after + 5..].trim_start();
+        let raw = if let Some(inner) = rest.strip_prefix('"') {
+            inner.split('"').next()?.trim()
+        } else {
+            rest.split_whitespace().next()?
+        };
+        if raw.is_empty() {
+            return None;
+        }
+        let stem = std::path::Path::new(raw)
+            .file_stem()?
+            .to_string_lossy()
+            .to_lowercase();
+        if stem.is_empty() {
+            None
+        } else {
+            Some(stem)
+        }
     }
 
     fn extract_hash(line: &str, hash_type: &str, map: &mut HashMap<String, String>, game_name: &str) {
@@ -116,6 +149,11 @@ impl DatParser {
         let norm = hash.to_lowercase();
         self.hash_to_name.get(&norm)
     }
+
+    /// Resolve a MAME/Arcade ROM slug (the zip basename) to a game title.
+    pub fn resolve_by_rom_slug(&self, slug: &str) -> Option<&String> {
+        self.rom_slug_to_name.get(&slug.to_lowercase())
+    }
 }
 
 #[cfg(test)]
@@ -135,5 +173,50 @@ game (
         let parser = DatParser::parse(dat);
         let title = parser.resolve_by_serial("AZEE");
         assert_eq!(title, Some(&"The Legend of Zelda: Phantom Hourglass".to_string()));
+    }
+
+    #[test]
+    fn resolves_mame_rom_slugs_to_titles() {
+        let dat = r#"
+game (
+	name "1943: The Battle of Midway (US)"
+	year "1987"
+	developer "Capcom"
+	rom ( name 1943u.zip size 305018 crc 66B05A68 md5 e82ccdf57ec8eecab6587d6901adc8ad sha1 90e72d1ecb739490f7e3bf122ca9575ec9b58664 )
+)
+game (
+	name "Neo Geo"
+	year "1990"
+	developer "SNK"
+	rom ( name neogeo.zip size 0 crc 00000000 md5 00000000000000000000000000000000 sha1 0000000000000000000000000000000000000000 )
+)
+"#;
+
+        let parser = DatParser::parse(dat);
+        assert_eq!(
+            parser.resolve_by_rom_slug("1943u"),
+            Some(&"1943: The Battle of Midway".to_string())
+        );
+        assert_eq!(
+            parser.resolve_by_rom_slug("1943U"),
+            Some(&"1943: The Battle of Midway".to_string())
+        );
+        assert_eq!(parser.resolve_by_rom_slug("neogeo"), Some(&"Neo Geo".to_string()));
+        assert_eq!(parser.resolve_by_rom_slug("unknown"), None);
+    }
+
+    #[test]
+    fn extracts_quoted_rom_slugs_from_no_intro_dats() {
+        let dat = r#"
+game (
+	name "Super Mario Bros. (World) (Rev 1)"
+	rom ( name "Super Mario Bros. (World) (Rev 1).nes" crc AAAAAAAA )
+)
+"#;
+        let parser = DatParser::parse(dat);
+        assert_eq!(
+            parser.rom_slug_to_name.get("super mario bros. (world) (rev 1)"),
+            Some(&"Super Mario Bros.".to_string())
+        );
     }
 }

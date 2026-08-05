@@ -5,6 +5,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+use crate::dat_parser::DatParser;
 use crate::db::Database;
 use crate::hash::HashCalculator;
 use crate::models::{Game, GameComponent, Platform};
@@ -96,6 +97,13 @@ impl Scanner {
                 .unwrap_or(&file_name)
                 .to_string();
 
+            // Arcade (MAME) ROM sets ship BIOS/device zips (neogeo.zip,
+            // pgm.zip, ...) next to the playable games. When the DAT is
+            // available these must never be imported as library entries.
+            if should_skip_arcade_file(&platform.slug, &stem, dat_parser.as_ref()) {
+                continue;
+            }
+
             let (crc32, md5, sha1, size) = if calculate_hashes {
                 if let Ok(hashes) = HashCalculator::calculate_hashes(&path) {
                     (
@@ -114,18 +122,16 @@ impl Scanner {
 
             let extracted_serial = crate::serial_extractor::SerialExtractor::extract_serial(&path, &platform.slug);
 
-            let dat_title = if let Some(ref parser) = dat_parser {
-                if let Some(ref s) = extracted_serial {
-                    parser.resolve_by_serial(s).cloned()
-                } else if let Some(ref m) = md5 {
-                    parser.resolve_by_hash(m).cloned()
-                } else if let Some(ref c) = crc32 {
-                    parser.resolve_by_hash(c).cloned()
-                } else {
-                    None
-                }
-            } else {
-                None
+            let dat_title = match dat_parser.as_ref() {
+                Some(parser) => dat_resolved_title(
+                    parser,
+                    &platform.slug,
+                    &stem,
+                    extracted_serial.as_deref(),
+                    md5.as_deref(),
+                    crc32.as_deref(),
+                ),
+                None => None,
             };
 
             let title = if let Some(dt) = dat_title {
@@ -392,6 +398,54 @@ fn send_progress(
             error_msg: None,
         });
     }
+}
+
+/// Arcade platforms store BIOS/device ROM sets alongside playable games.
+/// Returns true for files that must be skipped (known BIOS, or a slug that the
+/// MAME DAT does not list as a real game).
+fn should_skip_arcade_file(
+    platform_slug: &str,
+    stem: &str,
+    dat_parser: Option<&DatParser>,
+) -> bool {
+    if platform_slug != "mame" && platform_slug != "arcade" {
+        return false;
+    }
+    !crate::mame::is_mame_game(stem, dat_parser)
+}
+
+/// Best-effort title from the DAT. Arcade/MAME files have no serial and their
+/// zip hash is not in the DAT (it stores per-ROM hashes), so they are
+/// identified by ROM slug first; everything else uses the serial/hash chain.
+fn dat_resolved_title(
+    parser: &DatParser,
+    platform_slug: &str,
+    stem: &str,
+    serial: Option<&str>,
+    md5: Option<&str>,
+    crc32: Option<&str>,
+) -> Option<String> {
+    if platform_slug == "mame" || platform_slug == "arcade" {
+        return crate::mame::special_game_title(&stem.to_lowercase())
+            .map(str::to_string)
+            .or_else(|| parser.resolve_by_rom_slug(stem).cloned());
+    }
+    if let Some(serial) = serial {
+        if let Some(title) = parser.resolve_by_serial(serial) {
+            return Some(title.clone());
+        }
+    }
+    if let Some(md5) = md5 {
+        if let Some(title) = parser.resolve_by_hash(md5) {
+            return Some(title.clone());
+        }
+    }
+    if let Some(crc32) = crc32 {
+        if let Some(title) = parser.resolve_by_hash(crc32) {
+            return Some(title.clone());
+        }
+    }
+    None
 }
 
 /// A file the Switch scanner looked at, with its parsed Title ID info.
@@ -804,7 +858,11 @@ fn clean_game_title(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_game_title, select_ps1_images, wii_u_directory_title, xml_tag_value};
+    use super::{
+        clean_game_title, dat_resolved_title, select_ps1_images, should_skip_arcade_file,
+        wii_u_directory_title, xml_tag_value,
+    };
+    use crate::dat_parser::DatParser;
     use std::fs;
 
     #[test]
@@ -821,6 +879,63 @@ mod tests {
     #[test]
     fn cleans_release_tags() {
         assert_eq!(clean_game_title("Game Name (USA) [v1.0]"), "Game Name");
+    }
+
+    #[test]
+    fn arcade_scan_skips_bios_and_resolves_titles_by_rom_slug() {
+        let dat = r#"
+game (
+	name "1943: The Battle of Midway (US)"
+	rom ( name 1943u.zip crc 66B05A68 )
+)
+game (
+	name "Neo Geo"
+	rom ( name neogeo.zip crc 00000000 )
+)
+"#;
+        let parser = DatParser::parse(dat);
+
+        // BIOS zips are skipped as soon as the DAT knows they are not games.
+        assert!(should_skip_arcade_file("mame", "neogeo", Some(&parser)));
+        assert!(should_skip_arcade_file("arcade", "neogeo", Some(&parser)));
+        // Real games are kept.
+        assert!(!should_skip_arcade_file("mame", "1943u", Some(&parser)));
+        // Non-arcade platforms are never filtered.
+        assert!(!should_skip_arcade_file("snes", "neogeo", Some(&parser)));
+        // Without a DAT the blocklist still filters known BIOS, everything else keeps.
+        assert!(should_skip_arcade_file("mame", "neogeo", None));
+        assert!(!should_skip_arcade_file("mame", "1943u", None));
+
+        // Titles: ROM slug first for arcade, serial/hash chain for the rest.
+        assert_eq!(
+            dat_resolved_title(&parser, "mame", "1943u", None, None, None),
+            Some("1943: The Battle of Midway".to_string())
+        );
+        assert_eq!(
+            dat_resolved_title(&parser, "arcade", "1943U", None, None, None),
+            Some("1943: The Battle of Midway".to_string())
+        );
+        // cvs2/cvs never appear in the DAT -> special title.
+        assert_eq!(
+            dat_resolved_title(&parser, "mame", "cvs2", None, None, None),
+            Some("Capcom Vs. SNK 2 Millionaire Fighting 2001".to_string())
+        );
+        // Unknown slug falls through to clean title.
+        assert_eq!(dat_resolved_title(&parser, "mame", "unknown", None, None, None), None);
+        // Other platforms still resolve by serial.
+        let nds_parser = DatParser::parse(
+            r#"
+game (
+	name "The Legend of Zelda: Phantom Hourglass"
+	serial "AZEE"
+	rom ( name "zelda.nds" crc 8B431C41 serial "AZEE" )
+)
+"#,
+        );
+        assert_eq!(
+            dat_resolved_title(&nds_parser, "nds", "zelda", Some("AZEE"), None, None),
+            Some("The Legend of Zelda: Phantom Hourglass".to_string())
+        );
     }
 
     #[test]

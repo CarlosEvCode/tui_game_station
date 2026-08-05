@@ -3,6 +3,7 @@ pub mod dat_downloader;
 pub mod dat_parser;
 pub mod db;
 pub mod hash;
+pub mod mame;
 pub mod models;
 pub mod options;
 pub mod runner_detector;

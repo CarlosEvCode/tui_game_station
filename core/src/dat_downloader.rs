@@ -43,6 +43,8 @@ impl DatDownloader {
             "dreamcast" => Some("redump/Sega - Dreamcast.dat"),
             "master_system" => Some("no-intro/Sega - Master System - Mark III.dat"),
             "game_gear" => Some("no-intro/Sega - Game Gear.dat"),
+            // MAME.dat is shared by the MAME and generic arcade platform slugs.
+            "mame" | "arcade" => Some("mame/MAME.dat"),
             _ => None,
         }
     }
@@ -130,5 +132,13 @@ mod tests {
         assert_eq!(DatDownloader::get_dat_relative_path("ds"), None);
         assert_eq!(DatDownloader::get_dat_relative_path("ps2"), None);
         assert_eq!(DatDownloader::get_dat_relative_path("unknown"), None);
+        assert_eq!(
+            DatDownloader::get_dat_relative_path("mame"),
+            Some("mame/MAME.dat")
+        );
+        assert_eq!(
+            DatDownloader::get_dat_relative_path("arcade"),
+            Some("mame/MAME.dat")
+        );
     }
 }
