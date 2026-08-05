@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.9.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.8.0...v1.9.0) (2026-08-05)
+
+
+### Features
+
+* **arcade:** DAT-first MAME identification, BIOS filtering, and MAME AppImage auto-download ([3e2f0dc](https://github.com/CarlosEvCode/tui_game_station/commit/3e2f0dcc76ab0e022f20f6f252dd1d28aac6c936))
+* **emulators:** add MAME via dual-token CLI toggles (flag-only, no config_target) ([a3c7832](https://github.com/CarlosEvCode/tui_game_station/commit/a3c78328ada9db79f0ab9f917de0c9f3885b5cbe))
+* **emulators:** Add melonDS (NDS/DSi) config-file options (limit FPS, audio sync, renderer, layout) ([00702df](https://github.com/CarlosEvCode/tui_game_station/commit/00702df221698c774edc4b6b700040e5fba78070))
+* **emulators:** Fix Dolphin fullscreen via Dolphin.ini patching + add Render to Main Window ([fc26fe1](https://github.com/CarlosEvCode/tui_game_station/commit/fc26fe1ab4147687bb137f374e05f652f8de6d68))
+* **emulators:** Swap melonDS options to [3D.GL] renderer settings + VSync ([91ddf9c](https://github.com/CarlosEvCode/tui_game_station/commit/91ddf9cba1b0108f7adda9b914706c7b9debb15d))
+* **emulators:** wire Azahar options to real qt-config.ini (renderer, layout, resolution, vsync) ([a42b400](https://github.com/CarlosEvCode/tui_game_station/commit/a42b4003cb8828a48d1e9a4989cebcc138197749))
+* **input:** centralize running-game guard in the action dispatcher + single-instance lock ([00f08d9](https://github.com/CarlosEvCode/tui_game_station/commit/00f08d91a85138f0373862f06b985f66ef6b9fbf))
+* **launcher:** quiet-based input drain, locked safe mode, background launch + running indicator + force close ([5bc63f1](https://github.com/CarlosEvCode/tui_game_station/commit/5bc63f1e3b3e5ea74e385fc250e00f1878252518))
+* **options:** resolve config_target via file_candidates for Azahar standard/Plus variants ([05602f2](https://github.com/CarlosEvCode/tui_game_station/commit/05602f22d97d8713ea6e5e507592c1115f36c5d7))
+
+
+### Bug Fixes
+
+* **launcher:** Discard queued input on game exit and track real AppImage PID ([f79309a](https://github.com/CarlosEvCode/tui_game_station/commit/f79309a705ee46978bae5cd99ec6ac850e2d7ac8))
+* **mame:** pass -rompath so sibling/parent/BIOS sets are found at launch ([1b3f264](https://github.com/CarlosEvCode/tui_game_station/commit/1b3f26485f77f7a74d96fa658d867cfe6fa9aeee))
+
 ## [1.8.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.7.0...v1.8.0) (2026-08-04)
 
 
