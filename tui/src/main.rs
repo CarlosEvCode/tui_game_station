@@ -410,6 +410,21 @@ async fn main() -> Result<()> {
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                     }
+                                    ModalState::ScanFolderForm {
+                                        ref platform,
+                                        selected_field,
+                                        ..
+                                    } => {
+                                        // On the "Emulador Activo" field, ◀ cycles
+                                        // the active emulator (or its core).
+                                        let is_emulator_field = *selected_field == 0;
+                                        let p = platform.clone();
+                                        if is_emulator_field {
+                                            app.cycle_active_selector_for(&p, true);
+                                        } else {
+                                            app.update(Action::ModalSelectPrev).await;
+                                        }
+                                    }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
                                         // ◀ Emulador (o Núcleo) anterior.
                                         app.update(Action::CycleActiveEmulatorPrev).await;
@@ -511,6 +526,21 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ToggleConfirmDeleteRunnerOption).await;
+                                    }
+                                    ModalState::ScanFolderForm {
+                                        ref platform,
+                                        selected_field,
+                                        ..
+                                    } => {
+                                        // On the "Emulador Activo" field, ▶ cycles
+                                        // the active emulator (or its core).
+                                        let is_emulator_field = *selected_field == 0;
+                                        let p = platform.clone();
+                                        if is_emulator_field {
+                                            app.cycle_active_selector_for(&p, false);
+                                        } else {
+                                            app.update(Action::ModalSelectNext).await;
+                                        }
                                     }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
                                         // Emulador (o Núcleo) siguiente ▶.
@@ -977,11 +1007,11 @@ async fn main() -> Result<()> {
                                         ..
                                     } => {
                                         let supports_dat = game_core::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug);
-                                        let action_field_idx = if supports_dat { 4 } else { 3 };
-                                        if selected_field == 0 {
+                                        let action_field_idx = if supports_dat { 5 } else { 4 };
+                                        if selected_field == 1 {
                                             app.update(Action::OpenFilePicker).await;
-                                        } else if selected_field == 2
-                                            || (supports_dat && selected_field == 3)
+                                        } else if selected_field == 3
+                                            || (supports_dat && selected_field == 4)
                                         {
                                             app.update(Action::ModalToggleCheckbox).await;
                                         } else if selected_field == action_field_idx {

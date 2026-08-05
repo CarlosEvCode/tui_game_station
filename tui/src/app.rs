@@ -771,14 +771,10 @@ impl App {
             .collect()
     }
 
-    /// Cycle the active emulator of the selected platform among its configured
-    /// emulators. Does nothing (with an informative status) when fewer than two
-    /// are configured.
-    fn cycle_active_emulator(&mut self, backward: bool) {
-        if self.modal_state != ModalState::None || self.platforms.is_empty() {
-            return;
-        }
-        let platform = self.platforms[self.selected_platform_idx].clone();
+    /// Platform-parameterized version used both from the main navigation
+    /// (via `cycle_active_selector_for`) and from the Scan Folder form, where
+    /// the target platform may differ from the currently selected one.
+    pub fn cycle_active_emulator_for(&mut self, platform: &Platform, backward: bool) {
         let configured = self.configured_runners_for(platform.id);
         if configured.is_empty() {
             self.status_msg = format!(
@@ -820,13 +816,9 @@ impl App {
         }
     }
 
-    /// Cycle the core of the active emulator (core-based emulators only, e.g.
-    /// RetroArch-style). No-op for every emulator in the real catalog.
-    fn cycle_active_core(&mut self, backward: bool) {
-        if self.modal_state != ModalState::None || self.platforms.is_empty() {
-            return;
-        }
-        let platform = self.platforms[self.selected_platform_idx].clone();
+    /// Platform-parameterized version used both from the main navigation and
+    /// from the Scan Folder form.
+    pub fn cycle_active_core_for(&mut self, platform: &Platform, backward: bool) {
         let Some(active) = self
             .db
             .get_active_runner_for_platform(platform.id)
@@ -865,15 +857,42 @@ impl App {
         self.status_msg = format!("Núcleo de {}: {}", active.name, label);
     }
 
+    /// Drive the ◀ ▶ selector for a given platform: core-based active emulators
+    /// cycle their nested "Núcleo" row, everything else cycles the emulator.
+    /// Shared by the main navigation and the Scan Folder form.
+    pub fn cycle_active_selector_for(&mut self, platform: &Platform, backward: bool) {
+        let requires_core = self
+            .db
+            .get_active_runner_for_platform(platform.id)
+            .ok()
+            .flatten()
+            .map(|r| game_core::options::emulator_requires_core_selection(&r.name))
+            .unwrap_or(false);
+        if requires_core {
+            self.cycle_active_core_for(platform, backward);
+        } else {
+            self.cycle_active_emulator_for(platform, backward);
+        }
+    }
+
     /// Info rendered by the "Emulador activo" box of the selected platform:
     /// `(emulator name, Option<core label>)`. The core is only present when the
     /// active emulator requires core selection. `None` when the platform has no
     /// emulator at all.
     pub fn active_emulator_selector_info(&self) -> Option<(String, Option<String>)> {
         let platform = self.platforms.get(self.selected_platform_idx)?;
+        self.active_emulator_selector_info_for(platform.id)
+    }
+
+    /// Platform-parameterized version used both from the main navigation and
+    /// from the Scan Folder form.
+    pub fn active_emulator_selector_info_for(
+        &self,
+        platform_id: i64,
+    ) -> Option<(String, Option<String>)> {
         let active = self
             .db
-            .get_active_runner_for_platform(platform.id)
+            .get_active_runner_for_platform(platform_id)
             .ok()
             .flatten()?;
         let core_label = if game_core::options::emulator_requires_core_selection(&active.name) {
@@ -1825,6 +1844,14 @@ impl App {
                         ModalState::ConfirmDeleteRunner { .. } => {
                             self.update(Action::ToggleConfirmDeleteRunnerOption).await;
                         }
+                        ModalState::ScanFolderForm {
+                            ref platform,
+                            selected_field,
+                            ..
+                        } if *selected_field == 0 => {
+                            let p = platform.clone();
+                            self.cycle_active_selector_for(&p, true);
+                        }
                         _ => {}
                     }
                 } else if self.is_big_picture
@@ -1850,6 +1877,14 @@ impl App {
                         }
                         ModalState::ConfirmDeleteRunner { .. } => {
                             self.update(Action::ToggleConfirmDeleteRunnerOption).await;
+                        }
+                        ModalState::ScanFolderForm {
+                            ref platform,
+                            selected_field,
+                            ..
+                        } if *selected_field == 0 => {
+                            let p = platform.clone();
+                            self.cycle_active_selector_for(&p, false);
                         }
                         _ => {}
                     }
@@ -2463,18 +2498,8 @@ impl App {
                 // Core-based emulators (RetroArch-style) run a selected core, so
                 // the ◀ ▶ selector drives the nested "Núcleo" row instead of
                 // switching emulators (there is only one anyway).
-                let requires_core = self
-                    .db
-                    .get_active_runner_for_platform(self.platforms[self.selected_platform_idx].id)
-                    .ok()
-                    .flatten()
-                    .map(|r| game_core::options::emulator_requires_core_selection(&r.name))
-                    .unwrap_or(false);
-                if requires_core {
-                    self.cycle_active_core(backward);
-                } else {
-                    self.cycle_active_emulator(backward);
-                }
+                let platform = self.platforms[self.selected_platform_idx].clone();
+                self.cycle_active_selector_for(&platform, backward);
             }
             Action::NextGame => {
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
@@ -4656,9 +4681,9 @@ impl App {
                     ..
                 } = self.modal_state
                 {
-                    if selected_field == 2 {
+                    if selected_field == 3 {
                         *recursive = !*recursive;
-                    } else if selected_field == 3 {
+                    } else if selected_field == 4 {
                         *use_dat_auto_id = !*use_dat_auto_id;
                     }
                 } else if let ModalState::VisualMediaSelector {
@@ -4734,9 +4759,9 @@ impl App {
                         if game_core::dat_downloader::DatDownloader::supports_dat_identification(
                             &platform.slug,
                         ) {
-                            5
+                            6
                         } else {
-                            4
+                            5
                         };
                     *selected_field = (*selected_field + 1) % total;
                 }
@@ -4803,9 +4828,9 @@ impl App {
                         if game_core::dat_downloader::DatDownloader::supports_dat_identification(
                             &platform.slug,
                         ) {
-                            5
+                            6
                         } else {
-                            4
+                            5
                         };
                     if *selected_field == 0 {
                         *selected_field = total - 1;
@@ -4911,8 +4936,8 @@ impl App {
                 } = self.modal_state
                 {
                     match selected_field {
-                        0 => folder_path.push(ch),
-                        1 => extensions_input.push(ch),
+                        1 => folder_path.push(ch),
+                        2 => extensions_input.push(ch),
                         _ => {}
                     }
                 } else if let ModalState::ManageRunnersStep2Config {
@@ -5087,10 +5112,10 @@ impl App {
                 } = self.modal_state
                 {
                     match selected_field {
-                        0 => {
+                        1 => {
                             folder_path.pop();
                         }
-                        1 => {
+                        2 => {
                             extensions_input.pop();
                         }
                         _ => {}
@@ -6664,6 +6689,232 @@ mod tests {
         app.load_platforms();
         let (name, _) = app.active_emulator_selector_info().expect("selector info");
         assert_eq!(name, "Ryujinx");
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Regresión del flujo "Scan ROMs Folder": el selector "Emulador Activo
+    /// (◀ ▶)" debe ser visible y funcional DENTRO del formulario de escaneo
+    /// (modal `ScanFolderForm`), no solo en la navegación normal. Cambiarlo
+    /// ahí persiste y se refleja al volver a la navegación normal.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn scan_folder_form_can_change_active_emulator() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_scanform_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let fake_dir = tmp.join("fake");
+        std::fs::create_dir_all(&fake_dir).expect("mkdir");
+        let ryujinx_exe = fake_dir.join("ryujinx");
+        let testcore_exe = fake_dir.join("testcore");
+        std::fs::write(&ryujinx_exe, "#!/bin/sh\n").expect("write ryujinx exe");
+        std::fs::write(&testcore_exe, "#!/bin/sh\n").expect("write testcore exe");
+        let ryujinx_exe_str = ryujinx_exe.to_string_lossy().into_owned();
+        let testcore_exe_str = testcore_exe.to_string_lossy().into_owned();
+
+        {
+            let db = Database::open_default().expect("open DB");
+            db.set_setting("first_run_completed", "true").expect("no wizard");
+            let switch = db
+                .get_platform_by_slug("switch")
+                .expect("query")
+                .expect("switch platform");
+            let testcore_id = db
+                .insert_runner(switch.id, "testcore", "appimage")
+                .expect("insert testcore");
+            let runners = db.get_runners_for_platform(switch.id).expect("runners");
+            let ryujinx = runners
+                .iter()
+                .find(|r| r.name == "Ryujinx")
+                .expect("Ryujinx seeded");
+            db.update_runner_config(ryujinx.id, &ryujinx_exe_str, true)
+                .expect("configure ryujinx");
+            db.update_runner_config(testcore_id, &testcore_exe_str, true)
+                .expect("configure testcore");
+        }
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+        let switch = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch among platforms")
+            .clone();
+
+        // Abre el formulario de Scan ROMs Folder para Switch con el campo 0
+        // ("Emulador Activo") enfocado, como lo hace el flujo real.
+        app.modal_state = ModalState::ScanFolderForm {
+            platform: switch.clone(),
+            folder_path: String::new(),
+            extensions_input: String::new(),
+            recursive: true,
+            use_dat_auto_id: false,
+            selected_field: 0,
+        };
+
+        // Activo inicial: Ryujinx.
+        let (name, core) = app
+            .active_emulator_selector_info_for(switch.id)
+            .expect("selector info");
+        assert_eq!(name, "Ryujinx");
+        assert!(core.is_none());
+
+        // ▶ desde el formulario cambia el emulador activo (esto fallaba antes:
+        // el guardián de modal_state bloqueaba el ciclo dentro del modal).
+        app.cycle_active_selector_for(&switch, false);
+        let (name, core) = app
+            .active_emulator_selector_info_for(switch.id)
+            .expect("selector info");
+        assert_eq!(name, "testcore");
+        assert_eq!(core.as_deref(), Some("mGBA"));
+
+        // Con testcore activo (core-based), ◀ ▶ giran el núcleo desde el modal.
+        app.cycle_active_selector_for(&switch, true);
+        let (_, core) = app
+            .active_emulator_selector_info_for(switch.id)
+            .expect("selector info");
+        assert_eq!(core.as_deref(), Some("Genesis Plus GX"));
+        app.cycle_active_selector_for(&switch, true);
+        let (_, core) = app
+            .active_emulator_selector_info_for(switch.id)
+            .expect("selector info");
+        assert_eq!(core.as_deref(), Some("Snes9x"));
+
+        // El cambio persiste al salir del modal y volver a la navegación normal.
+        app.modal_state = ModalState::None;
+        app.selected_platform_idx = app
+            .platforms
+            .iter()
+            .position(|p| p.id == switch.id)
+            .expect("switch index");
+        let (name, core) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(name, "testcore");
+        assert_eq!(core.as_deref(), Some("Snes9x"));
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Verificación de RENDER (no solo de lógica): el texto "Emulador Activo"
+    /// con el emulador activo debe aparecer dibujado tanto en la navegación
+    /// normal como dentro del modal "Scan ROMs Folder" de la plataforma.
+    #[tokio::test]
+    async fn active_emulator_selector_is_rendered_in_navigation_and_scan_folder() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_render_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let fake_dir = tmp.join("fake");
+        std::fs::create_dir_all(&fake_dir).expect("mkdir");
+        let ryujinx_exe = fake_dir.join("ryujinx");
+        std::fs::write(&ryujinx_exe, "#!/bin/sh\n").expect("write ryujinx exe");
+        let ryujinx_exe_str = ryujinx_exe.to_string_lossy().into_owned();
+
+        {
+            let db = Database::open_default().expect("open DB");
+            db.set_setting("first_run_completed", "true").expect("no wizard");
+            let switch = db
+                .get_platform_by_slug("switch")
+                .expect("query")
+                .expect("switch platform");
+            let runners = db.get_runners_for_platform(switch.id).expect("runners");
+            let ryujinx = runners
+                .iter()
+                .find(|r| r.name == "Ryujinx")
+                .expect("Ryujinx seeded");
+            db.update_runner_config(ryujinx.id, &ryujinx_exe_str, true)
+                .expect("configure ryujinx");
+        }
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+        let switch = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch among platforms")
+            .clone();
+        app.selected_platform_idx = app
+            .platforms
+            .iter()
+            .position(|p| p.id == switch.id)
+            .expect("switch index");
+
+        let render_text = |app: &mut App| {
+            let backend = ratatui::backend::TestBackend::new(100, 40);
+            let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+            terminal
+                .draw(|f| crate::ui::render_ui(f, app))
+                .expect("draw");
+            let buf = terminal.backend().buffer().clone();
+            buf.content().iter().map(|c| c.symbol()).collect::<String>()
+        };
+
+        // Navegación normal: la caja "Emulador Activo (◀ ▶)" está visible.
+        let nav_text = render_text(&mut app);
+        assert!(
+            nav_text.contains("Emulador Activo"),
+            "selector ausente en la navegación normal"
+        );
+        assert!(nav_text.contains("Ryujinx"), "emulador activo no se muestra");
+
+        // Scan Folder: el selector se dibuja DENTRO del formulario de escaneo.
+        app.modal_state = ModalState::ScanFolderForm {
+            platform: switch.clone(),
+            folder_path: String::new(),
+            extensions_input: String::new(),
+            recursive: true,
+            use_dat_auto_id: false,
+            selected_field: 0,
+        };
+        let scan_text = render_text(&mut app);
+        assert!(
+            scan_text.contains("Emulador Activo"),
+            "selector ausente en el flujo de Scan Folder"
+        );
+        assert!(
+            scan_text.contains("◀ Ryujinx ▶"),
+            "emulador activo no se muestra en el formulario de escaneo"
+        );
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

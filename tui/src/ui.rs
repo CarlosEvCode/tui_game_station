@@ -2137,14 +2137,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             use_dat_auto_id,
             selected_field,
         } => {
-            let runner_info = app.db.get_runner_for_platform(platform.id).ok().flatten();
-            let is_runner_ready = runner_info
-                .as_ref()
-                .and_then(|r| r.executable_path.as_ref())
-                .is_some()
-                || platform.slug == "linux"
-                || platform.slug == "windows";
-
             let field_style = |idx: usize| {
                 if idx == selected_field {
                     Style::default()
@@ -2166,19 +2158,24 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 ),
             ]));
 
-            let runner_status = if is_runner_ready {
-                Span::styled("Status: [Runner Ready]", Style::default().fg(Color::Green))
-            } else {
-                Span::styled(
-                    "Status: [Runner Not Configured - Press [c] to Configure]",
-                    Style::default().fg(Color::Red),
-                )
+            // The "Emulador Activo" row: reuses the same selector info as the
+            // main navigation box (active emulator + nested core when the
+            // emulator is core-based). ◀ ▶ cycles it while this field is focused.
+            let (emu_name, core_label) = app
+                .active_emulator_selector_info_for(platform.id)
+                .unwrap_or_else(|| ("< sin emulador >".to_string(), None));
+            let emu_display = match core_label {
+                Some(core) => format!("{}  (Núcleo: {})", emu_name, core),
+                None => emu_name,
             };
-            lines.push(Line::from(runner_status));
+            lines.push(Line::from(vec![Span::styled(
+                format!("0. Emulador Activo: ◀ {} ▶", emu_display),
+                field_style(0),
+            )]));
             lines.push(Line::from(""));
 
             lines.push(Line::from(vec![
-                Span::styled("1. Folder Path: ", field_style(0)),
+                Span::styled("1. Folder Path: ", field_style(1)),
                 Span::raw(if folder_path.is_empty() {
                     "< Press [Enter] to select folder directory >"
                 } else {
@@ -2188,14 +2185,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(""));
 
             lines.push(Line::from(vec![
-                Span::styled("2. File Extensions: ", field_style(1)),
+                Span::styled("2. File Extensions: ", field_style(2)),
                 Span::raw(extensions_input),
             ]));
             lines.push(Line::from(""));
 
             let rec_check = if recursive { "[X] Yes" } else { "[ ] No" };
             lines.push(Line::from(vec![
-                Span::styled("3. Scan Subfolders Recursively: ", field_style(2)),
+                Span::styled("3. Scan Subfolders Recursively: ", field_style(3)),
                 Span::styled(
                     rec_check,
                     Style::default()
@@ -2216,7 +2213,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     "[ ] No (Raw filenames)"
                 };
                 lines.push(Line::from(vec![
-                    Span::styled("4. Automatic DAT Identification: ", field_style(3)),
+                    Span::styled("4. Automatic DAT Identification: ", field_style(4)),
                     Span::styled(
                         dat_check,
                         Style::default()
@@ -2225,9 +2222,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ),
                 ]));
                 lines.push(Line::from(""));
-                4
+                5
             } else {
-                3
+                4
             };
 
             lines.push(Line::from(vec![Span::styled(
@@ -2254,7 +2251,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(p, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down/Tab] Navigate Fields | [Enter] Confirm / Select Folder | [Space] Toggle Subfolders | [Esc] Back")
+            let help = Paragraph::new(" [Up/Down/Tab] Navigate Fields | [◀/▶] Change Active Emulator | [Enter] Confirm / Select Folder | [Space] Toggle Subfolders | [Esc] Back")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
