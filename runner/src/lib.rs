@@ -539,8 +539,13 @@ fn name_matches_expected(expected: &str, comm: &str, exe: &str, cmdline: &str) -
         }
     }
     // Last-resort inference: emulator binary names often prefix the real comm
-    // (e.g. "dolphin" -> "dolphin-emu").
-    !comm_lc.is_empty() && comm_lc.starts_with(&exp)
+    // (e.g. "dolphin" -> "dolphin-emu"). Require a word boundary after the
+    // prefix so unrelated processes that merely share it (e.g. "dolphin2") are
+    // not mistaken for the emulator.
+    !comm_lc.is_empty()
+        && comm_lc.len() > exp.len()
+        && comm_lc.starts_with(&exp)
+        && !comm_lc.as_bytes()[exp.len()].is_ascii_alphanumeric()
 }
 
 fn process_matches_name(pid: u32, expected: &str) -> bool {
@@ -833,6 +838,10 @@ mod tests {
         assert!(name_matches_expected("melonDS", "", "", "\"melonDS\""));
         // Prefix inference ("dolphin" -> "dolphin-emu").
         assert!(name_matches_expected("dolphin", "dolphin-emu", "", ""));
+        // Prefix inference requires a word boundary: unrelated processes that
+        // merely share the prefix are not matched.
+        assert!(!name_matches_expected("dolphin", "dolphinemu", "", ""));
+        assert!(!name_matches_expected("dolphin", "dolphin2", "", ""));
         // Mount/runtime processes never match, even via prefix.
         assert!(!name_matches_expected("azahar", "memfd:dwarfs", "", ""));
         assert!(!name_matches_expected("azahar", "AppRun", "", ""));
