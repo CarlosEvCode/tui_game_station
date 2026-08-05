@@ -917,6 +917,7 @@ mod tests {
             download_url: None,
             download_filename: None,
             is_default: false,
+            is_active: false,
             env_vars: None,
         };
 

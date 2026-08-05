@@ -62,6 +62,7 @@ impl Database {
                 download_filename TEXT,
                 is_configured BOOLEAN DEFAULT 0,
                 is_default BOOLEAN DEFAULT 0,
+                is_active BOOLEAN DEFAULT 0,
                 env_vars TEXT
             );
 
@@ -169,6 +170,20 @@ impl Database {
         if !has_runner_env {
             self.conn
                 .execute("ALTER TABLE runners ADD COLUMN env_vars TEXT", [])?;
+        }
+
+        // Migrate pre-existing databases that lack the runners.is_active column
+        // (the per-platform "emulador activo" marker used by the ◀ ▶ selector).
+        let has_active = self
+            .conn
+            .prepare("PRAGMA table_info(runners)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "is_active");
+        if !has_active {
+            self.conn
+                .execute("ALTER TABLE runners ADD COLUMN is_active BOOLEAN DEFAULT 0", [])?;
         }
 
         Ok(())
@@ -292,42 +307,65 @@ impl Database {
             [],
         )?;
 
-        // Download links are direct GitHub release assets, not the HTML release page.
-        // This makes the [w] action download the actual file after GitHub redirects.
-        let runners = [
-            ("3ds", "Azahar", "appimage", Some("https://github.com/AzaharPlus/AzaharPlus/releases/download/AZAHAR_PLUS_2126_0_A/azaharplus-2126.0-A-linux.AppImage"), Some("azahar.AppImage")),
-            ("ps1", "DuckStation", "appimage", Some("https://github.com/stenzek/duckstation/releases/latest/download/DuckStation-x64.AppImage"), Some("DuckStation-x64.AppImage")),
-            ("ps2", "PCSX2", "appimage", Some("https://github.com/PCSX2/pcsx2/releases/latest/download/pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"), Some("pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage")),
-            ("gamecube", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
-            ("wii", "Dolphin", "appimage", Some("https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"), Some("Dolphin_Emulator-2606-anylinux-x86_64.AppImage")),
-            ("wii_u", "Cemu", "appimage", Some("https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage"), Some("Cemu-2.6-x86_64.AppImage")),
-            // MAME: the URL is the GitHub latest-release API endpoint, resolved at
-            // download time to the current anylinux-x86_64 AppImage asset (see
-            // RunnerDownloader::resolve_mame_download_url). Version/asset filename
-            // are never hardcoded so the download keeps working across releases.
-            ("mame", "MAME", "appimage", Some("https://api.github.com/repos/pkgforge-dev/MAME-AppImage/releases/latest"), Some("MAME.AppImage")),
-            ("psp", "PPSSPP", "appimage", Some("https://github.com/hrydgard/ppsspp/releases/latest/download/PPSSPP-v1.20.4-anylinux-x86_64.AppImage"), Some("PPSSPP-v1.20.4-anylinux-x86_64.AppImage")),
-            ("dreamcast", "Redream", "appimage", None, None),
-            ("switch", "Ryujinx", "appimage", None, None),
-            ("switch", "Eden", "appimage", Some("https://stable.eden-emu.dev/v0.2.1/Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage"), Some("Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage")),
-            ("nds", "melonDS", "appimage", Some("https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"), Some("melonDS-1.1-appimage-x86_64.zip")),
-            ("vita", "Vita3K", "appimage", None, None),
-        ];
+        // The emulator registry is DATA: the platform ↔ emulator catalog lives
+        // in assets/emulators/platform_emulators.toml (see core/src/catalog.rs).
+        // Every compatible emulator gets a runner row per platform; downloads
+        // are refreshed on every startup so links keep working.
+        for catalog_platform in crate::catalog::load_catalog() {
+            let platform_id = match self.conn.query_row(
+                "SELECT id FROM platforms WHERE slug = ?1",
+                params![catalog_platform.slug],
+                |row| row.get::<_, i64>(0),
+            ) {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
 
-        for (platform_slug, name, runner_type, download_url, download_filename) in runners {
-            self.conn.execute(
-                "INSERT INTO runners (platform_id, name, runner_type, command_template, download_url, download_filename)
-                 SELECT id, ?2, ?3, '\"{executable_path}\" \"{rom}\"', ?4, ?5 FROM platforms
-                 WHERE slug = ?1 AND NOT EXISTS (
-                    SELECT 1 FROM runners r WHERE r.platform_id = platforms.id AND r.name = ?2
-                 )",
-                params![platform_slug, name, runner_type, download_url, download_filename],
-            )?;
-            self.conn.execute(
-                "UPDATE runners SET download_url = ?4, download_filename = ?5 WHERE platform_id = (SELECT id FROM platforms WHERE slug = ?1) AND name = ?2",
-                params![platform_slug, name, runner_type, download_url, download_filename],
-            )?;
+            for emu in catalog_platform.emulators {
+                let template = emu
+                    .command_template
+                    .clone()
+                    .unwrap_or_else(|| crate::catalog::default_command_template().to_string());
+                self.conn.execute(
+                    "INSERT INTO runners (platform_id, name, runner_type, command_template, download_url, download_filename)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6
+                     WHERE NOT EXISTS (
+                        SELECT 1 FROM runners r WHERE r.platform_id = ?1 AND r.name = ?2
+                     )",
+                    params![
+                        platform_id,
+                        emu.name,
+                        emu.runner_type,
+                        template,
+                        emu.download_url,
+                        emu.download_filename
+                    ],
+                )?;
+                self.conn.execute(
+                    "UPDATE runners SET download_url = ?3, download_filename = ?4
+                     WHERE platform_id = ?1 AND name = ?2",
+                    params![
+                        platform_id,
+                        emu.name,
+                        emu.download_url,
+                        emu.download_filename
+                    ],
+                )?;
+            }
         }
+
+        // Default active emulator per platform: the first compatible runner for
+        // every platform that has no active one yet. Existing choices survive.
+        self.conn.execute(
+            "UPDATE runners SET is_active = 1 WHERE id IN (
+                SELECT MIN(r2.id) FROM runners r2
+                WHERE r2.platform_id NOT IN (
+                    SELECT platform_id FROM runners WHERE is_active = 1
+                )
+                GROUP BY r2.platform_id
+             )",
+            [],
+        )?;
 
         // Auto-migrate any games mis-assigned to SNES/emulator platforms due to legacy platform_id lookups
         self.conn.execute(
@@ -643,7 +681,7 @@ impl Database {
 
     pub fn get_runners_for_platform(&self, platform_id: i64) -> Result<Vec<Runner>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default, env_vars FROM runners WHERE platform_id = ?1",
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default, is_active, env_vars FROM runners WHERE platform_id = ?1",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -658,7 +696,8 @@ impl Database {
                 download_url: row.get(7)?,
                 download_filename: row.get(8)?,
                 is_default: row.get(9)?,
-                env_vars: row.get(10)?,
+                is_active: row.get(10)?,
+                env_vars: row.get(11)?,
             })
         })?;
 
@@ -669,14 +708,41 @@ impl Database {
         Ok(list)
     }
 
+    /// The emulator flagged as active for a platform (may not be configured).
+    pub fn get_active_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
+        let runners = self.get_runners_for_platform(platform_id)?;
+        Ok(runners.into_iter().find(|r| r.is_active))
+    }
+
+    /// Set the active emulator for a platform (at most one per platform).
+    pub fn set_active_runner(&self, platform_id: i64, runner_id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET is_active = 0 WHERE platform_id = ?1",
+            params![platform_id],
+        )?;
+        self.conn.execute(
+            "UPDATE runners SET is_active = 1 WHERE id = ?1 AND platform_id = ?2",
+            params![runner_id, platform_id],
+        )?;
+        Ok(())
+    }
+
     pub fn get_runner_for_platform(&self, platform_id: i64) -> Result<Option<Runner>> {
         let runners = self.get_runners_for_platform(platform_id)?;
-        if let Some(r) = runners.iter().find(|r| r.is_default).cloned() {
-            return Ok(Some(r));
+        if runners.is_empty() {
+            return Ok(None);
         }
-        // Multi-runner platforms (e.g. Switch: Ryujinx + Eden) may only have one
-        // emulator installed. Prefer a configured runner so the platform reads
-        // as "ready" and launches with the emulator that is actually installed.
+        // The active emulator wins when it is configured.
+        if let Some(r) = runners
+            .iter()
+            .find(|r| r.is_active && r.executable_path.is_some())
+        {
+            return Ok(Some(r.clone()));
+        }
+        // Multi-runner platforms (e.g. Switch: Ryujinx + Eden + Citron) may only
+        // have one emulator installed. Prefer a configured runner so the platform
+        // reads as "ready" and launches with the emulator that is actually
+        // installed.
         if let Some(r) = runners
             .iter()
             .find(|r| r.executable_path.is_some())
@@ -684,7 +750,35 @@ impl Database {
         {
             return Ok(Some(r));
         }
+        if let Some(r) = runners.iter().find(|r| r.is_default) {
+            return Ok(Some(r.clone()));
+        }
         Ok(runners.into_iter().next())
+    }
+
+    /// Register a custom emulator for a platform (idempotent). Used by the
+    /// "add emulator" flow and by tests to inject fictitious emulators like
+    /// `testcore`. Returns the runner id.
+    pub fn insert_runner(&self, platform_id: i64, name: &str, runner_type: &str) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO runners (platform_id, name, runner_type, command_template)
+             SELECT ?1, ?2, ?3, ?4
+             WHERE NOT EXISTS (
+                SELECT 1 FROM runners WHERE platform_id = ?1 AND name = ?2
+             )",
+            params![
+                platform_id,
+                name,
+                runner_type,
+                crate::catalog::default_command_template()
+            ],
+        )?;
+        let id = self.conn.query_row(
+            "SELECT id FROM runners WHERE platform_id = ?1 AND name = ?2",
+            params![platform_id, name],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(id)
     }
 
     pub fn update_runner_config(
@@ -692,8 +786,7 @@ impl Database {
         runner_id: i64,
         exe_path: &str,
         is_configured: bool,
-    ) -> Result<()> {
-        let _ = is_configured;
+    ) -> Result<()> {        let _ = is_configured;
         self.conn.execute(
             "UPDATE runners SET executable_path = ?1, is_configured = 1 WHERE id = ?2",
             params![exe_path, runner_id],
@@ -1129,6 +1222,112 @@ mod tests {
             mame_runner.command_template,
             "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\""
         );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn seeds_exactly_one_active_runner_per_platform_and_minimal_citron() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_active_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+
+        for platform in db.get_platforms().unwrap() {
+            let runners = db.get_runners_for_platform(platform.id).unwrap();
+            if runners.is_empty() {
+                continue;
+            }
+            let active_count = runners.iter().filter(|r| r.is_active).count();
+            assert_eq!(active_count, 1, "platform {} must have one active", platform.slug);
+        }
+
+        let switch = db
+            .get_platform_by_slug("switch")
+            .unwrap()
+            .expect("switch platform exists");
+        let names: Vec<String> = db
+            .get_runners_for_platform(switch.id)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Ryujinx", "Eden", "Citron"],
+            "switch supports the full emulator catalog"
+        );
+        let citron = db
+            .get_runners_for_platform(switch.id)
+            .unwrap()
+            .into_iter()
+            .find(|r| r.name == "Citron")
+            .unwrap();
+        assert!(
+            citron.download_url.is_none() && citron.download_filename.is_none(),
+            "Citron is a minimal entry: no download, browsed manually"
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn active_runner_switches_and_launch_prefers_configured_active() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_switch_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+
+        let switch = db
+            .get_platform_by_slug("switch")
+            .unwrap()
+            .expect("switch platform exists");
+        let runners = db.get_runners_for_platform(switch.id).unwrap();
+        let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap();
+        let citron = runners.iter().find(|r| r.name == "Citron").unwrap();
+
+        // Nothing configured yet: launch resolution falls back to the first
+        // compatible runner (so the UI can say "configure emulator X [m]").
+        let chosen = db.get_runner_for_platform(switch.id).unwrap().unwrap();
+        assert_eq!(chosen.name, "Ryujinx");
+
+        // Configure Ryujinx: active + configured -> it wins.
+        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true).unwrap();
+        let chosen = db.get_runner_for_platform(switch.id).unwrap().unwrap();
+        assert_eq!(chosen.name, "Ryujinx");
+
+        // Configure Citron too, then switch the active emulator to Citron.
+        db.update_runner_config(citron.id, "/fake/citron", true).unwrap();
+        db.set_active_runner(switch.id, citron.id).unwrap();
+        let chosen = db.get_runner_for_platform(switch.id).unwrap().unwrap();
+        assert_eq!(chosen.name, "Citron");
+        assert!(chosen.is_active);
+
+        // Exactly one active per platform after the switch.
+        let active_count = db
+            .get_runners_for_platform(switch.id)
+            .unwrap()
+            .iter()
+            .filter(|r| r.is_active)
+            .count();
+        assert_eq!(active_count, 1);
+
+        // Deleting the active emulator's config (executable removed) falls back
+        // to another configured emulator automatically.
+        db.reset_runner_config(citron.id).unwrap();
+        let chosen = db.get_runner_for_platform(switch.id).unwrap().unwrap();
+        assert_eq!(chosen.name, "Ryujinx");
+
+        // The active flag stays on Citron but it is not configured: get_active
+        // still reports it, while launch resolution skips it.
+        let active = db.get_active_runner_for_platform(switch.id).unwrap().unwrap();
+        assert_eq!(active.name, "Citron");
 
         drop(db);
         let _ = std::fs::remove_file(path);

@@ -217,10 +217,107 @@ fn render_platforms_list(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(border_color)),
     );
 
+    // Leave room at the bottom for the "Emulador Activo" selector box.
+    let has_core = app
+        .active_emulator_selector_info()
+        .as_ref()
+        .is_some_and(|(_, core)| core.is_some());
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(if has_core { 4 } else { 3 }),
+        ])
+        .split(area);
+
     let mut state = ListState::default();
     state.select(Some(app.selected_platform_idx));
 
-    frame.render_stateful_widget(list_widget, area, &mut state);
+    frame.render_stateful_widget(list_widget, chunks[0], &mut state);
+    render_active_emulator_selector(frame, app, chunks[1]);
+}
+
+/// The "Emulador Activo (◀ ▶)" box under the platform list. Cycles through the
+/// configured emulators of the selected platform; when the active emulator is
+/// core-based it shows the nested "Núcleo" row instead.
+fn render_active_emulator_selector(frame: &mut Frame, app: &App, area: Rect) {
+    let is_focused =
+        app.focused_pane == FocusedPane::Platforms && app.modal_state == ModalState::None;
+    let border_color = if is_focused {
+        Color::Yellow
+    } else {
+        Color::DarkGray
+    };
+
+    let mut lines = Vec::new();
+    match app.active_emulator_selector_info() {
+        Some((name, core)) => {
+            lines.push(Line::from(vec![
+                Span::styled("Emulador: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "◀ ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    name,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " ▶",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            if let Some(core_label) = core {
+                lines.push(Line::from(vec![
+                    Span::styled("Núcleo:  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        "◀ ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        core_label,
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        " ▶",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+            }
+        }
+        None => {
+            lines.push(Line::from(Span::styled(
+                "Sin emulador para esta plataforma [m]",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .title(Span::styled(
+                " Emulador Activo (◀ ▶) ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color)),
+    );
+    frame.render_widget(paragraph, area);
 }
 
 fn get_game_type_badge(

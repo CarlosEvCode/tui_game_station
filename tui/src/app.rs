@@ -130,6 +130,16 @@ pub fn cycle_runner_option(
     values.insert(opt.key.clone(), next);
 }
 
+/// Next index when cycling a list of `len` items that wraps around both
+/// directions. `current` is the selected item (or `None` when nothing is
+/// selected yet). A single-item list always resolves to index 0.
+pub fn cycle_index(current: Option<usize>, len: usize, backward: bool) -> usize {
+    match current {
+        Some(i) if len > 1 => (i + if backward { len - 1 } else { 1 }) % len,
+        _ => 0,
+    }
+}
+
 pub struct LoadedCoverEvent {
     pub game_id: i64,
     pub media_type: String,
@@ -347,6 +357,10 @@ pub enum Action {
     },
     NextPlatform,
     PrevPlatform,
+    /// Cycle the active emulator (or core, when the active emulator is
+    /// core-based) with the ◀ ▶ selector in the platforms pane.
+    CycleActiveEmulatorNext,
+    CycleActiveEmulatorPrev,
     NextGame,
     PrevGame,
     OpenPlatformSelectorModal,
@@ -633,6 +647,9 @@ impl App {
             );
         }
 
+        // Settle the active emulator of every platform on first launch (e.g. a
+        // previous session may have deleted the active emulator's executable).
+        app.revalidate_active_emulators();
         app.load_games_for_selected_platform();
         Ok(app)
     }
@@ -731,12 +748,178 @@ impl App {
     }
 
     pub fn load_platforms(&mut self) {
+        // Auto-switch the active emulator away from any emulator whose
+        // executable disappeared (deleted via [m]/[w] or manually).
+        self.revalidate_active_emulators();
         if let Ok(platforms) = self.db.get_active_platforms(self.show_all_platforms) {
             self.platforms = platforms;
             if self.selected_platform_idx >= self.platforms.len() {
                 self.selected_platform_idx = 0;
             }
             self.load_games_for_selected_platform();
+        }
+    }
+
+    /// Runners of a platform whose executable path is configured. These are the
+    /// only emulators the "Emulador: ◀ ▶" selector cycles through.
+    fn configured_runners_for(&self, platform_id: i64) -> Vec<Runner> {
+        self.db
+            .get_runners_for_platform(platform_id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| r.executable_path.as_ref().is_some_and(|ex| !ex.trim().is_empty()))
+            .collect()
+    }
+
+    /// Cycle the active emulator of the selected platform among its configured
+    /// emulators. Does nothing (with an informative status) when fewer than two
+    /// are configured.
+    fn cycle_active_emulator(&mut self, backward: bool) {
+        if self.modal_state != ModalState::None || self.platforms.is_empty() {
+            return;
+        }
+        let platform = self.platforms[self.selected_platform_idx].clone();
+        let configured = self.configured_runners_for(platform.id);
+        if configured.is_empty() {
+            self.status_msg = format!(
+                "No hay emulador configurado para {}. Presiona [m] para configurar uno.",
+                platform.name
+            );
+            return;
+        }
+        if configured.len() == 1 {
+            self.status_msg = format!(
+                "{} solo tiene un emulador configurado: {}.",
+                platform.name, configured[0].name
+            );
+            return;
+        }
+
+        let active_id = self
+            .db
+            .get_active_runner_for_platform(platform.id)
+            .ok()
+            .flatten()
+            .map(|r| r.id);
+        let current_idx = active_id
+            .and_then(|id| configured.iter().position(|r| r.id == id));
+        let next_idx = cycle_index(current_idx, configured.len(), backward);
+        let next = &configured[next_idx];
+
+        if current_idx == Some(next_idx) {
+            return;
+        }
+        match self.db.set_active_runner(platform.id, next.id) {
+            Ok(_) => {
+                self.status_msg =
+                    format!("Emulador activo para {}: {}", platform.name, next.name);
+            }
+            Err(err) => {
+                self.status_msg = format!("Error al cambiar emulador activo: {}", err);
+            }
+        }
+    }
+
+    /// Cycle the core of the active emulator (core-based emulators only, e.g.
+    /// RetroArch-style). No-op for every emulator in the real catalog.
+    fn cycle_active_core(&mut self, backward: bool) {
+        if self.modal_state != ModalState::None || self.platforms.is_empty() {
+            return;
+        }
+        let platform = self.platforms[self.selected_platform_idx].clone();
+        let Some(active) = self
+            .db
+            .get_active_runner_for_platform(platform.id)
+            .ok()
+            .flatten()
+        else {
+            return;
+        };
+        let cores = game_core::options::emulator_cores(&active.name);
+        if cores.is_empty() {
+            return;
+        }
+
+        let env_json = self
+            .db
+            .get_runner_env_by_name(&active.name)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let mut env = game_core::options::from_env_json(&env_json);
+        let current = env
+            .active_core
+            .clone()
+            .or_else(|| game_core::options::emulator_default_core(&active.name));
+        let Some(next) = game_core::options::next_core_key(&cores, current.as_deref(), backward)
+        else {
+            return;
+        };
+        env.active_core = Some(next.clone());
+        let _ = self.db.update_runner_env_by_name(
+            &active.name,
+            Some(&game_core::options::to_env_json(&env)),
+        );
+        let label = game_core::options::emulator_core_label(&active.name, &next)
+            .unwrap_or(next.clone());
+        self.status_msg = format!("Núcleo de {}: {}", active.name, label);
+    }
+
+    /// Info rendered by the "Emulador activo" box of the selected platform:
+    /// `(emulator name, Option<core label>)`. The core is only present when the
+    /// active emulator requires core selection. `None` when the platform has no
+    /// emulator at all.
+    pub fn active_emulator_selector_info(&self) -> Option<(String, Option<String>)> {
+        let platform = self.platforms.get(self.selected_platform_idx)?;
+        let active = self
+            .db
+            .get_active_runner_for_platform(platform.id)
+            .ok()
+            .flatten()?;
+        let core_label = if game_core::options::emulator_requires_core_selection(&active.name) {
+            let env_json = self
+                .db
+                .get_runner_env_by_name(&active.name)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let env = game_core::options::from_env_json(&env_json);
+            let current = env
+                .active_core
+                .or_else(|| game_core::options::emulator_default_core(&active.name));
+            current.and_then(|key| game_core::options::emulator_core_label(&active.name, &key))
+        } else {
+            None
+        };
+        Some((active.name.clone(), core_label))
+    }
+
+    /// Auto-switch: whenever the active emulator's executable is gone from disk
+    /// (deleted via [m], [w], or manually), move the active marker to the first
+    /// configured emulator of the same platform. Platforms with no configured
+    /// emulator are left untouched.
+    fn revalidate_active_emulators(&mut self) {
+        let Ok(platforms) = self.db.get_platforms() else {
+            return;
+        };
+        for platform in platforms {
+            let Ok(Some(active)) = self.db.get_active_runner_for_platform(platform.id) else {
+                continue;
+            };
+            let active_ok = active
+                .executable_path
+                .as_ref()
+                .is_some_and(|ex| !ex.trim().is_empty() && Path::new(ex).exists());
+            if active_ok {
+                continue;
+            }
+            let configured = self.configured_runners_for(platform.id);
+            if let Some(candidate) = configured
+                .iter()
+                .find(|r| r.id != active.id && r.executable_path.as_ref().is_some_and(|ex| Path::new(ex).exists()))
+            {
+                let _ = self.db.set_active_runner(platform.id, candidate.id);
+            }
         }
     }
 
@@ -1649,6 +1832,8 @@ impl App {
                         && self.view_mode == ViewMode::CoverCard)
                 {
                     self.update(Action::PrevGame).await;
+                } else if self.focused_pane == FocusedPane::Platforms {
+                    self.update(Action::CycleActiveEmulatorPrev).await;
                 }
             }
             crate::gamepad::GamepadAction::Right => {
@@ -1673,6 +1858,8 @@ impl App {
                         && self.view_mode == ViewMode::CoverCard)
                 {
                     self.update(Action::NextGame).await;
+                } else if self.focused_pane == FocusedPane::Platforms {
+                    self.update(Action::CycleActiveEmulatorNext).await;
                 }
             }
             crate::gamepad::GamepadAction::Confirm => {
@@ -2268,6 +2455,27 @@ impl App {
                     self.load_games_for_selected_platform();
                 }
             }
+            Action::CycleActiveEmulatorNext | Action::CycleActiveEmulatorPrev => {
+                let backward = matches!(action, Action::CycleActiveEmulatorPrev);
+                if self.modal_state != ModalState::None || self.platforms.is_empty() {
+                    return;
+                }
+                // Core-based emulators (RetroArch-style) run a selected core, so
+                // the ◀ ▶ selector drives the nested "Núcleo" row instead of
+                // switching emulators (there is only one anyway).
+                let requires_core = self
+                    .db
+                    .get_active_runner_for_platform(self.platforms[self.selected_platform_idx].id)
+                    .ok()
+                    .flatten()
+                    .map(|r| game_core::options::emulator_requires_core_selection(&r.name))
+                    .unwrap_or(false);
+                if requires_core {
+                    self.cycle_active_core(backward);
+                } else {
+                    self.cycle_active_emulator(backward);
+                }
+            }
             Action::NextGame => {
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
                     self.selected_game_idx = (self.selected_game_idx + 1) % self.games.len();
@@ -2796,6 +3004,7 @@ impl App {
                         download_url: runner_info.download_url.clone(),
                         download_filename: runner_info.download_filename.clone(),
                         is_default: false,
+                        is_active: false,
                         env_vars: Some(env_json),
                     };
 
@@ -6212,6 +6421,12 @@ pub fn get_clipboard_text() -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Both end-to-end tests below rewrite the process-global `XDG_DATA_HOME`
+    /// / `XDG_CACHE_HOME` to isolate their DB. Tests run in parallel threads,
+    /// so they must be serialized or they open each other's database and trip
+    /// SQLite's locking (and leak temp dirs).
+    static XDG_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn destructive_actions_are_rejected_during_input_safe_mode() {
         assert!(is_destructive_action(&Action::Quit));
@@ -6297,7 +6512,9 @@ mod tests {
     /// despacha. Sin juego corriendo, la navegación vuelve a funcionar. El
     /// entorno (DB, caché) se aísla en un directorio temporal vía XDG.
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn dispatcher_blocks_all_input_while_a_game_runs_except_force_close() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
         let old_data = std::env::var_os("XDG_DATA_HOME");
         let old_cache = std::env::var_os("XDG_CACHE_HOME");
         let tmp = std::env::temp_dir().join(format!(
@@ -6343,6 +6560,110 @@ mod tests {
             app.view_mode, view_before,
             "sin juego corriendo la navegación debe ejecutarse"
         );
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// End-to-end del selector "Emulador Activo (◀ ▶)" y de la fila anidada
+    /// "Núcleo": inyecta el emulador ficticio core-based `testcore` junto a
+    /// Ryujinx en Switch y comprueba que ◀ ▶ alterna entre emuladores, que con
+    /// el emulador activo core-based los ◀ ▶ giran el núcleo, y que el
+    /// auto-switch recupera un emulador configurado cuando el ejecutable del
+    /// activo desaparece.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn active_emulator_selector_cycles_emulators_and_cores() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_selector_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let fake_dir = tmp.join("fake");
+        std::fs::create_dir_all(&fake_dir).expect("mkdir");
+        let ryujinx_exe = fake_dir.join("ryujinx");
+        let testcore_exe = fake_dir.join("testcore");
+        std::fs::write(&ryujinx_exe, "#!/bin/sh\n").expect("write ryujinx exe");
+        std::fs::write(&testcore_exe, "#!/bin/sh\n").expect("write testcore exe");
+        let ryujinx_exe_str = ryujinx_exe.to_string_lossy().into_owned();
+        let testcore_exe_str = testcore_exe.to_string_lossy().into_owned();
+
+        {
+            let db = Database::open_default().expect("open DB");
+            db.set_setting("first_run_completed", "true").expect("no wizard");
+            let switch = db
+                .get_platform_by_slug("switch")
+                .expect("query")
+                .expect("switch platform");
+            let testcore_id = db
+                .insert_runner(switch.id, "testcore", "appimage")
+                .expect("insert testcore");
+            let runners = db.get_runners_for_platform(switch.id).expect("runners");
+            let ryujinx = runners
+                .iter()
+                .find(|r| r.name == "Ryujinx")
+                .expect("Ryujinx seeded");
+            db.update_runner_config(ryujinx.id, &ryujinx_exe_str, true)
+                .expect("configure ryujinx");
+            db.update_runner_config(testcore_id, &testcore_exe_str, true)
+                .expect("configure testcore");
+        }
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+        let switch_idx = app
+            .platforms
+            .iter()
+            .position(|p| p.slug == "switch")
+            .expect("switch among platforms");
+        app.selected_platform_idx = switch_idx;
+
+        // Activo inicial: Ryujinx (primera runner configurada, no core-based).
+        let (name, core) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(name, "Ryujinx");
+        assert!(core.is_none());
+
+        // ◀ ▶ alterna entre los emuladores configurados.
+        app.update(Action::CycleActiveEmulatorNext).await;
+        let (name, core) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(name, "testcore");
+        assert_eq!(core.as_deref(), Some("mGBA"));
+
+        // Con testcore activo (core-based) los ◀ ▶ giran el núcleo:
+        // default mgba --prev--> genesis_plus --next--> mgba (wrap) --next--> snes9x.
+        app.update(Action::CycleActiveEmulatorPrev).await;
+        let (_, core) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(core.as_deref(), Some("Genesis Plus GX"));
+        app.update(Action::CycleActiveEmulatorNext).await;
+        let (_, core) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(core.as_deref(), Some("mGBA"));
+        app.update(Action::CycleActiveEmulatorNext).await;
+        let (_, core) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(core.as_deref(), Some("Snes9x"));
+
+        // Auto-switch: si el ejecutable del emulador activo desaparece, el
+        // siguiente load_platforms mueve el flag al primer configurado vivo.
+        std::fs::remove_file(&testcore_exe).expect("remove testcore exe");
+        app.load_platforms();
+        let (name, _) = app.active_emulator_selector_info().expect("selector info");
+        assert_eq!(name, "Ryujinx");
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

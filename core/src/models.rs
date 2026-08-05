@@ -52,6 +52,11 @@ pub struct Runner {
     pub download_url: Option<String>,
     pub download_filename: Option<String>,
     pub is_default: bool,
+    /// True when this is the emulator the platform launches with. At most one
+    /// runner per platform is active; it is picked by the user with the
+    /// "Emulador: ◀ ▶" selector and honored at launch time.
+    #[serde(default)]
+    pub is_active: bool,
     /// JSON payload for emulator options (`emulator_options` map + `custom_args`).
     pub env_vars: Option<String>,
 }

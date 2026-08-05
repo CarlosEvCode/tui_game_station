@@ -101,6 +101,10 @@ pub struct RunnerOptionEnv {
     /// Free-form extra CLI arguments (space separated, quotes respected).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom_args: Option<String>,
+    /// Selected core key for core-based emulators (`requires_core_selection`),
+    /// e.g. RetroArch-style emulators. `None` = use the TOML default core.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_core: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,8 +116,26 @@ struct RawOptionsFile {
     /// apart from AppImage mount/runtime helpers like `memfd:dwarfs`.
     #[serde(default)]
     process_name: Option<String>,
+    /// True for core-based emulators (RetroArch-style): the launcher runs a
+    /// selected core instead of the emulator binary picking the format itself.
+    /// Drives the "Núcleo: ◀ ▶" row in the UI.
+    #[serde(default)]
+    requires_core_selection: bool,
+    /// Core key selected by default when the user never picked one.
+    #[serde(default)]
+    default_core: Option<String>,
+    /// Available cores: `(key, label)` pairs.
+    #[serde(default)]
+    cores: Vec<RawCore>,
     #[serde(default)]
     options: Vec<RawOption>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawCore {
+    key: String,
+    #[serde(default)]
+    label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +198,9 @@ fn emulator_toml_source(key: &str) -> Option<&'static str> {
         "melonds" => Some(include_str!("../../assets/emulators/melonds.toml")),
         "dolphin" => Some(include_str!("../../assets/emulators/dolphin.toml")),
         "mame" => Some(include_str!("../../assets/emulators/mame.toml")),
+        // Fictional emulator used ONLY by tests to exercise the core selector.
+        // Never registered as a runner in the catalog, so it never shows in the app.
+        "testcore" => Some(include_str!("../../assets/emulators/testcore.toml")),
         _ => None,
     }
 }
@@ -272,6 +297,82 @@ pub fn emulator_process_name(name: &str) -> Option<String> {
     raw.process_name
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.to_string())
+}
+
+/// Whether an emulator is core-based (RetroArch-style): the launcher runs a
+/// selected core, so the UI shows the nested "Núcleo: ◀ ▶" selector row.
+/// Every real emulator in the catalog ships without this flag (false); only
+/// the fictional `testcore` TOML used by tests enables it.
+pub fn emulator_requires_core_selection(name: &str) -> bool {
+    let key = canonical_emulator_key(name);
+    let source = match emulator_toml_source(&key) {
+        Some(s) => s,
+        None => return false,
+    };
+    toml::from_str::<RawOptionsFile>(source)
+        .map(|raw| raw.requires_core_selection)
+        .unwrap_or(false)
+}
+
+/// Available cores `(key, label)` for a core-based emulator, in TOML order.
+pub fn emulator_cores(name: &str) -> Vec<(String, String)> {
+    let key = canonical_emulator_key(name);
+    let source = match emulator_toml_source(&key) {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    let Ok(raw) = toml::from_str::<RawOptionsFile>(source) else {
+        return Vec::new();
+    };
+    raw.cores
+        .into_iter()
+        .map(|c| {
+            let label = c.label.unwrap_or_else(|| c.key.clone());
+            (c.key, label)
+        })
+        .collect()
+}
+
+/// The core key selected by default for a core-based emulator, if any.
+pub fn emulator_default_core(name: &str) -> Option<String> {
+    let key = canonical_emulator_key(name);
+    let source = emulator_toml_source(&key)?;
+    let raw: RawOptionsFile = toml::from_str(source).ok()?;
+    raw.default_core
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+}
+
+/// The display label of a core key, if the emulator defines it.
+pub fn emulator_core_label(name: &str, key: &str) -> Option<String> {
+    emulator_cores(name)
+        .into_iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, label)| label)
+}
+
+/// Move one step through a core list, wrapping around. `current` is the
+/// currently selected core key; `None` means the default core is in use.
+pub fn next_core_key(
+    cores: &[(String, String)],
+    current: Option<&str>,
+    backward: bool,
+) -> Option<String> {
+    if cores.is_empty() {
+        return None;
+    }
+    let Some(current) = current else {
+        return Some(cores[0].0.clone());
+    };
+    if cores.len() == 1 {
+        return Some(current.to_string());
+    }
+    let idx = cores
+        .iter()
+        .position(|(k, _)| k == current)
+        .unwrap_or(0);
+    let next = (idx + if backward { cores.len() - 1 } else { 1 }) % cores.len();
+    Some(cores[next].0.clone())
 }
 
 /// Build a full map with every option set to its default value.
@@ -599,6 +700,7 @@ pub fn build_env_json(
                 Some(t.to_string())
             }
         },
+        ..Default::default()
     })
 }
 
@@ -658,6 +760,77 @@ mod tests {
 
     fn azahar() -> Vec<EmulatorOption> {
         load_emulator_options("Azahar").unwrap()
+    }
+
+    #[test]
+    fn no_real_emulator_requires_core_selection() {
+        for name in [
+            "Azahar", "Eden", "Ryujinx", "Citron", "Dolphin", "DuckStation",
+            "PCSX2", "Cemu", "PPSSPP", "melonDS", "MAME", "Redream", "Vita3K",
+        ] {
+            assert!(
+                !emulator_requires_core_selection(name),
+                "{name} must not require core selection"
+            );
+            assert!(emulator_cores(name).is_empty());
+        }
+    }
+
+    #[test]
+    fn fictional_core_emulator_exposes_cores_and_default() {
+        assert!(emulator_requires_core_selection("TestCore"));
+        let cores = emulator_cores("TestCore");
+        let keys: Vec<&str> = cores.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, vec!["mgba", "snes9x", "genesis_plus"]);
+        assert_eq!(cores[0].1, "mGBA");
+        assert_eq!(cores[2].1, "Genesis Plus GX");
+        assert_eq!(
+            emulator_default_core("TestCore").as_deref(),
+            Some("mgba")
+        );
+        assert_eq!(
+            emulator_core_label("TestCore", "snes9x").as_deref(),
+            Some("Snes9x")
+        );
+    }
+
+    #[test]
+    fn next_core_key_cycles_and_wraps() {
+        let cores = emulator_cores("TestCore");
+        assert_eq!(
+            next_core_key(&cores, Some("mgba"), false).as_deref(),
+            Some("snes9x")
+        );
+        assert_eq!(
+            next_core_key(&cores, Some("genesis_plus"), false).as_deref(),
+            Some("mgba"),
+            "wraps forward to the first core"
+        );
+        assert_eq!(
+            next_core_key(&cores, Some("mgba"), true).as_deref(),
+            Some("genesis_plus"),
+            "wraps backward to the last core"
+        );
+        assert_eq!(
+            next_core_key(&cores, None, false).as_deref(),
+            Some("mgba"),
+            "no current core starts at the first one"
+        );
+        assert_eq!(next_core_key(&[], Some("x"), false), None);
+    }
+
+    #[test]
+    fn active_core_roundtrips_through_env_json() {
+        let json = to_env_json(&RunnerOptionEnv {
+            active_core: Some("snes9x".to_string()),
+            ..Default::default()
+        });
+        let env = from_env_json(&json);
+        assert_eq!(env.active_core.as_deref(), Some("snes9x"));
+        // Legacy payloads without the field still parse as before.
+        let env = from_env_json("{\"custom_args\":\"--noconsole\"}");
+        assert_eq!(env.active_core, None);
+        assert_eq!(env.custom_args.as_deref(), Some("--noconsole"));
     }
 
     #[test]

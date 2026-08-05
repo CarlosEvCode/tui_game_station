@@ -1,0 +1,24 @@
+# Fictional emulator used ONLY by tests to exercise the "Núcleo" (core)
+# selector row. It is never registered as a runner in the catalog, so it never
+# appears in the app. Real emulators all omit `requires_core_selection`.
+
+note = "Fictional core-based emulator for tests only"
+process_name = "testcore"
+
+requires_core_selection = true
+default_core = "mgba"
+
+[[cores]]
+key = "mgba"
+label = "mGBA"
+
+[[cores]]
+key = "snes9x"
+label = "Snes9x"
+
+[[cores]]
+key = "genesis_plus"
+label = "Genesis Plus GX"
+
+# No [[options]] on purpose: core-based emulators carry their selection in the
+# core picker, not in per-option flags.

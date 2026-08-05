@@ -410,6 +410,10 @@ async fn main() -> Result<()> {
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                     }
+                                    ModalState::None if app.focused_pane == FocusedPane::Platforms => {
+                                        // ◀ Emulador (o Núcleo) anterior.
+                                        app.update(Action::CycleActiveEmulatorPrev).await;
+                                    }
                                     _ => {
                                         app.update(Action::ModalSelectPrev).await;
                                     }
@@ -507,6 +511,10 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ToggleConfirmDeleteRunnerOption).await;
+                                    }
+                                    ModalState::None if app.focused_pane == FocusedPane::Platforms => {
+                                        // Emulador (o Núcleo) siguiente ▶.
+                                        app.update(Action::CycleActiveEmulatorNext).await;
                                     }
                                     _ => {
                                         app.update(Action::ModalSelectNext).await;

@@ -1,0 +1,119 @@
+# Catalog: which emulators are compatible with each platform.
+# Source of truth for seeding the `runners` table (see core/src/catalog.rs and
+# Database::seed_defaults). Kept as DATA so new emulators ship without touching
+# Rust code. The download_url/download_filename mirror the emulator's GitHub
+# release asset (direct file, not the HTML page). command_template defaults to
+# `"{executable_path}" "{rom}"` and is only overridden here when the emulator
+# needs special launch flags.
+
+[[platform]]
+slug = "3ds"
+
+[[platform.emulators]]
+name = "Azahar"
+runner_type = "appimage"
+download_url = "https://github.com/AzaharPlus/AzaharPlus/releases/download/AZAHAR_PLUS_2126_0_A/azaharplus-2126.0-A-linux.AppImage"
+download_filename = "azahar.AppImage"
+
+[[platform]]
+slug = "ps1"
+
+[[platform.emulators]]
+name = "DuckStation"
+runner_type = "appimage"
+download_url = "https://github.com/stenzek/duckstation/releases/latest/download/DuckStation-x64.AppImage"
+download_filename = "DuckStation-x64.AppImage"
+
+[[platform]]
+slug = "ps2"
+
+[[platform.emulators]]
+name = "PCSX2"
+runner_type = "appimage"
+download_url = "https://github.com/PCSX2/pcsx2/releases/latest/download/pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"
+download_filename = "pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"
+
+[[platform]]
+slug = "gamecube"
+
+[[platform.emulators]]
+name = "Dolphin"
+runner_type = "appimage"
+download_url = "https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
+download_filename = "Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
+
+[[platform]]
+slug = "wii"
+
+[[platform.emulators]]
+name = "Dolphin"
+runner_type = "appimage"
+download_url = "https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
+download_filename = "Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
+
+[[platform]]
+slug = "wii_u"
+
+[[platform.emulators]]
+name = "Cemu"
+runner_type = "appimage"
+download_url = "https://github.com/cemu-project/Cemu/releases/latest/download/Cemu-2.6-x86_64.AppImage"
+download_filename = "Cemu-2.6-x86_64.AppImage"
+
+[[platform]]
+slug = "mame"
+
+[[platform.emulators]]
+name = "MAME"
+runner_type = "appimage"
+download_url = "https://api.github.com/repos/pkgforge-dev/MAME-AppImage/releases/latest"
+download_filename = "MAME.AppImage"
+
+[[platform]]
+slug = "psp"
+
+[[platform.emulators]]
+name = "PPSSPP"
+runner_type = "appimage"
+download_url = "https://github.com/hrydgard/ppsspp/releases/latest/download/PPSSPP-v1.20.4-anylinux-x86_64.AppImage"
+download_filename = "PPSSPP-v1.20.4-anylinux-x86_64.AppImage"
+
+[[platform]]
+slug = "dreamcast"
+
+[[platform.emulators]]
+name = "Redream"
+runner_type = "appimage"
+
+[[platform]]
+slug = "switch"
+
+[[platform.emulators]]
+name = "Ryujinx"
+runner_type = "appimage"
+
+[[platform.emulators]]
+name = "Eden"
+runner_type = "appimage"
+download_url = "https://stable.eden-emu.dev/v0.2.1/Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage"
+download_filename = "Eden-Linux-v0.2.1-amd64-clang-pgo.AppImage"
+
+[[platform.emulators]]
+name = "Citron"
+runner_type = "appimage"
+
+[[platform]]
+slug = "nds"
+
+[[platform.emulators]]
+name = "melonDS"
+runner_type = "appimage"
+download_url = "https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"
+download_filename = "melonDS-1.1-appimage-x86_64.zip"
+
+[[platform]]
+slug = "vita"
+
+[[platform.emulators]]
+name = "Vita3K"
+runner_type = "appimage"
