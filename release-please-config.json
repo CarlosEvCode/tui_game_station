@@ -15,7 +15,33 @@
         { "type": "chore",    "section": "### Maintenance", "hidden": true }
       ],
       "pull-request-title-pattern": "chore(main): release ${version}",
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "tui/Cargo.toml",
+          "replacement": "version = \"${version}\"",
+          "regex": "version = \"\\d+\\.\\d+\\.\\d+\""
+        },
+        {
+          "type": "generic",
+          "path": "core/Cargo.toml",
+          "replacement": "version = \"${version}\"",
+          "regex": "version = \"\\d+\\.\\d+\\.\\d+\""
+        },
+        {
+          "type": "generic",
+          "path": "runner/Cargo.toml",
+          "replacement": "version = \"${version}\"",
+          "regex": "version = \"\\d+\\.\\d+\\.\\d+\""
+        },
+        {
+          "type": "generic",
+          "path": "scraper/Cargo.toml",
+          "replacement": "version = \"${version}\"",
+          "regex": "version = \"\\d+\\.\\d+\\.\\d+\""
+        }
+      ]
     }
   }
 }
