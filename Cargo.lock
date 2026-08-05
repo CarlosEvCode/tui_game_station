@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "game_core"
-version = "1.9.0"
+version = "1.10.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2760,7 +2760,7 @@ dependencies = [
 
 [[package]]
 name = "runner"
-version = "1.9.0"
+version = "1.10.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -2886,7 +2886,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scraper"
-version = "1.9.0"
+version = "1.10.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3609,7 +3609,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tui"
-version = "1.9.0"
+version = "1.10.0"
 dependencies = [
  "anyhow",
  "clap",

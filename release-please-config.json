@@ -15,13 +15,7 @@
         { "type": "chore",    "section": "### Maintenance", "hidden": true }
       ],
       "pull-request-title-pattern": "chore(main): release ${version}",
-      "include-component-in-tag": false,
-      "extra-files": [
-        "tui/Cargo.toml",
-        "core/Cargo.toml",
-        "runner/Cargo.toml",
-        "scraper/Cargo.toml"
-      ]
+      "include-component-in-tag": false
     }
   }
 }
