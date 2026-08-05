@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   # -------------------------------------------------------------------
-  # JOB 1: RELEASE PLEASE (Automated Changelog, Versioning & Release PR)
+  # JOB 1: RELEASE PLEASE — Automated Changelog, Versioning & Release PR
   # -------------------------------------------------------------------
   release-please:
     runs-on: ubuntu-latest
@@ -28,21 +28,142 @@ jobs:
           path: .
 
   # -------------------------------------------------------------------
-  # JOB 2: BUILD & PUBLISH RELEASE ASSETS (Ubuntu 22.04 for max compatibility)
+  # JOB 2: VALIDATE — Gate that verifies tag == Cargo.toml version
+  #         and runs tests before any binary is built or published.
   # -------------------------------------------------------------------
-  build-and-release:
+  validate:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    name: Validate release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag matches Cargo.toml version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.release-please.outputs.tag_name }}"
+          version="${tag#v}"
+
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' tui/Cargo.toml | head -n1)"
+
+          if [[ -z "${cargo_version}" ]]; then
+            echo "::error::Could not read version from tui/Cargo.toml" >&2
+            exit 1
+          fi
+
+          if [[ "${version}" != "${cargo_version}" ]]; then
+            echo "::error::Tag ${tag} does not match tui/Cargo.toml version ${cargo_version}" >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}"         >> "$GITHUB_OUTPUT"
+          echo "✅ Tag ${tag} matches Cargo.toml version ${cargo_version}"
+
+      - name: Verify tag is reachable from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${{ needs.release-please.outputs.tag_name }}" origin/main 2>/dev/null; then
+            if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+              echo "::error::Tagged commit ${GITHUB_SHA} is not reachable from origin/main" >&2
+              exit 1
+            fi
+          fi
+          echo "✅ Commit is on main lineage"
+
+      - name: Extract release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+
+          awk -v version="${version}" '
+            $0 ~ "^## \\[" version "\\]" { in_section = 1; next }
+            in_section && $0 ~ "^## \\["  { exit }
+            in_section { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          # Strip leading blank lines
+          sed -i '/./,$!d' RELEASE_NOTES.md
+
+          if ! grep -q '[^[:space:]]' RELEASE_NOTES.md 2>/dev/null; then
+            echo "::warning::Could not extract release notes for ${version} from CHANGELOG.md — using generic notes"
+            echo "Release ${version}" > RELEASE_NOTES.md
+          fi
+
+          echo "📝 Release notes preview:"
+          head -20 RELEASE_NOTES.md
+
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: RELEASE_NOTES.md
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libsqlite3-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libudev-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests (release gate)
+        run: cargo test
+
+  # -------------------------------------------------------------------
+  # JOB 3: BUILD & PUBLISH — Only runs after validate passes
+  # -------------------------------------------------------------------
+  build-and-release:
+    needs: [release-please, validate]
     name: Build & Publish Release Binaries
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install System Dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libsqlite3-dev libwayland-dev libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libudev-dev
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libsqlite3-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libudev-dev
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -50,36 +171,42 @@ jobs:
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Extract Version Tag & Inject into Cargo.toml
+      - name: Inject version into Cargo.toml files
         run: |
           TAG="${{ needs.release-please.outputs.tag_name }}"
-          VERSION=${TAG#v}
+          VERSION="${TAG#v}"
           echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
-          echo "Injecting release version: $VERSION into Cargo.toml files"
+          echo "Injecting version: $VERSION"
           sed -i "0,/^version = .*/s//version = \"$VERSION\"/" Cargo.toml
           sed -i "0,/^version = .*/s//version = \"$VERSION\"/" tui/Cargo.toml
           sed -i "0,/^version = .*/s//version = \"$VERSION\"/" core/Cargo.toml
           sed -i "0,/^version = .*/s//version = \"$VERSION\"/" runner/Cargo.toml
           sed -i "0,/^version = .*/s//version = \"$VERSION\"/" scraper/Cargo.toml
 
-      - name: Build Release Binary
-        run: |
-          cargo build --release --bin tui
+      - name: Build release binary
+        run: cargo build --release --bin tui
 
-      - name: Package Release Tarball
+      - name: Package release tarball
         run: |
           DIST_DIR="tui_game_station-${{ env.RELEASE_TAG }}-x86_64-unknown-linux-gnu"
           mkdir -p "$DIST_DIR"
           cp target/release/tui "$DIST_DIR/tui-game-station"
-          cp README.md LICENSE "$DIST_DIR/"
+          cp README.md LICENSE "$DIST_DIR/" 2>/dev/null || true
           cp -r docs "$DIST_DIR/" 2>/dev/null || true
           tar -czvf "${DIST_DIR}.tar.gz" "$DIST_DIR"
           sha256sum "${DIST_DIR}.tar.gz" > SHA256SUMS
 
-      - name: Upload Binaries to GitHub Release
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes
+
+      - name: Upload binaries to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
+          body_path: release-notes/RELEASE_NOTES.md
           files: |
             tui_game_station-*-x86_64-unknown-linux-gnu.tar.gz
             SHA256SUMS
