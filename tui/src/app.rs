@@ -3806,9 +3806,17 @@ impl App {
                     let env_json =
                         game_core::options::build_env_json(options, option_values, custom_args);
 
+                    let source = if trimmed_path.starts_with("flatpak run") {
+                        Some("flatpak")
+                    } else if trimmed_path.to_lowercase().contains(".appimage") {
+                        Some("appimage")
+                    } else {
+                        Some("system")
+                    };
+
                     match self
                         .db
-                        .update_runner_by_name(&runner_info.name, trimmed_path)
+                        .update_runner_by_name_with_source(&runner_info.name, trimmed_path, source)
                     {
                         Ok(_) => {
                             let _ = self
