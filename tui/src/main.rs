@@ -225,7 +225,7 @@ async fn main() -> Result<()> {
                                     } else if let ModalState::ScanFolderForm { .. } =
                                         app.modal_state
                                     {
-                                        app.update(Action::SwitchScanFolderSection).await;
+                                        app.update(Action::SwitchScanFolderPane).await;
                                     } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                         app.update(Action::ModalPrevField).await;
                                     } else {
@@ -423,17 +423,17 @@ async fn main() -> Result<()> {
                                     ModalState::ScanFolderForm {
                                         ref platform,
                                         ref folders,
-                                        selected_section,
+                                        focused_pane,
                                         selected_field,
                                         ..
                                     } => {
-                                        // Section 0: field 0 = emulador por
-                                        // defecto de la plataforma; folder rows
-                                        // 1..=N reasignan su emulador con ◀.
-                                        if *selected_section == 0 && *selected_field == 0 {
+                                        // Left pane: field 0 = platform default
+                                        // emulator; folder rows 1..=N re-assign
+                                        // their emulator with ◀.
+                                        if *focused_pane == 0 && *selected_field == 0 {
                                             let p = platform.clone();
                                             app.cycle_active_selector_for(&p, true);
-                                        } else if *selected_section == 0
+                                        } else if *focused_pane == 0
                                             && *selected_field >= 1
                                             && *selected_field <= folders.len()
                                         {
@@ -548,14 +548,14 @@ async fn main() -> Result<()> {
                                     ModalState::ScanFolderForm {
                                         ref platform,
                                         ref folders,
-                                        selected_section,
+                                        focused_pane,
                                         selected_field,
                                         ..
                                     } => {
-                                        if *selected_section == 0 && *selected_field == 0 {
+                                        if *focused_pane == 0 && *selected_field == 0 {
                                             let p = platform.clone();
                                             app.cycle_active_selector_for(&p, false);
-                                        } else if *selected_section == 0
+                                        } else if *focused_pane == 0
                                             && *selected_field >= 1
                                             && *selected_field <= folders.len()
                                         {
@@ -684,10 +684,27 @@ async fn main() -> Result<()> {
                                         } else {
                                             app.update(Action::ModalInputChar(' ')).await;
                                         }
-                                    } else if let ModalState::ScanFolderForm { .. } =
-                                        app.modal_state
+                                    } else if let ModalState::ScanFolderForm {
+                                        focused_pane,
+                                        selected_field,
+                                        ..
+                                    } = app.modal_state
                                     {
-                                        app.update(Action::ModalToggleCheckbox).await;
+                                        // Left pane: Space toggles a folder row
+                                        // in/out of the multi-selection. Right
+                                        // pane: toggles checkboxes or types a
+                                        // space into text fields.
+                                        if focused_pane == 0 && selected_field >= 1 {
+                                            app.update(Action::ToggleSelectFolder).await;
+                                        } else if focused_pane == 0 {
+                                            // Default emulator row: nothing to toggle.
+                                        } else if selected_field == 2
+                                            || selected_field == 3
+                                        {
+                                            app.update(Action::ModalToggleCheckbox).await;
+                                        } else {
+                                            app.update(Action::ModalInputChar(' ')).await;
+                                        }
                                     } else if let ModalState::ManageRunnersStep2Config {
                                         ref options,
                                         ref mut option_values,
@@ -1160,6 +1177,17 @@ async fn main() -> Result<()> {
                                         app.modal_state
                                     {
                                         app.update(Action::DeleteInstalledWineRunner).await;
+                                    } else if let ModalState::ScanFolderForm {
+                                        focused_pane,
+                                        selected_field,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        // Left pane: Delete opens the removal
+                                        // confirmation for the selected rows.
+                                        if focused_pane == 0 && selected_field >= 1 {
+                                            app.update(Action::OpenConfirmDeleteFolder).await;
+                                        }
                                     }
                                 }
                                 KeyCode::Char('v') | KeyCode::Char('V')

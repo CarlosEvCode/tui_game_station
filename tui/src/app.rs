@@ -80,42 +80,49 @@ fn is_action_allowed_while_game_running(action: &Action) -> bool {
 }
 
 /// Field layout of the `ScanFolderForm` (folder manager) modal, split into two
-/// clearly separated sections switched with [Tab] (gamepad bumpers):
+/// side-by-side panes switched with [Tab] (gamepad bumpers):
 ///
 /// ```text
-/// Header (fixed)  : "Folder Manager: <plataforma>"
-///                   "Emulador por Defecto: ◀ X ▶"  (◀ ▶ cycles it)
+/// Header (fixed) : "Folder Manager: <platform>"
+///                  "Default Emulator: ◀ X ▶"  (◀ ▶ cycles it)
 ///
-/// Section 0 - "Carpetas registradas":
-///   0                : emulador por defecto (◀ ▶ cycles it)
-///   1..=num_folders  : folder rows ([Re-escanear] with Enter, ◀ ▶ reassigns
-///                      the folder's emulator)
-///   num_folders + 1  : [Eliminar carpeta seleccionada]
+/// Left pane - "Registered Folders":
+///   0                : default emulator (◀ ▶ cycles it)
+///   1..=num_folders  : folder rows ([Space] toggles selection, [Enter]
+///                      re-scans, ◀ ▶ reassigns the folder's emulator)
+///   num_folders + 1  : [DELETE SELECTED]
 ///
-/// Section 1 - "Añadir carpeta nueva":
-///   0  ruta (Enter / [Examinar...] opens the folder picker)
-///   1  extensiones
-///   2  recursivo toggle
+/// Right pane - "Add New Folder":
+///   0  path (Enter / [Browse...] opens the folder picker)
+///   1  extensions
+///   2  recursive toggle
 ///   3  DAT toggle (when the platform supports DAT identification)
-///   4  [AÑADIR Y ESCANEAR]
+///   4  [ADD FOLDER]
+///   5  [ADD & SCAN ALL]
 /// ```
 pub(crate) fn scan_folder_supports_dat(slug: &str) -> bool {
     game_core::dat_downloader::DatDownloader::supports_dat_identification(slug)
 }
 
-/// Number of focusable fields in the add-folder section (Section 1):
-/// path + extensions + recursive + (DAT) + [ADD & SCAN].
+/// Number of focusable fields in the add-folder pane (right):
+/// path + extensions + recursive + (DAT) + [ADD FOLDER] + [ADD & SCAN ALL].
 pub(crate) fn scan_folder_add_form_total(supports_dat: bool) -> usize {
-    4 + if supports_dat { 1 } else { 0 }
+    5 + if supports_dat { 1 } else { 0 }
 }
 
-/// Index of the [AÑADIR Y ESCANEAR] button inside the add-folder section.
+/// Index of the [ADD FOLDER] button inside the add-folder pane.
 pub(crate) fn scan_folder_add_action_index(supports_dat: bool) -> usize {
     3 + if supports_dat { 1 } else { 0 }
 }
 
-/// Number of focusable fields in the "Carpetas registradas" section:
-/// emulator row + one row per folder + the [DELETE] action row.
+/// Index of the [ADD & SCAN ALL] button inside the add-folder pane (always the
+/// last field).
+pub(crate) fn scan_folder_add_scan_index(supports_dat: bool) -> usize {
+    scan_folder_add_form_total(supports_dat) - 1
+}
+
+/// Number of focusable fields in the "Registered Folders" pane:
+/// emulator row + one row per folder + the [DELETE SELECTED] action row.
 pub(crate) fn scan_folder_section0_total(num_folders: usize) -> usize {
     2 + num_folders
 }
@@ -241,20 +248,26 @@ pub enum ModalState {
     },
     ScanFolderForm {
         platform: Platform,
-        /// Scan folders already registered for this platform. Section 0 rows
-        /// `1..=len` of the modal map to this list; each can be re-scanned,
-        /// re-assigned an emulator (◀ ▶) or deleted.
+        /// Scan folders already registered for this platform. Left-pane rows
+        /// `1..=len` of the modal map to this list; each can be selected with
+        /// [Space], re-scanned with [Enter], re-assigned an emulator (◀ ▶) or
+        /// deleted via [DELETE SELECTED].
         folders: Vec<ScannedFolder>,
+        /// Indices into `folders` toggled selected with [Space], mirroring the
+        /// normal-mode game selection. The [DELETE SELECTED] button acts on
+        /// these; falls back to the focused row when empty.
+        selected: Vec<usize>,
         folder_path: String,
         extensions_input: String,
         recursive: bool,
         use_dat_auto_id: bool,
-        /// Active section: 0 = "Carpetas registradas", 1 = "Añadir carpeta nueva".
-        selected_section: usize,
-        /// Focused field within the active section (see `scan_folder_*` helpers).
+        /// Active pane: 0 = "Registered Folders" (left), 1 = "Add New Folder"
+        /// (right). Switched with [Tab] / gamepad bumpers.
+        focused_pane: usize,
+        /// Focused field within the active pane (see `scan_folder_*` helpers).
         selected_field: usize,
-        /// Index into `folders` of the row targeted by the [DELETE] button.
-        /// Follows the folder row that is (or was last) focused.
+        /// Index into `folders` of the row currently focused (targeted by the
+        /// [DELETE SELECTED] fallback).
         selected_row: usize,
     },
     AddGameForm {
@@ -382,8 +395,12 @@ pub enum ModalState {
     },
     ConfirmDeleteFolder {
         platform_id: i64,
-        folder_id: i64,
-        folder_path: String,
+        folder_ids: Vec<i64>,
+        /// Human summary shown in the dialog, e.g. "the scan folder 'X'" or
+        /// "3 scan folders".
+        display: String,
+        /// 0 = NO (cancel), 1 = YES (remove the folder(s) and their games from
+        /// the library; ROM files stay on disk).
         selected_option: usize,
     },
     PlatformSelector {
@@ -500,9 +517,14 @@ pub enum Action {
     OpenConfirmDeleteFolder,
     ConfirmDeleteFolderExecution,
     ToggleConfirmDeleteFolderOption,
-    /// Switch the folder-manager modal focus between the "Carpetas registradas"
-    /// section and the "Añadir carpeta nueva" form (Tab / gamepad bumpers).
-    SwitchScanFolderSection,
+    /// Register the folder currently filled in the "Add New Folder" pane and
+    /// keep the manager open so more folders can be queued before scanning.
+    AddFolder,
+    /// Toggle a scan folder row in/out of the multi-selection ([Space]).
+    ToggleSelectFolder,
+    /// Switch the folder-manager modal focus between the "Registered Folders"
+    /// pane and the "Add New Folder" form (Tab / gamepad bumpers).
+    SwitchScanFolderPane,
     QuickRescanPlatform,
     ToggleSelectGame,
     ToggleBigPictureMode,
@@ -906,6 +928,106 @@ impl App {
         });
     }
 
+    /// Kick off a sequential background scan of several folders through a single
+    /// progress stream. Only the last folder's event carries `finished: true`,
+    /// with the total number of imported/updated ROMs.
+    fn begin_scan_many(&mut self, jobs: Vec<(Platform, PathBuf, bool, bool, Option<i64>)>) {
+        if jobs.is_empty() {
+            return;
+        }
+        let platform_name = jobs[0].0.name.clone();
+        let total_jobs = jobs.len();
+        let (scan_tx, scan_rx) = mpsc::channel::<game_core::scanner::ScanProgressEvent>(100);
+        self.scan_rx = Some(scan_rx);
+        self.download_progress = Some(DownloadProgressState {
+            runner_id: 0,
+            runner_name: format!("Scanning ROMs: {}", platform_name),
+            downloaded_bytes: 0,
+            total_bytes: 1,
+            percentage: 0.0,
+            is_finished: false,
+            error_msg: None,
+        });
+        self.modal_state = ModalState::None;
+        self.status_msg = format!(
+            "Scanning & Identifying ROMs for {} ({} folder{})...",
+            platform_name,
+            total_jobs,
+            if total_jobs == 1 { "" } else { "s" }
+        );
+
+        let db_path = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+            .join("tui_game_station")
+            .join("game_station.db");
+
+        tokio::spawn(async move {
+            if jobs.iter().any(|j| j.3) {
+                let slug = jobs[0].0.slug.clone();
+                let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+            }
+
+            let mut total_added = 0usize;
+            for (idx, (platform, path, recursive, use_dat, folder_id)) in
+                jobs.into_iter().enumerate()
+            {
+                let folder_num = idx + 1;
+                let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+                let scan_tx_clone = scan_tx.clone();
+                let platform = platform.clone();
+                let path = path.clone();
+                let db_path = db_path.clone();
+
+                let _ = scan_tx_clone
+                    .send(game_core::scanner::ScanProgressEvent {
+                        current: folder_num,
+                        total: total_jobs,
+                        current_title: format!(
+                            "Folder {}/{}: {}",
+                            folder_num,
+                            total_jobs,
+                            path.display()
+                        ),
+                        finished: false,
+                        added_count: 0,
+                        error_msg: None,
+                    })
+                    .await;
+
+                tokio::task::spawn_blocking(move || {
+                    if let Ok(db) = Database::open(&db_path) {
+                        let _ = Scanner::scan_folder(
+                            &db,
+                            &platform,
+                            &path,
+                            recursive,
+                            false,
+                            use_dat,
+                            folder_id,
+                            Some(&sync_tx),
+                        );
+                    }
+                });
+
+                while let Ok(mut evt) = sync_rx.recv() {
+                    if evt.finished {
+                        total_added += evt.added_count;
+                        if folder_num == total_jobs {
+                            evt.added_count = total_added;
+                        } else {
+                            evt.finished = false;
+                            evt.current_title = format!(
+                                "Folder {}/{} scanned.",
+                                folder_num, total_jobs
+                            );
+                        }
+                    }
+                    let _ = scan_tx_clone.send(evt).await;
+                }
+            }
+        });
+    }
+
     /// Rebuild the folder-manager modal (`ScanFolderForm`) for a platform after
     /// a folder was added or deleted, reusing the platform default extensions.
     fn reload_scan_folder_modal(&mut self, platform_id: i64) {
@@ -933,6 +1055,7 @@ impl App {
         self.modal_state = ModalState::ScanFolderForm {
             platform,
             folders,
+            selected: Vec::new(),
             folder_path: String::new(),
             extensions_input: default_exts,
             recursive: true,
@@ -944,21 +1067,22 @@ impl App {
                     .map(|p| p.slug.clone())
                     .unwrap_or_default(),
             ),
-            selected_section: 0,
+            focused_pane: 0,
             selected_field: 0,
             selected_row: 0,
         };
     }
 
-    /// Enter key inside the folder-manager modal: re-scans a focused folder
-    /// row (section 0), opens the folder picker for the add-path field, toggles
-    /// checkboxes or triggers the [ADD & SCAN] button (section 1). Shared by the
-    /// keyboard and gamepad Confirm handlers.
+    /// Enter key inside the folder-manager modal: re-scans a focused folder row
+    /// or opens the delete confirmation (left pane), opens the folder picker for
+    /// the add-path field, toggles checkboxes, registers a folder or starts the
+    /// scan-all (right pane). Shared by the keyboard and gamepad Confirm
+    /// handlers.
     pub async fn handle_scan_form_enter(&mut self) {
         let ModalState::ScanFolderForm {
             ref platform,
             ref folders,
-            selected_section,
+            focused_pane,
             selected_field,
             ..
         } = self.modal_state
@@ -966,14 +1090,14 @@ impl App {
             return;
         };
         let num = folders.len();
-        match selected_section {
+        match focused_pane {
             0 => {
                 if (1..=num).contains(&selected_field) {
                     self.update(Action::RescanFolder).await;
                 } else if selected_field == num + 1 {
                     self.update(Action::OpenConfirmDeleteFolder).await;
                 }
-                // Field 0 = emulador por defecto: ◀ ▶ lo cambia, Enter no hace nada.
+                // Field 0 = default emulator: ◀ ▶ cycles it, Enter does nothing.
             }
             _ => {
                 let supports_dat = scan_folder_supports_dat(&platform.slug);
@@ -982,6 +1106,7 @@ impl App {
                     0 => self.update(Action::OpenFolderPicker).await,
                     1 => self.update(Action::ModalNextField).await,
                     f if f >= 2 && f < add_idx => self.update(Action::ModalToggleCheckbox).await,
+                    f if f == add_idx => self.update(Action::AddFolder).await,
                     _ => self.update(Action::StartFolderScan).await,
                 }
             }
@@ -2083,19 +2208,19 @@ impl App {
                         ModalState::ScanFolderForm {
                             ref platform,
                             ref folders,
-                            selected_section,
+                            focused_pane,
                             selected_field,
                             ..
-                        } if *selected_section == 0 && *selected_field == 0 => {
+                        } if *focused_pane == 0 && *selected_field == 0 => {
                             let p = platform.clone();
                             self.cycle_active_selector_for(&p, true);
                         }
                         ModalState::ScanFolderForm {
                             ref folders,
-                            selected_section,
+                            focused_pane,
                             selected_field,
                             ..
-                        } if *selected_section == 0
+                        } if *focused_pane == 0
                             && *selected_field >= 1
                             && *selected_field <= folders.len() =>
                         {
@@ -2133,19 +2258,19 @@ impl App {
                         ModalState::ScanFolderForm {
                             ref platform,
                             ref folders,
-                            selected_section,
+                            focused_pane,
                             selected_field,
                             ..
-                        } if *selected_section == 0 && *selected_field == 0 => {
+                        } if *focused_pane == 0 && *selected_field == 0 => {
                             let p = platform.clone();
                             self.cycle_active_selector_for(&p, false);
                         }
                         ModalState::ScanFolderForm {
                             ref folders,
-                            selected_section,
+                            focused_pane,
                             selected_field,
                             ..
-                        } if *selected_section == 0
+                        } if *focused_pane == 0
                             && *selected_field >= 1
                             && *selected_field <= folders.len() =>
                         {
@@ -2271,6 +2396,8 @@ impl App {
             crate::gamepad::GamepadAction::ToggleSelectGame => {
                 if self.modal_state == ModalState::None && !self.is_big_picture {
                     self.update(Action::ToggleSelectGame).await;
+                } else if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
+                    self.update(Action::ToggleSelectFolder).await;
                 }
             }
             crate::gamepad::GamepadAction::DeleteSelected => {
@@ -2279,6 +2406,8 @@ impl App {
                     && !self.games.is_empty()
                 {
                     self.update(Action::OpenConfirmDeleteModal).await;
+                } else if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
+                    self.update(Action::OpenConfirmDeleteFolder).await;
                 }
             }
             crate::gamepad::GamepadAction::NextTab => {
@@ -2286,7 +2415,7 @@ impl App {
                     if let ModalState::VisualMediaSelector { .. } = self.modal_state {
                         self.update(Action::SwitchVisualMediaTab).await;
                     } else if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
-                        self.update(Action::SwitchScanFolderSection).await;
+                        self.update(Action::SwitchScanFolderPane).await;
                     }
                 } else {
                     self.update(Action::NextPlatform).await;
@@ -2297,7 +2426,7 @@ impl App {
                     if let ModalState::VisualMediaSelector { .. } = self.modal_state {
                         self.update(Action::SwitchVisualMediaTabPrev).await;
                     } else if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
-                        self.update(Action::SwitchScanFolderSection).await;
+                        self.update(Action::SwitchScanFolderPane).await;
                     }
                 } else {
                     self.update(Action::PrevPlatform).await;
@@ -4858,7 +4987,8 @@ impl App {
                             extensions_input: default_exts,
                             recursive: true,
                             use_dat_auto_id: game_core::dat_downloader::DatDownloader::supports_dat_identification(&p.slug),
-                            selected_section: 0,
+                            focused_pane: 0,
+                            selected: Vec::new(),
                             selected_field: 0,
                             selected_row: 0,
                         };
@@ -4968,12 +5098,12 @@ impl App {
                     ref platform,
                     ref mut recursive,
                     ref mut use_dat_auto_id,
-                    selected_section,
+                    focused_pane,
                     selected_field,
                     ..
                 } = self.modal_state
                 {
-                    if selected_section == 1 {
+                    if focused_pane == 1 {
                         let dat = scan_folder_supports_dat(&platform.slug);
                         if selected_field == 2 {
                             *recursive = !*recursive;
@@ -5048,12 +5178,12 @@ impl App {
                 ModalState::ScanFolderForm {
                     ref platform,
                     ref folders,
-                    ref mut selected_section,
+                    ref mut focused_pane,
                     ref mut selected_field,
                     ref mut selected_row,
                     ..
                 } => {
-                    if *selected_section == 0 {
+                    if *focused_pane == 0 {
                         let total = scan_folder_section0_total(folders.len());
                         *selected_field = (*selected_field + 1) % total;
                         track_scan_folder_row(*selected_field, folders.len(), selected_row);
@@ -5121,12 +5251,12 @@ impl App {
                 ModalState::ScanFolderForm {
                     ref platform,
                     ref folders,
-                    ref mut selected_section,
+                    ref mut focused_pane,
                     ref mut selected_field,
                     ref mut selected_row,
                     ..
                 } => {
-                    if *selected_section == 0 {
+                    if *focused_pane == 0 {
                         let total = scan_folder_section0_total(folders.len());
                         *selected_field = if *selected_field == 0 {
                             total - 1
@@ -5238,12 +5368,12 @@ impl App {
                 } else if let ModalState::ScanFolderForm {
                     ref mut folder_path,
                     ref mut extensions_input,
-                    selected_section,
+                    focused_pane,
                     selected_field,
                     ..
                 } = self.modal_state
                 {
-                    if selected_section == 1 {
+                    if focused_pane == 1 {
                         match selected_field {
                             0 => folder_path.push(ch),
                             1 => extensions_input.push(ch),
@@ -5417,12 +5547,12 @@ impl App {
                 } else if let ModalState::ScanFolderForm {
                     ref mut folder_path,
                     ref mut extensions_input,
-                    selected_section,
+                    focused_pane,
                     selected_field,
                     ..
                 } = self.modal_state
                 {
-                    if selected_section == 1 {
+                    if focused_pane == 1 {
                         match selected_field {
                             0 => {
                                 folder_path.pop();
@@ -5516,20 +5646,12 @@ impl App {
             Action::StartFolderScan => {
                 if let ModalState::ScanFolderForm {
                     ref platform,
-                    ref folder_path,
+                    ref folders,
                     ref extensions_input,
-                    recursive,
                     use_dat_auto_id,
                     ..
                 } = self.modal_state.clone()
                 {
-                    let path = PathBuf::from(folder_path.trim());
-                    if !path.exists() {
-                        self.status_msg =
-                            format!("[Error] Folder path does not exist: '{}'", folder_path);
-                        return;
-                    }
-
                     let selected_extensions: Vec<String> = extensions_input
                         .split(',')
                         .map(str::trim)
@@ -5548,18 +5670,37 @@ impl App {
                             "Error: enter at least one ROM extension to scan.".to_string();
                         return;
                     }
-
+                    if folders.is_empty() {
+                        self.status_msg =
+                            "Error: no folders registered. Use [ADD FOLDER] first.".to_string();
+                        return;
+                    }
                     let mut scan_platform = platform.clone();
                     scan_platform.default_extensions = selected_extensions;
 
-                    // Register the folder first so games get a folder_id and the
-                    // folder manager knows about it.
-                    let folder_id = self
-                        .db
-                        .save_scan_folder(platform.id, folder_path.trim(), recursive)
-                        .ok();
-
-                    self.begin_scan(scan_platform, path, recursive, use_dat_auto_id, folder_id);
+                    let mut jobs: Vec<(Platform, PathBuf, bool, bool, Option<i64>)> = Vec::new();
+                    for folder in folders {
+                        let path = PathBuf::from(&folder.path);
+                        if !path.exists() || !path.is_dir() {
+                            self.status_msg = format!(
+                                "[Error] Folder not found, skipping: '{}'",
+                                folder.path
+                            );
+                            continue;
+                        }
+                        jobs.push((
+                            scan_platform.clone(),
+                            path,
+                            folder.recursive,
+                            use_dat_auto_id,
+                            Some(folder.id),
+                        ));
+                    }
+                    if jobs.is_empty() {
+                        self.status_msg = "[Error] No valid folders to scan.".to_string();
+                        return;
+                    }
+                    self.begin_scan_many(jobs);
                 }
             }
             Action::RescanFolder => {
@@ -5699,18 +5840,42 @@ impl App {
                 if let ModalState::ScanFolderForm {
                     ref platform,
                     ref folders,
+                    ref selected,
                     selected_row,
                     ..
                 } = self.modal_state
                 {
-                    let Some(folder) = folders.get(selected_row) else {
+                    // Like the normal-mode game list: the [DELETE SELECTED]
+                    // button acts on every row toggled with [Space], and falls
+                    // back to the focused row when nothing is selected.
+                    let targets: Vec<usize> = if !selected.is_empty() {
+                        selected.clone()
+                    } else if !folders.is_empty() {
+                        vec![selected_row.min(folders.len() - 1)]
+                    } else {
                         return;
                     };
-                    let folder = folder.clone();
+                    let folder_ids: Vec<i64> = targets
+                        .iter()
+                        .filter_map(|i| folders.get(*i))
+                        .map(|f| f.id)
+                        .collect();
+                    if folder_ids.is_empty() {
+                        return;
+                    }
+                    let display = if folder_ids.len() == 1 {
+                        folders
+                            .iter()
+                            .find(|f| f.id == folder_ids[0])
+                            .map(|f| format!("the scan folder '{}'", f.path))
+                            .unwrap_or_else(|| "the scan folder".to_string())
+                    } else {
+                        format!("{} scan folders", folder_ids.len())
+                    };
                     self.modal_state = ModalState::ConfirmDeleteFolder {
                         platform_id: platform.id,
-                        folder_id: folder.id,
-                        folder_path: folder.path,
+                        folder_ids,
+                        display,
                         selected_option: 0,
                     };
                 }
@@ -5724,22 +5889,22 @@ impl App {
                     *selected_option = if *selected_option == 0 { 1 } else { 0 };
                 }
             }
-            Action::SwitchScanFolderSection => {
+            Action::SwitchScanFolderPane => {
                 if let ModalState::ScanFolderForm {
                     ref platform,
                     ref folders,
-                    ref mut selected_section,
+                    ref mut focused_pane,
                     ref mut selected_field,
                     ..
                 } = self.modal_state
                 {
-                    let next = (*selected_section + 1) % 2;
+                    let next = (*focused_pane + 1) % 2;
                     let total = if next == 0 {
                         scan_folder_section0_total(folders.len())
                     } else {
                         scan_folder_add_form_total(scan_folder_supports_dat(&platform.slug))
                     };
-                    *selected_section = next;
+                    *focused_pane = next;
                     if *selected_field >= total {
                         *selected_field = 0;
                     }
@@ -5748,33 +5913,139 @@ impl App {
             Action::ConfirmDeleteFolderExecution => {
                 if let ModalState::ConfirmDeleteFolder {
                     platform_id,
-                    folder_id,
-                    folder_path,
+                    folder_ids,
+                    display,
                     selected_option,
                 } = self.modal_state.clone()
                 {
-                    // 0 = solo desasociar (los juegos quedan como legacy),
-                    // 1 = eliminar también sus juegos de la biblioteca.
-                    let delete_games = selected_option == 1;
-                    match self.db.delete_scan_folder(folder_id, delete_games) {
-                        Ok(_) => {
-                            self.status_msg = if delete_games {
-                                format!(
-                                    "[OK] Carpeta '{}' eliminada junto con sus juegos.",
-                                    folder_path
-                                )
-                            } else {
-                                format!(
-                                    "[OK] Carpeta '{}' eliminada; sus juegos quedan en la biblioteca.",
-                                    folder_path
-                                )
-                            };
+                    if selected_option == 1 {
+                        let mut ok = 0;
+                        let mut err: Option<String> = None;
+                        for folder_id in &folder_ids {
+                            // Yes = remove the folder and its games from the
+                            // library; ROM files on disk are never touched.
+                            match self.db.delete_scan_folder(*folder_id, true) {
+                                Ok(_) => ok += 1,
+                                Err(e) => {
+                                    err = Some(format!("{}", e));
+                                    break;
+                                }
+                            }
                         }
-                        Err(err) => {
-                            self.status_msg = format!("Error al eliminar carpeta: {}", err);
-                        }
+                        self.status_msg = match err {
+                            Some(e) => format!("Error deleting folder: {}", e),
+                            None => format!(
+                                "[OK] Removed {} (and their games from the library).",
+                                if ok == 1 {
+                                    display
+                                } else {
+                                    format!("{} folders", ok)
+                                }
+                            ),
+                        };
                     }
                     self.reload_scan_folder_modal(platform_id);
+                }
+            }
+            Action::AddFolder => {
+                let ModalState::ScanFolderForm {
+                    ref platform,
+                    ref folders,
+                    ref folder_path,
+                    ref extensions_input,
+                    recursive,
+                    ..
+                } = self.modal_state.clone()
+                else {
+                    return;
+                };
+                let path = folder_path.trim();
+                if path.is_empty() {
+                    self.status_msg =
+                        "Error: enter a folder path or press [Enter] on Path to browse.".to_string();
+                    return;
+                }
+                let pathbuf = PathBuf::from(path);
+                if !pathbuf.exists() || !pathbuf.is_dir() {
+                    self.status_msg = format!(
+                        "Error: folder does not exist or is not a directory: '{}'",
+                        path
+                    );
+                    return;
+                }
+                let selected_extensions: Vec<String> = extensions_input
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|extension| !extension.is_empty())
+                    .map(|extension| {
+                        let extension = extension.to_ascii_lowercase();
+                        if extension.starts_with('.') {
+                            extension
+                        } else {
+                            format!(".{}", extension)
+                        }
+                    })
+                    .collect();
+                if selected_extensions.is_empty() {
+                    self.status_msg =
+                        "Error: enter at least one ROM extension to scan.".to_string();
+                    return;
+                }
+                let already = folders.iter().any(|f| f.path == path);
+                if let Err(e) = self.db.save_scan_folder(platform.id, path, recursive) {
+                    self.status_msg = format!("Error registering folder: {}", e);
+                    return;
+                }
+                self.status_msg = if already {
+                    format!("[OK] '{}' is already registered.", path)
+                } else {
+                    format!("[OK] Folder registered: '{}'.", path)
+                };
+                let platform_id = platform.id;
+                let path_owned = path.to_string();
+                self.reload_scan_folder_modal(platform_id);
+                // Focus the left pane on the folder row that was just added.
+                if let ModalState::ScanFolderForm {
+                    ref folders,
+                    ref mut focused_pane,
+                    ref mut selected_field,
+                    ref mut selected_row,
+                    ..
+                } = self.modal_state
+                {
+                    let row = folders
+                        .iter()
+                        .position(|f| f.path == path_owned)
+                        .unwrap_or(folders.len().saturating_sub(1));
+                    *focused_pane = 0;
+                    *selected_row = row;
+                    *selected_field = row + 1;
+                }
+            }
+            Action::ToggleSelectFolder => {
+                if let ModalState::ScanFolderForm {
+                    ref folders,
+                    ref mut selected,
+                    ref mut selected_field,
+                    ref mut selected_row,
+                    ..
+                } = self.modal_state
+                {
+                    if *selected_field >= 1 && *selected_field <= folders.len() {
+                        let row = *selected_field - 1;
+                        if let Some(pos) = selected.iter().position(|i| *i == row) {
+                            selected.remove(pos);
+                        } else {
+                            selected.push(row);
+                        }
+                        *selected_row = row;
+                        // Move to the next row after toggling, like the normal
+                        // game list (Space selects and advances).
+                        if *selected_field < folders.len() {
+                            *selected_field += 1;
+                            *selected_row = *selected_field - 1;
+                        }
+                    }
                 }
             }
             Action::QuickRescanPlatform => {
@@ -7265,7 +7536,8 @@ mod tests {
             extensions_input: String::new(),
             recursive: true,
             use_dat_auto_id: false,
-            selected_section: 0,
+            focused_pane: 0,
+            selected: Vec::new(),
             selected_field: 0,
             selected_row: 0,
         };
@@ -7402,13 +7674,14 @@ mod tests {
             extensions_input: String::new(),
             recursive: true,
             use_dat_auto_id: false,
-            selected_section: 0,
+            focused_pane: 0,
+            selected: Vec::new(),
             selected_field: 0,
             selected_row: 0,
         };
         let scan_text = render_text(&mut app);
         assert!(
-            scan_text.contains("Emulador por Defecto"),
+            scan_text.contains("Default Emulator: "),
             "selector ausente en el flujo de Scan Folder"
         );
         assert!(
@@ -7509,7 +7782,8 @@ mod tests {
                 extensions_input: ".nsp".to_string(),
                 recursive: true,
                 use_dat_auto_id: false,
-                selected_section: 0,
+                focused_pane: 0,
+            selected: Vec::new(),
                 selected_field,
                 selected_row: 0,
             };
@@ -7564,26 +7838,35 @@ mod tests {
 
         // Move to the [DELETE] button field (last field) and trigger it.
         let delete_idx = scan_folder_section0_total(1) - 1;
+        let folder_id = app
+            .db
+            .get_scan_folders_for_platform(switch.id)
+            .unwrap()
+            .pop()
+            .expect("folder row")
+            .id;
         open_modal(&mut app, delete_idx);
         app.update(Action::OpenConfirmDeleteFolder).await;
         let ModalState::ConfirmDeleteFolder {
             platform_id,
-            folder_id,
-            folder_path,
+            folder_ids,
+            display,
             ..
         } = app.modal_state.clone()
         else {
             panic!("confirm modal open");
         };
         assert_eq!(platform_id, switch.id);
-        assert_eq!(folder_path, fake_path);
+        assert_eq!(folder_ids, vec![folder_id]);
+        assert_eq!(display, format!("the scan folder '{}'", fake_path));
         assert!(app
             .db
             .get_scanned_folder(folder_id)
             .expect("row")
             .is_some());
 
-        // Option 1 = unlink only (games stay, folder gone).
+        // Option 1 = YES: remove the folder and the games it scanned (ROM files
+        // on disk are kept).
         app.update(Action::ToggleConfirmDeleteFolderOption).await;
         let ModalState::ConfirmDeleteFolder {
             selected_option, ..
@@ -7647,7 +7930,9 @@ mod tests {
             .position(|p| p.id == nes.id)
             .expect("nes index");
 
-        // Simula el modal del mini-administrador con la carpeta nueva rellena.
+        // Simula el mini-administrador con la carpeta nueva rellena, regístrala
+        // con [ADD FOLDER] y escanea todas las carpetas registradas con
+        // [ADD & SCAN ALL] (StartFolderScan).
         app.modal_state = ModalState::ScanFolderForm {
             platform: nes.clone(),
             folders: Vec::new(),
@@ -7655,10 +7940,16 @@ mod tests {
             extensions_input: ".nes".to_string(),
             recursive: true,
             use_dat_auto_id: false,
-            selected_section: 1,
+            focused_pane: 1,
+            selected: Vec::new(),
             selected_field: 0,
             selected_row: 0,
         };
+        app.update(Action::AddFolder).await;
+        let ModalState::ScanFolderForm { ref folders, .. } = app.modal_state else {
+            panic!("modal still open after ADD FOLDER");
+        };
+        assert_eq!(folders.len(), 1, "folder registered via ADD FOLDER");
 
         app.update(Action::StartFolderScan).await;
 
