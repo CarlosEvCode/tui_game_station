@@ -93,16 +93,16 @@ pub async fn ensure_core_downloaded<P: AsRef<Path>>(
         .with_context(|| format!("Failed to save temp core zip at {:?}", temp_zip))?;
 
     // Extract using system unzip or 7z
-    let unzip_status = Command::new("unzip")
+    let unzip_output = Command::new("unzip")
         .args(["-o", "-j"])
         .arg(&temp_zip)
         .arg(&core.so_file)
         .arg("-d")
         .arg(target_cores_dir)
-        .status();
+        .output();
 
-    let success = match unzip_status {
-        Ok(s) if s.success() => true,
+    let success = match unzip_output {
+        Ok(out) if out.status.success() => true,
         _ => {
             // Fallback to 7z / 7zr
             Command::new("7z")
@@ -110,8 +110,8 @@ pub async fn ensure_core_downloaded<P: AsRef<Path>>(
                 .arg("-y")
                 .arg(&temp_zip)
                 .arg(format!("-o{}", target_cores_dir.display()))
-                .status()
-                .map(|s| s.success())
+                .output()
+                .map(|out| out.status.success())
                 .unwrap_or(false)
         }
     };

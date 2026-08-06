@@ -51,8 +51,8 @@ download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/pcsx_r
 [[platform.ps1.cores]]
 key = "beetle_psx"
 name = "Beetle PSX HW"
-so_file = "beetle_psx_hw_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/beetle_psx_hw_libretro.so.zip"
+so_file = "mednafen_psx_hw_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mednafen_psx_hw_libretro.so.zip"
 
 [platform.gba]
 [[platform.gba.cores]]

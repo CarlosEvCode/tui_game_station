@@ -227,13 +227,37 @@ impl GameRunner {
 
                 let core_so_path = if let Some(ref key) = resolved_core_key {
                     if let Some(core_info) = game_core::core_catalog::core_by_key(&platform_slug, key) {
-                        cores_dir.join(&core_info.so_file)
+                        let candidate1 = cores_dir.join(&core_info.so_file);
+                        let candidate2 = game_core::retroarch_manager::get_retroarch_managed_dir().join("cores").join(&core_info.so_file);
+                        let candidate3 = game_core::retroarch_manager::get_retroarch_managed_dir().join("RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage.home/.config/retroarch/cores").join(&core_info.so_file);
+                        let candidate4 = game_core::retroarch_manager::get_retroarch_browsed_cores_dir().join(&core_info.so_file);
+
+                        if candidate1.is_file() {
+                            candidate1
+                        } else if candidate2.is_file() {
+                            candidate2
+                        } else if candidate3.is_file() {
+                            candidate3
+                        } else if candidate4.is_file() {
+                            candidate4
+                        } else {
+                            candidate1
+                        }
                     } else {
                         cores_dir.join(format!("{}_libretro.so", key))
                     }
                 } else {
                     cores_dir.join("core_libretro.so")
                 };
+
+                if !core_so_path.is_file() {
+                    let key_str = resolved_core_key.as_deref().unwrap_or("desconocido");
+                    anyhow::bail!(
+                        "El núcleo de RetroArch '{}' no existe en disco ({}). Por favor descargue el núcleo.",
+                        key_str,
+                        core_so_path.display()
+                    );
+                }
 
                 let exe = r.executable_path.clone().unwrap_or_else(|| "retroarch".to_string());
                 let mut retroarch_args = Vec::new();

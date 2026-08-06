@@ -149,17 +149,17 @@ impl RunnerDownloader {
             let output_dir = executable_path
                 .parent()
                 .context("AppImage output path has no parent directory")?;
-            let status = Command::new("unzip")
+            let output = Command::new("unzip")
                 .args(["-o", "-j"])
                 .arg(archive_path)
                 .arg(archive_entry)
                 .arg("-d")
                 .arg(output_dir)
-                .status()
+                .output()
                 .context(
                     "Failed to start unzip; install the 'unzip' package to download melonDS",
                 )?;
-            if !status.success() || !executable_path.is_file() {
+            if !output.status.success() || !executable_path.is_file() {
                 anyhow::bail!(
                     "Could not extract '{}' from the downloaded ZIP",
                     archive_entry

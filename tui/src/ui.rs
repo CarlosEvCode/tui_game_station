@@ -11,9 +11,9 @@ use ratatui::{
 use ratatui_image::{Resize, StatefulImage};
 
 use crate::app::{
-    scan_folder_add_action_index, scan_folder_add_form_total, scan_folder_add_scan_index,
-    scan_folder_section0_total, scan_folder_supports_dat, App, BigPictureFocus, FocusedPane,
-    ModalState, ViewMode,
+    scan_folder_add_action_index, scan_folder_add_core_idx, scan_folder_add_emu_idx,
+    scan_folder_add_has_core, scan_folder_add_scan_index, scan_folder_supports_dat, App,
+    BigPictureFocus, FocusedPane, ModalState, ViewMode,
 };
 use game_core::models::PlatformType;
 
@@ -2144,6 +2144,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref extensions_input,
             recursive,
             use_dat_auto_id,
+            add_emulator_id,
+            ref add_core,
             focused_pane,
             selected_field,
             selected_row,
@@ -2169,34 +2171,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let supports_dat = scan_folder_supports_dat(&platform.slug);
             let num_folders = folders.len();
-            let add_action_idx = scan_folder_add_action_index(supports_dat);
-            let add_total = scan_folder_add_form_total(supports_dat);
-            let add_scan_idx = scan_folder_add_scan_index(supports_dat);
-            let delete_idx = scan_folder_section0_total(num_folders) - 1;
+            let has_core = scan_folder_add_has_core(&app.db, platform.id, add_emulator_id);
+            let emu_idx = scan_folder_add_emu_idx(supports_dat);
+            let core_idx = scan_folder_add_core_idx(supports_dat);
+            let add_action_idx = scan_folder_add_action_index(supports_dat, has_core);
+            let add_scan_idx = scan_folder_add_scan_index(supports_dat, has_core);
+            let delete_idx = num_folders;
 
-            // Fixed header: platform default emulator (left pane, field 0).
-            // ◀ ▶ cycles it via the same selector as the main navigation box.
-            let (emu_name, core_label) = app
-                .active_emulator_selector_info_for(platform.id)
-                .unwrap_or_else(|| ("< no emulator >".to_string(), None));
-            let emu_display = match core_label {
-                Some(core) => format!("{}  (Core: {})", emu_name, core),
-                None => emu_name,
-            };
-            let emu_header = Paragraph::new(Line::from(vec![
-                Span::styled(
-                    "Default Emulator: ",
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    format!("◀ {} ▶", emu_display),
-                    field_style(0, 0),
-                ),
-            ]));
-
-            // Left pane: registered folders. Rows 1..=N ([Space] toggles the
+            // Left pane: registered folders. Rows 0..N-1 ([Space] toggles the
             // multi-selection, [Enter] re-scans, ◀/▶ re-assigns the folder's
-            // emulator) + the [DELETE SELECTED] button.
+            // emulator) + the [DELETE SELECTED] button at row N.
             let runners = app
                 .db
                 .get_runners_for_platform(platform.id)
@@ -2220,10 +2204,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 )));
             } else {
                 for (i, folder) in folders.iter().enumerate() {
-                    let field = i + 1;
                     let count = app.db.get_game_count_for_folder(folder.id).unwrap_or(0);
                     let is_sel = selected.contains(&i);
-                    let base = if focused_pane == 0 && field == selected_field {
+                    let is_focused = focused_pane == 0 && i == selected_field;
+                    let base = if is_focused {
                         Style::default()
                             .fg(Color::Yellow)
                             .add_modifier(Modifier::BOLD)
@@ -2237,8 +2221,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Style::default().fg(Color::White)
                     };
                     left_lines.push(Line::from(vec![
-                        Span::styled(if is_sel { "[x]" } else { "[ ]" }, base),
-                        Span::styled(format!(" {}. {}", field, folder.path), base),
+                        Span::styled(if is_focused { "▶ " } else { "  " }, base),
+                        Span::styled(if is_sel { "[x] " } else { "[ ] " }, base),
+                        Span::styled(format!("{}. {}", i + 1, folder.path), base),
                         Span::styled(
                             format!(
                                 "  ({} game{} · Emu: {})",
@@ -2251,23 +2236,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ]));
                 }
             }
-            let delete_disabled = num_folders == 0;
-            let sel_count = selected.len();
             let delete_selected = focused_pane == 0 && selected_field == delete_idx;
-            let delete_label = if delete_disabled {
-                "[ DELETE SELECTED  (none registered) ]".to_string()
-            } else if sel_count == 0 {
-                "[ DELETE SELECTED  (focused row) ]".to_string()
-            } else if sel_count == 1 {
-                "[ DELETE SELECTED  (1 folder) ]".to_string()
-            } else {
-                format!("[ DELETE SELECTED  ({} folders) ]", sel_count)
-            };
             left_lines.push(Line::from(Span::styled(
-                delete_label,
-                if delete_disabled {
-                    Style::default().fg(Color::DarkGray)
-                } else if delete_selected {
+                format!("{} [ DELETE SELECTED ]", if delete_selected { "▶" } else { " " }),
+                if delete_selected {
                     Style::default()
                         .fg(Color::Black)
                         .bg(Color::Red)
@@ -2281,7 +2253,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let left_widget = Paragraph::new(left_lines).block(
                 Block::default()
-                    .title(Span::styled(" Registered Folders ", pane_style(0)))
+                    .title(Span::styled(" Registered Folders (Tab to switch) ", pane_style(0)))
                     .borders(Borders::ALL)
                     .border_style(pane_style(0)),
             );
@@ -2290,6 +2262,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let mut right_lines = Vec::new();
             let path_selected = focused_pane == 1 && selected_field == 0;
             right_lines.push(Line::from(vec![
+                Span::styled(if path_selected { "▶ " } else { "  " }, field_style(1, 0)),
                 Span::styled("Path: ", field_style(1, 0)),
                 Span::raw(if folder_path.is_empty() {
                     "< [Enter] to pick a folder >"
@@ -2308,12 +2281,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     },
                 ),
             ]));
+            let ext_selected = focused_pane == 1 && selected_field == 1;
             right_lines.push(Line::from(vec![
+                Span::styled(if ext_selected { "▶ " } else { "  " }, field_style(1, 1)),
                 Span::styled("Extensions: ", field_style(1, 1)),
                 Span::raw(extensions_input),
             ]));
+            let rec_selected = focused_pane == 1 && selected_field == 2;
             let rec_check = if recursive { "[x] Yes" } else { "[ ] No" };
             right_lines.push(Line::from(vec![
+                Span::styled(if rec_selected { "▶ " } else { "  " }, field_style(1, 2)),
                 Span::styled(
                     "Scan subfolders recursively: ",
                     field_style(1, 2),
@@ -2326,12 +2303,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 ),
             ]));
             if supports_dat {
+                let dat_selected = focused_pane == 1 && selected_field == 3;
                 let dat_check = if use_dat_auto_id {
                     "[x] Yes (DAT / Serial Auto-ID)"
                 } else {
                     "[ ] No (filename matching)"
                 };
                 right_lines.push(Line::from(vec![
+                    Span::styled(if dat_selected { "▶ " } else { "  " }, field_style(1, 3)),
                     Span::styled(
                         "Automatic DAT identification: ",
                         field_style(1, 3),
@@ -2344,9 +2323,51 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     ),
                 ]));
             }
+
+            // Emulator selection field for Add New Folder
+            let emu_selected = focused_pane == 1 && selected_field == emu_idx;
+            let emu_label = match add_emulator_id {
+                Some(id) => runners
+                    .iter()
+                    .find(|r| r.id == id)
+                    .map(|r| r.name.clone())
+                    .unwrap_or_else(|| "Heredado".to_string()),
+                None => {
+                    let active_name = runners
+                        .iter()
+                        .find(|r| r.is_active)
+                        .map(|r| r.name.clone())
+                        .unwrap_or_else(|| "Ninguno".to_string());
+                    format!("Por defecto ({})", active_name)
+                }
+            };
+            right_lines.push(Line::from(vec![
+                Span::styled(if emu_selected { "▶ " } else { "  " }, field_style(1, emu_idx)),
+                Span::styled("Emulador: ", field_style(1, emu_idx)),
+                Span::styled(format!("◀ {} ▶", emu_label), field_style(1, emu_idx)),
+            ]));
+
+            // Conditional Core field for RetroArch
+            if has_core {
+                let core_selected = focused_pane == 1 && selected_field == core_idx;
+                let emu_name = add_emulator_id
+                    .and_then(|id| runners.iter().find(|r| r.id == id).map(|r| r.name.as_str()))
+                    .unwrap_or("RetroArch");
+                let core_name = add_core
+                    .as_deref()
+                    .and_then(|k| game_core::options::emulator_core_label_for_platform(emu_name, &platform.slug, k))
+                    .unwrap_or_else(|| "Por defecto".to_string());
+
+                right_lines.push(Line::from(vec![
+                    Span::styled(if core_selected { "▶ " } else { "  " }, field_style(1, core_idx)),
+                    Span::styled("Core: ", field_style(1, core_idx)),
+                    Span::styled(format!("◀ {} ▶", core_name), field_style(1, core_idx)),
+                ]));
+            }
+
             let add_selected = focused_pane == 1 && selected_field == add_action_idx;
             right_lines.push(Line::from(Span::styled(
-                "[ ADD FOLDER ]",
+                format!("{} [ ADD FOLDER ]", if add_selected { "▶" } else { " " }),
                 Style::default()
                     .fg(if add_selected { Color::Black } else { Color::Green })
                     .bg(if add_selected { Color::Green } else { Color::Reset })
@@ -2354,7 +2375,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             )));
             let add_scan_selected = focused_pane == 1 && selected_field == add_scan_idx;
             right_lines.push(Line::from(Span::styled(
-                "[ ADD & SCAN ALL ]",
+                format!("{} [ ADD & SCAN ALL ]", if add_scan_selected { "▶" } else { " " }),
                 Style::default()
                     .fg(if add_scan_selected { Color::Black } else { Color::Cyan })
                     .bg(if add_scan_selected { Color::Cyan } else { Color::Reset })
@@ -2377,37 +2398,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 ))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Yellow));
+
             let inner = outer.inner(popup_area);
-
-            let left_min = 2 + std::cmp::max(1, num_folders) + 1;
-            let right_min = 2 + add_total;
-
-            // Header row (full width) above two side-by-side panes.
-            let rows = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(1),
-                    Constraint::Min(std::cmp::max(left_min, right_min) as u16),
-                    Constraint::Length(2),
-                ])
-                .split(inner);
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Min(left_min as u16),
-                    Constraint::Length(1),
-                    Constraint::Min(right_min as u16),
-                ])
-                .split(rows[1]);
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(inner);
 
             frame.render_widget(outer, popup_area);
-            frame.render_widget(emu_header, rows[0]);
             frame.render_widget(left_widget, cols[0]);
-            frame.render_widget(right_widget, cols[2]);
-
-            let help = Paragraph::new(" [Tab] Switch Pane | [Up/Down] Navigate | [◀/▶] Emulator (folder or default) | [Enter] Re-scan / Pick / Action | [Space] Select | [Delete] Remove | [Esc] Back")
-                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(help, rows[2]);
+            frame.render_widget(right_widget, cols[1]);
         }
         ModalState::ConfigureApiKeyInput { ref input } => {
             let mut lines = Vec::new();
@@ -4705,6 +4705,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             vkd3d,
             cursor_pos,
             emulator_override,
+            ref core_override,
             ..
         } => {
             let gtype_name = match game_type {
@@ -4759,12 +4760,27 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             match game_type {
                 PlatformType::Emulator => {
-                    let emu_label = if let Some(game) = app.games.iter().find(|g| g.id == game_id) {
+                    let (emu_label, has_core, core_label) = if let Some(game) = app.games.iter().find(|g| g.id == game_id) {
+                        let platform_id = game.platform_id;
+                        let platform_slug = app.db.get_platforms().unwrap_or_default().into_iter().find(|p| p.id == platform_id).map(|p| p.slug).unwrap_or_default();
                         let choices = crate::edit_game_details::EditGameFormHelper::get_emulator_choices(&app.db, game);
                         let idx = crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(&choices, emulator_override);
-                        choices.get(idx).map(|c| c.display_label.clone()).unwrap_or_else(|| "Heredado".to_string())
+                        let elabel = choices.get(idx).map(|c| c.display_label.clone()).unwrap_or_else(|| "Heredado".to_string());
+
+                        let has_core = scan_folder_add_has_core(&app.db, platform_id, emulator_override);
+
+                        let emu_name = if let Some(id) = emulator_override {
+                            app.db.get_runners_for_platform(platform_id).unwrap_or_default().into_iter().find(|r| r.id == id).map(|r| r.name).unwrap_or_else(|| "RetroArch".to_string())
+                        } else {
+                            app.db.get_runner_for_game(game.platform_id, game.folder_id, None).ok().flatten().map(|r| r.name).unwrap_or_else(|| "RetroArch".to_string())
+                        };
+
+                        let core_choices = crate::edit_game_details::EditGameFormHelper::get_core_choices(&app.db, game, &platform_slug, &emu_name);
+                        let clabel = core_choices.iter().find(|c| c.core_key == *core_override).map(|c| c.display_label.clone()).unwrap_or_else(|| "Heredado".to_string());
+
+                        (elabel, has_core, clabel)
                     } else {
-                        "Heredado".to_string()
+                        ("Heredado".to_string(), false, "Heredado".to_string())
                     };
 
                     lines.push(title_line);
@@ -4780,8 +4796,18 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::styled("3. Emulador: ", field_style(2)),
                         Span::styled(format!("◀ {} ▶", emu_label), field_style(2)),
                     ]));
+
+                    let mut f_idx = 3;
+                    if has_core {
+                        lines.push(Line::from(vec![
+                            Span::styled("4. Core: ", field_style(3)),
+                            Span::styled(format!("◀ {} ▶", core_label), field_style(3)),
+                        ]));
+                        f_idx += 1;
+                    }
+
                     lines.push(Line::from(vec![
-                        Span::styled("4. Custom Command / Args: ", field_style(3)),
+                        Span::styled(format!("{}. Custom Command / Args: ", f_idx + 1), field_style(f_idx)),
                         Span::raw(if custom_command.is_empty() {
                             "< Optional >"
                         } else {
@@ -4789,13 +4815,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         }),
                     ]));
                     lines.push(Line::from(""));
-                    lines.push(mk_cb(gamemode, "GameMode", 4));
-                    lines.push(mk_cb(mangohud, "MangoHud OSD", 5));
-                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 6));
+                    lines.push(mk_cb(gamemode, "GameMode", f_idx + 1));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", f_idx + 2));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", f_idx + 3));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![Span::styled(
                         "[ SAVE CHANGES ]",
-                        field_style(7),
+                        field_style(f_idx + 4),
                     )]));
                 }
                 PlatformType::Native => {

@@ -107,16 +107,17 @@ pub fn extract_7z<P: AsRef<Path>, Q: AsRef<Path>>(archive_path: P, output_dir: Q
         )
     })?;
 
-    let status = Command::new(bin)
+    let output = Command::new(bin)
         .arg("x")
         .arg("-y")
         .arg(archive_path)
         .arg(format!("-o{}", output_dir.display()))
-        .status()
+        .output()
         .with_context(|| format!("Failed to run '{}' tool", bin))?;
 
-    if !status.success() {
-        anyhow::bail!("Fallo la extracción del archivo 7z con el ejecutable '{}'", bin);
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Fallo la extracción del archivo 7z con el ejecutable '{}': {}", bin, err_msg);
     }
 
     Ok(())
