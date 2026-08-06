@@ -185,6 +185,72 @@ impl RunnerDownloader {
         }
     }
 
+    /// Download a .7z runner archive (e.g. RetroArch.7z), extract it using 7z/7zr into target_dir,
+    /// find the inner AppImage, make it executable, clean up the .7z archive, and return the AppImage PathBuf.
+    pub async fn download_7z_appimage_with_progress<P: AsRef<Path>, Q: AsRef<Path>>(
+        url: &str,
+        archive_path: P,
+        target_dir: Q,
+        tx: mpsc::Sender<DownloadEvent>,
+    ) -> Result<PathBuf> {
+        let archive_path = archive_path.as_ref();
+        let target_dir = target_dir.as_ref();
+
+        let result: Result<PathBuf> = async {
+            Self::download_file(url, archive_path, &tx).await?;
+
+            game_core::retroarch_manager::extract_7z(archive_path, target_dir)?;
+
+            let appimage_path = Self::find_appimage_in_dir(target_dir).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No se encontró el ejecutable .AppImage dentro de la carpeta extraída de RetroArch"
+                )
+            })?;
+
+            Self::make_executable(&appimage_path);
+
+            let _ = std::fs::remove_file(archive_path);
+
+            Ok(appimage_path)
+        }
+        .await;
+
+        match result {
+            Ok(path) => {
+                Self::send_finished(&tx, None).await;
+                Ok(path)
+            }
+            Err(error) => {
+                Self::send_finished(&tx, Some(error.to_string())).await;
+                Err(error)
+            }
+        }
+    }
+
+    fn find_appimage_in_dir<P: AsRef<Path>>(dir: P) -> Option<PathBuf> {
+        let dir = dir.as_ref();
+        if !dir.is_dir() {
+            return None;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext.eq_ignore_ascii_case("appimage") {
+                            return Some(path);
+                        }
+                    }
+                } else if path.is_dir() {
+                    if let Some(found) = Self::find_appimage_in_dir(&path) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub async fn download_file(
         url: &str,
         dest_path: &Path,
@@ -309,5 +375,20 @@ mod tests {
                 .unwrap(),
             url
         );
+    }
+
+    #[test]
+    fn test_find_appimage_in_dir_recursive() {
+        let temp_dir = std::env::temp_dir().join(format!("test_find_appimage_{}", std::process::id()));
+        let sub_dir = temp_dir.join("subfolder");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        let dummy_appimage = sub_dir.join("Test-x86_64.AppImage");
+        std::fs::write(&dummy_appimage, "dummy").unwrap();
+
+        let found = RunnerDownloader::find_appimage_in_dir(&temp_dir);
+        assert_eq!(found, Some(dummy_appimage));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

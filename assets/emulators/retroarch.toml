@@ -43,7 +43,7 @@ key = "video_driver"
 name = "Video Driver"
 kind = "choice"
 default = "gl"
-choices = ["gl", "vulkan", "glcore", "sdl2", "xvideo"]
+choices = ["gl", "vulkan", "glcore", "sdl2"]
 [options.config_target]
 file = "retroarch.cfg"
 file_candidates = [

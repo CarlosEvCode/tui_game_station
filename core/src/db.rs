@@ -624,9 +624,22 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_runner_by_name_with_source(
+        &self,
+        runner_name: &str,
+        exe_path: &str,
+        source: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET executable_path = ?2, is_configured = 1, source = ?3 WHERE name = ?1",
+            params![runner_name, exe_path, source],
+        )?;
+        Ok(())
+    }
+
     pub fn reset_runner_by_name(&self, runner_name: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE runners SET executable_path = NULL, is_configured = 0 WHERE name = ?1",
+            "UPDATE runners SET executable_path = NULL, is_configured = 0, source = NULL WHERE name = ?1",
             params![runner_name],
         )?;
         Ok(())

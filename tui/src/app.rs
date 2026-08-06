@@ -3516,6 +3516,8 @@ impl App {
                     };
 
                     let dest_path = target_dir.join(&download_filename);
+                    let is_retroarch_7z = runner_info.name == "RetroArch"
+                        || download_filename.to_lowercase().ends_with(".7z");
                     let is_melonds_archive = runner_info.name == "melonDS"
                         && download_filename
                             .eq_ignore_ascii_case("melonDS-1.1-appimage-x86_64.zip");
@@ -3548,24 +3550,49 @@ impl App {
                         .join("game_station.db");
 
                     tokio::spawn(async move {
-                        let result = if is_melonds_archive {
-                            RunnerDownloader::download_zip_appimage_with_progress(
+                        if is_retroarch_7z {
+                            let managed_retroarch_dir =
+                                game_core::retroarch_manager::get_retroarch_managed_dir();
+                            let result = RunnerDownloader::download_7z_appimage_with_progress(
                                 &download_url,
                                 &dest_path,
-                                &executable_path,
-                                "melonDS-x86_64.AppImage",
+                                &managed_retroarch_dir,
                                 tx,
                             )
-                            .await
-                        } else {
-                            RunnerDownloader::download_with_progress(&download_url, &dest_path, tx)
-                                .await
-                        };
+                            .await;
 
-                        if result.is_ok() {
-                            if let Ok(db) = Database::open(&db_path) {
-                                let _ =
-                                    db.update_runner_by_name(&runner_name, &executable_path_str);
+                            if let Ok(appimage_path) = result {
+                                if let Ok(db) = Database::open(&db_path) {
+                                    let _ = db.update_runner_by_name_with_source(
+                                        &runner_name,
+                                        &appimage_path.to_string_lossy(),
+                                        Some("Downloaded"),
+                                    );
+                                }
+                            }
+                        } else {
+                            let result = if is_melonds_archive {
+                                RunnerDownloader::download_zip_appimage_with_progress(
+                                    &download_url,
+                                    &dest_path,
+                                    &executable_path,
+                                    "melonDS-x86_64.AppImage",
+                                    tx,
+                                )
+                                .await
+                            } else {
+                                RunnerDownloader::download_with_progress(&download_url, &dest_path, tx)
+                                    .await
+                            };
+
+                            if result.is_ok() {
+                                if let Ok(db) = Database::open(&db_path) {
+                                    let _ = db.update_runner_by_name_with_source(
+                                        &runner_name,
+                                        &executable_path_str,
+                                        Some("Downloaded"),
+                                    );
+                                }
                             }
                         }
                     });
