@@ -58,6 +58,15 @@ download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
 download_filename = "RetroArch.7z"
 
 [[platform]]
+slug = "n64"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
 slug = "ps1"
 
 [[platform.emulators]]

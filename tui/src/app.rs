@@ -120,8 +120,12 @@ pub(crate) fn scan_folder_add_core_idx(supports_dat: bool) -> usize {
     scan_folder_add_emu_idx(supports_dat) + 1
 }
 
+pub(crate) fn scan_folder_add_dl_core_idx(supports_dat: bool) -> usize {
+    scan_folder_add_core_idx(supports_dat) + 1
+}
+
 pub(crate) fn scan_folder_add_action_index(supports_dat: bool, has_core: bool) -> usize {
-    scan_folder_add_emu_idx(supports_dat) + 1 + if has_core { 1 } else { 0 }
+    scan_folder_add_emu_idx(supports_dat) + 1 + if has_core { 2 } else { 0 }
 }
 
 pub(crate) fn scan_folder_add_scan_index(supports_dat: bool, has_core: bool) -> usize {
@@ -133,8 +137,8 @@ pub(crate) fn scan_folder_add_form_total(supports_dat: bool, has_core: bool) -> 
 }
 
 /// Total fields of the simplified single-folder scan form: path, extensions,
-/// recursive, optional DAT toggle, emulator, optional core and the final
-/// [Añadir y Escanear] button (which sits at `scan_folder_add_action_index`).
+/// recursive, optional DAT toggle, emulator, optional core, optional [Download Cores] and the final
+/// [Add & Scan] button (which sits at `scan_folder_add_action_index`).
 pub(crate) fn simple_scan_form_total(supports_dat: bool, has_core: bool) -> usize {
     scan_folder_add_action_index(supports_dat, has_core) + 1
 }
@@ -413,6 +417,14 @@ pub enum ModalState {
         add_core: Option<String>,
         selected_field: usize,
     },
+    DownloadCoreModal {
+        platform: Platform,
+        runner: Runner,
+        cores: Vec<game_core::core_catalog::CoreInfo>,
+        downloaded_keys: std::collections::HashSet<String>,
+        selected_idx: usize,
+        parent_state: Box<ModalState>,
+    },
     AddGameForm {
         game_type: PlatformType,
         selected_field: usize,
@@ -677,6 +689,10 @@ pub enum Action {
     /// Register the folder filled in the simplified Add-Game scan form and
     /// scan it immediately with the chosen emulator/core ([Añadir y Escanear]).
     StartAddAndScan,
+    /// Open the core download picker modal from scan folder or edit game forms.
+    OpenDownloadCoreModal,
+    /// Download the currently selected core in DownloadCoreModal.
+    TriggerDownloadCore,
     /// Open the full folder manager (`ScanFolderForm`) for the selected
     /// platform ([e] while the Platforms panel is focused).
     OpenFolderManagerForPlatform,
@@ -1261,10 +1277,12 @@ impl App {
             _ => {
                 let supports_dat = scan_folder_supports_dat(&platform.slug);
                 let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
+                let dl_core_idx = scan_folder_add_dl_core_idx(supports_dat);
                 let add_idx = scan_folder_add_action_index(supports_dat, has_core);
                 match selected_field {
                     0 => self.update(Action::OpenFolderPicker).await,
                     1 => self.update(Action::ModalNextField).await,
+                    f if has_core && f == dl_core_idx => self.update(Action::OpenDownloadCoreModal).await,
                     f if f >= 2 && f < add_idx => self.update(Action::ModalToggleCheckbox).await,
                     f if f == add_idx => self.update(Action::AddFolder).await,
                     _ => self.update(Action::StartFolderScan).await,
@@ -1274,8 +1292,8 @@ impl App {
     }
 
     /// Enter on the simplified single-folder scan form: browse on Path, skip
-    /// text fields, toggle the recursive/DAT checkboxes and start the add+scan
-    /// on the final [Añadir y Escanear] button.
+    /// text fields, toggle the recursive/DAT checkboxes, open Download Cores modal,
+    /// or start the add+scan on the final [Add & Scan] button.
     pub(crate) async fn handle_add_scan_form_enter(&mut self) {
         let ModalState::AddFolderScanForm {
             ref platform,
@@ -1288,10 +1306,12 @@ impl App {
         };
         let supports_dat = scan_folder_supports_dat(&platform.slug);
         let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
+        let dl_core_idx = scan_folder_add_dl_core_idx(supports_dat);
         let action_idx = scan_folder_add_action_index(supports_dat, has_core);
         match selected_field {
             0 => self.update(Action::OpenFolderPicker).await,
             1 => self.update(Action::ModalNextField).await,
+            f if has_core && f == dl_core_idx => self.update(Action::OpenDownloadCoreModal).await,
             f if f == action_idx => self.update(Action::StartAddAndScan).await,
             _ => self.update(Action::ModalToggleCheckbox).await,
         }
@@ -5291,6 +5311,9 @@ impl App {
                 ModalState::WineToolsMenu { .. } => {
                     self.modal_state = ModalState::None;
                 }
+                ModalState::DownloadCoreModal { parent_state, .. } => {
+                    self.modal_state = *parent_state;
+                }
                 _ => {
                     self.modal_state = ModalState::None;
                 }
@@ -5400,6 +5423,15 @@ impl App {
                         ref mut selected_idx,
                     } if !self.platforms.is_empty() => {
                         *selected_idx = (*selected_idx + 1) % self.platforms.len();
+                    }
+                    ModalState::DownloadCoreModal {
+                        ref cores,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !cores.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % cores.len();
+                        }
                     }
                     _ => {}
                 }
@@ -5558,6 +5590,19 @@ impl App {
                             *selected_idx = self.platforms.len() - 1;
                         } else {
                             *selected_idx -= 1;
+                        }
+                    }
+                    ModalState::DownloadCoreModal {
+                        ref cores,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !cores.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = cores.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
                         }
                     }
                     _ => {}
@@ -6963,6 +7008,82 @@ impl App {
                     *focused_pane = 0;
                     *selected_row = row;
                     *selected_field = row;
+                }
+            }
+            Action::OpenDownloadCoreModal => {
+                let current_modal = self.modal_state.clone();
+                let (platform, runner_id) = match &current_modal {
+                    ModalState::ScanFolderForm { platform, add_emulator_id, .. } => (platform.clone(), *add_emulator_id),
+                    ModalState::AddFolderScanForm { platform, add_emulator_id, .. } => (platform.clone(), *add_emulator_id),
+                    _ => return,
+                };
+                let runners = self.db.get_runners_for_platform(platform.id).unwrap_or_default();
+                let runner = match runner_id {
+                    Some(id) => runners.into_iter().find(|r| r.id == id),
+                    None => runners.into_iter().find(|r| r.is_active),
+                };
+                if let Some(r) = runner {
+                    let cores = game_core::core_catalog::cores_for_platform(&platform.slug);
+                    let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(&r);
+                    let downloaded_keys: std::collections::HashSet<String> = cores
+                        .iter()
+                        .filter(|c| cores_dir.join(&c.so_file).is_file())
+                        .map(|c| c.key.clone())
+                        .collect();
+                    self.modal_state = ModalState::DownloadCoreModal {
+                        platform,
+                        runner: r,
+                        cores,
+                        downloaded_keys,
+                        selected_idx: 0,
+                        parent_state: Box::new(current_modal),
+                    };
+                }
+            }
+            Action::TriggerDownloadCore => {
+                if let ModalState::DownloadCoreModal {
+                    platform: _,
+                    ref runner,
+                    ref cores,
+                    ref mut downloaded_keys,
+                    selected_idx,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(core) = cores.get(selected_idx) {
+                        let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(&runner);
+                        let core_info = core.clone();
+                        let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
+                        self.download_rx = Some(rx);
+                        self.download_progress = Some(DownloadProgressState {
+                            runner_id: 0,
+                            runner_name: format!("Core: {}", core_info.name),
+                            downloaded_bytes: 0,
+                            total_bytes: 0,
+                            percentage: 0.0,
+                            is_finished: false,
+                            error_msg: None,
+                        });
+                        self.status_msg = format!("Downloading core {}...", core_info.name);
+
+                        let mut new_keys = downloaded_keys.clone();
+                        new_keys.insert(core_info.key.clone());
+                        if let ModalState::DownloadCoreModal { ref mut downloaded_keys, .. } = self.modal_state {
+                            *downloaded_keys = new_keys;
+                        }
+
+                        tokio::spawn(async move {
+                            let res = game_core::core_catalog::ensure_core_downloaded(&core_info, &cores_dir).await;
+                            let _ = tx.send(DownloadEvent {
+                                downloaded: 100,
+                                total: 100,
+                                percentage: 100.0,
+                                finished: true,
+                                error: res.err().map(|e| e.to_string()),
+                                task_name: Some(format!("Core: {}", core_info.name)),
+                            }).await;
+                        });
+                    }
                 }
             }
             Action::StartAddAndScan => {

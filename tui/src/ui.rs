@@ -2488,7 +2488,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             field_style(1, core_idx),
                         ),
                         Span::styled(
-                            "Core: Sin núcleos descargados — abre RetroArch y descarga uno primero",
+                            "Core: Sin núcleos descargados — abre RetroArch",
                             Style::default().fg(Color::DarkGray),
                         ),
                     ]));
@@ -2504,6 +2504,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::styled(format!("◀ {} ▶", core_name), field_style(1, core_idx)),
                     ]));
                 }
+
+                let dl_core_idx = crate::app::scan_folder_add_dl_core_idx(supports_dat);
+                let dl_selected = focused_pane == 1 && selected_field == dl_core_idx;
+                right_lines.push(Line::from(Span::styled(
+                    format!("{} [ Download Cores ]", if dl_selected { "▶" } else { " " }),
+                    Style::default()
+                        .fg(if dl_selected { Color::Black } else { Color::Yellow })
+                        .bg(if dl_selected { Color::Yellow } else { Color::Reset })
+                        .add_modifier(Modifier::BOLD),
+                )));
             }
 
             let add_selected = focused_pane == 1 && selected_field == add_action_idx;
@@ -2650,7 +2660,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             field_style(core_idx),
                         ),
                         Span::styled(
-                            "Core: Sin núcleos descargados — abre RetroArch y descarga uno primero",
+                            "Core: Sin núcleos descargados — abre RetroArch",
                             Style::default().fg(Color::DarkGray),
                         ),
                     ]));
@@ -2669,6 +2679,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::styled(format!("◀ {} ▶", core_name), field_style(core_idx)),
                     ]));
                 }
+
+                let dl_core_idx = crate::app::scan_folder_add_dl_core_idx(supports_dat);
+                let dl_selected = selected_field == dl_core_idx;
+                lines.push(Line::from(Span::styled(
+                    format!("{} [ Download Cores ]", if dl_selected { "▶" } else { " " }),
+                    Style::default()
+                        .fg(if dl_selected { Color::Black } else { Color::Yellow })
+                        .bg(if dl_selected { Color::Yellow } else { Color::Reset })
+                        .add_modifier(Modifier::BOLD),
+                )));
             }
 
             let add_selected = selected_field == action_idx;
@@ -4046,6 +4066,69 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .add_modifier(Modifier::BOLD),
             );
             frame.render_widget(help, modal_chunks[2]);
+        }
+
+        ModalState::DownloadCoreModal {
+            ref platform,
+            ref runner,
+            ref cores,
+            ref downloaded_keys,
+            selected_idx,
+            ..
+        } => {
+            let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(runner);
+            let items: Vec<ListItem> = cores
+                .iter()
+                .enumerate()
+                .map(|(idx, core)| {
+                    let is_selected = idx == selected_idx;
+                    let is_downloaded = downloaded_keys.contains(&core.key)
+                        || cores_dir.join(&core.so_file).is_file();
+                    let (badge, badge_style) = if is_downloaded {
+                        ("[Downloaded]", Style::default().fg(Color::Green))
+                    } else {
+                        ("[Available]", Style::default().fg(Color::Yellow))
+                    };
+                    let bg = if is_selected { Color::Yellow } else { Color::Reset };
+                    let fg = if is_selected { Color::Black } else { Color::White };
+                    let style = Style::default().fg(fg).bg(bg).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() });
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("  {} ", if is_selected { "▶" } else { " " }), style),
+                        Span::styled(format!("{:20} ", core.name), style),
+                        Span::styled(format!("{:30} ", core.so_file), Style::default().fg(if is_selected { Color::Black } else { Color::DarkGray }).bg(bg)),
+                        Span::styled(badge, if is_selected { Style::default().fg(Color::Black).bg(bg).add_modifier(Modifier::BOLD) } else { badge_style }),
+                    ]))
+                })
+                .collect();
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(
+                        format!(" Download RetroArch Cores for {} ", platform.name),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(
+                " [▲/▼] Select Core | [Enter] Download Selected Core | [Esc] Return to Form",
+            )
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
+            frame.render_widget(help, chunks[1]);
         }
 
         ModalState::SelectWineRunnerPicker {

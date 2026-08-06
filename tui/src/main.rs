@@ -1119,6 +1119,9 @@ async fn main() -> Result<()> {
                                     ModalState::AddFolderScanForm { .. } => {
                                         app.handle_add_scan_form_enter().await;
                                     }
+                                    ModalState::DownloadCoreModal { .. } => {
+                                        app.update(Action::TriggerDownloadCore).await;
+                                    }
                                     ModalState::ManageRunnersStep2Config {
                                         ref runner_info,
                                         ref exe_path_input,
