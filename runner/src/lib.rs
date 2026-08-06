@@ -200,6 +200,11 @@ impl GameRunner {
                     let trimmed = ex.trim();
                     let is_cmd = trimmed.starts_with("flatpak run") || trimmed.contains(' ');
                     if !trimmed.is_empty() && (is_cmd || std::path::Path::new(trimmed).exists()) {
+                        if is_cmd {
+                            // If the command template contains "\" {executable_path} \"", strip quotes so it splits as "flatpak", "run", "net..."
+                            template = template.replace("\"\"{executable_path}\"\"", trimmed);
+                            template = template.replace("\"{executable_path}\"", trimmed);
+                        }
                         template = template.replace("{executable_path}", trimmed);
                     } else {
                         anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}). Presiona [m] para configurar o descargar.", r.name, trimmed);
