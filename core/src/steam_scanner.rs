@@ -84,6 +84,7 @@ impl SteamScanner {
                         let game = Game {
                             id: 0,
                             platform_id: steam_platform.id,
+                            folder_id: None,
                             title: name,
                             sort_title: None,
                             game_type: "steam".to_string(),

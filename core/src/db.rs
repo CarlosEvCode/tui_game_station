@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::models::{Game, GameComponent, Platform, PlatformType, Runner};
+use crate::models::{Game, GameComponent, Platform, PlatformType, Runner, ScannedFolder};
 
 pub struct Database {
     conn: Connection,
@@ -71,7 +71,8 @@ impl Database {
                 platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,
                 path TEXT NOT NULL UNIQUE,
                 recursive BOOLEAN DEFAULT 1,
-                last_scanned_at DATETIME
+                last_scanned_at DATETIME,
+                assigned_emulator_id INTEGER REFERENCES runners(id)
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -184,6 +185,82 @@ impl Database {
         if !has_active {
             self.conn
                 .execute("ALTER TABLE runners ADD COLUMN is_active BOOLEAN DEFAULT 0", [])?;
+        }
+
+        // Migrate pre-existing databases that lack the scan_folders
+        // assigned_emulator_id column (per-folder emulator override).
+        let has_folder_emulator = self
+            .conn
+            .prepare("PRAGMA table_info(scan_folders)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "assigned_emulator_id");
+        if !has_folder_emulator {
+            self.conn.execute(
+                "ALTER TABLE scan_folders ADD COLUMN assigned_emulator_id INTEGER REFERENCES runners(id)",
+                [],
+            )?;
+        }
+
+        // Migrate pre-existing databases that lack the games.folder_id column.
+        // This is also the point where legacy single-folder setups are adopted:
+        // the previously-saved scan folder(s) become ScannedFolders and the
+        // games already under them are associated, so folder-level emulator
+        // overrides work for existing libraries too. Runs once (only when the
+        // column is missing) and never duplicates rows.
+        let has_folder_id = self
+            .conn
+            .prepare("PRAGMA table_info(games)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "folder_id");
+        if !has_folder_id {
+            self.conn
+                .execute("ALTER TABLE games ADD COLUMN folder_id INTEGER REFERENCES scan_folders(id)", [])?;
+            let folders: Vec<(i64, i64, String)> = self
+                .conn
+                .prepare("SELECT id, platform_id, path FROM scan_folders")?
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            for (folder_id, platform_id, path) in folders {
+                let trimmed = path.trim_end_matches('/');
+                let prefix = format!("{}/", trimmed);
+                self.conn.execute(
+                    "UPDATE games SET folder_id = ?1
+                     WHERE folder_id IS NULL
+                       AND platform_id = ?2
+                       AND file_path IS NOT NULL
+                       AND substr(file_path, 1, length(?3)) = ?3",
+                    params![folder_id, platform_id, prefix],
+                )?;
+            }
+        }
+
+        // Clean up the stale "Nintendo DS" platform from the old `ds` slug. It
+        // was renamed to `nds` in the seed list, but the upsert never deletes
+        // the superseded row, leaving two "Nintendo DS" entries on installs
+        // that predate the rename. Safe to remove only when it is a true
+        // orphan (no games, runners or scan folders) and the `nds` platform
+        // exists to take its place.
+        let ds_superseded = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM platforms p
+                 WHERE p.slug = 'ds'
+                   AND EXISTS (SELECT 1 FROM platforms WHERE slug = 'nds')
+                   AND NOT EXISTS (SELECT 1 FROM games WHERE platform_id = p.id)
+                   AND NOT EXISTS (SELECT 1 FROM runners WHERE platform_id = p.id)
+                   AND NOT EXISTS (SELECT 1 FROM scan_folders WHERE platform_id = p.id)",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0);
+        if ds_superseded > 0 {
+            self.conn.execute("DELETE FROM platforms WHERE slug = 'ds'", [])?;
         }
 
         Ok(())
@@ -561,6 +638,48 @@ impl Database {
     // ----------------------------------------------------
     // Scan Folders Persistence
     // ----------------------------------------------------
+    pub fn get_scan_folders_for_platform(&self, platform_id: i64) -> Result<Vec<ScannedFolder>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, platform_id, path, recursive, last_scanned_at, assigned_emulator_id
+             FROM scan_folders WHERE platform_id = ?1 ORDER BY last_scanned_at DESC, id ASC",
+        )?;
+        let rows = stmt.query_map(params![platform_id], |row| {
+            Ok(ScannedFolder {
+                id: row.get(0)?,
+                platform_id: row.get(1)?,
+                path: row.get(2)?,
+                recursive: row.get(3)?,
+                last_scanned_at: row.get(4)?,
+                assigned_emulator_id: row.get(5)?,
+            })
+        })?;
+        let mut list = Vec::new();
+        for r in rows {
+            list.push(r?);
+        }
+        Ok(list)
+    }
+
+    pub fn get_scanned_folder(&self, folder_id: i64) -> Result<Option<ScannedFolder>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, platform_id, path, recursive, last_scanned_at, assigned_emulator_id
+             FROM scan_folders WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query(params![folder_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(ScannedFolder {
+                id: row.get(0)?,
+                platform_id: row.get(1)?,
+                path: row.get(2)?,
+                recursive: row.get(3)?,
+                last_scanned_at: row.get(4)?,
+                assigned_emulator_id: row.get(5)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn get_scan_folder_for_platform(&self, platform_id: i64) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT path FROM scan_folders WHERE platform_id = ?1 ORDER BY last_scanned_at DESC LIMIT 1"
@@ -573,12 +692,15 @@ impl Database {
         }
     }
 
+    /// Upsert a scan folder and return its id. Reusing an existing `path` keeps
+    /// the same folder row (and its `assigned_emulator_id`) instead of
+    /// duplicating entries.
     pub fn save_scan_folder(
         &self,
         platform_id: i64,
         folder_path: &str,
         recursive: bool,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO scan_folders (platform_id, path, recursive, last_scanned_at)
              VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
@@ -588,7 +710,61 @@ impl Database {
                 last_scanned_at = CURRENT_TIMESTAMP",
             params![platform_id, folder_path, recursive],
         )?;
+        let id = self.conn.query_row(
+            "SELECT id FROM scan_folders WHERE path = ?1",
+            params![folder_path],
+            |r| r.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn set_folder_assigned_emulator(
+        &self,
+        folder_id: i64,
+        emulator_id: Option<i64>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE scan_folders SET assigned_emulator_id = ?1 WHERE id = ?2",
+            params![emulator_id, folder_id],
+        )?;
         Ok(())
+    }
+
+    pub fn touch_scan_folder(&self, folder_id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE scan_folders SET last_scanned_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            params![folder_id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a folder row. When `delete_games` is true the games belonging to
+    /// that folder are removed from the library too; otherwise they keep their
+    /// entries but lose their `folder_id`, behaving like legacy games.
+    pub fn delete_scan_folder(&self, folder_id: i64, delete_games: bool) -> Result<()> {
+        if delete_games {
+            self.conn.execute(
+                "DELETE FROM games WHERE folder_id = ?1",
+                params![folder_id],
+            )?;
+        } else {
+            self.conn.execute(
+                "UPDATE games SET folder_id = NULL WHERE folder_id = ?1",
+                params![folder_id],
+            )?;
+        }
+        self.conn
+            .execute("DELETE FROM scan_folders WHERE id = ?1", params![folder_id])?;
+        Ok(())
+    }
+
+    pub fn get_game_count_for_folder(&self, folder_id: i64) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM games WHERE folder_id = ?1",
+            params![folder_id],
+            |r| r.get(0),
+        )?;
+        Ok(count as usize)
     }
 
     // ----------------------------------------------------
@@ -756,6 +932,31 @@ impl Database {
         Ok(runners.into_iter().next())
     }
 
+    /// Emulator resolution for a specific game. If the game belongs to a scan
+    /// folder that pins its own emulator (`assigned_emulator_id`), that
+    /// emulator wins as long as it is still configured; otherwise it falls back
+    /// to the platform resolution. Legacy games without a `folder_id` behave
+    /// exactly as `get_runner_for_platform`.
+    pub fn get_runner_for_game(
+        &self,
+        platform_id: i64,
+        folder_id: Option<i64>,
+    ) -> Result<Option<Runner>> {
+        if let Some(folder_id) = folder_id {
+            if let Some(folder) = self.get_scanned_folder(folder_id)? {
+                if let Some(emulator_id) = folder.assigned_emulator_id {
+                    let runners = self.get_runners_for_platform(platform_id)?;
+                    if let Some(r) = runners.into_iter().find(|r| r.id == emulator_id) {
+                        if r.executable_path.is_some() {
+                            return Ok(Some(r));
+                        }
+                    }
+                }
+            }
+        }
+        self.get_runner_for_platform(platform_id)
+    }
+
     /// Register a custom emulator for a platform (idempotent). Used by the
     /// "add emulator" flow and by tests to inject fictitious emulators like
     /// `testcore`. Returns the runner id.
@@ -850,7 +1051,7 @@ impl Database {
     // ----------------------------------------------------
     pub fn get_games_for_platform(&self, platform_id: i64) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base FROM games WHERE platform_id = ?1 ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id FROM games WHERE platform_id = ?1 ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -887,6 +1088,7 @@ impl Database {
                 created_at: row.get(29)?,
                 updated_at: row.get(30)?,
                 is_missing_base: row.get(31)?,
+                folder_id: row.get(32)?,
                 components: Vec::new(),
             })
         })?;
@@ -901,7 +1103,7 @@ impl Database {
 
     pub fn get_all_games(&self) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base FROM games ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id FROM games ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -938,6 +1140,7 @@ impl Database {
                 created_at: row.get(29)?,
                 updated_at: row.get(30)?,
                 is_missing_base: row.get(31)?,
+                folder_id: row.get(32)?,
                 components: Vec::new(),
             })
         })?;
@@ -956,8 +1159,8 @@ impl Database {
                 platform_id, title, sort_title, game_type, file_path, working_dir,
                 custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
                 file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial,
-                is_missing_base
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                is_missing_base, folder_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
             ON CONFLICT(file_path) DO UPDATE SET
                 title = excluded.title,
                 serial = excluded.serial,
@@ -965,6 +1168,7 @@ impl Database {
                 file_hash_crc32 = excluded.file_hash_crc32,
                 file_size = excluded.file_size,
                 is_missing_base = excluded.is_missing_base,
+                folder_id = excluded.folder_id,
                 updated_at = CURRENT_TIMESTAMP",
             params![
                 game.platform_id,
@@ -986,6 +1190,7 @@ impl Database {
                 game.file_hash_sha1,
                 game.serial,
                 game.is_missing_base,
+                game.folder_id,
             ],
         )?;
 
@@ -1328,6 +1533,135 @@ mod tests {
         // still reports it, while launch resolution skips it.
         let active = db.get_active_runner_for_platform(switch.id).unwrap().unwrap();
         assert_eq!(active.name, "Citron");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn scan_folder_crud_dedups_paths_and_resolves_folder_emulator() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_folder_mgr_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+
+        let switch = db
+            .get_platform_by_slug("switch")
+            .unwrap()
+            .expect("switch platform exists");
+
+        // Two folders registered for the same platform.
+        let folder_a = db
+            .save_scan_folder(switch.id, "/fake/switch/a", true)
+            .unwrap();
+        let folder_b = db
+            .save_scan_folder(switch.id, "/fake/switch/b", false)
+            .unwrap();
+        assert_ne!(folder_a, folder_b);
+
+        // Re-saving the same path reuses the same row (no duplicates).
+        let again = db
+            .save_scan_folder(switch.id, "/fake/switch/a", false)
+            .unwrap();
+        assert_eq!(folder_a, again);
+        let folders = db.get_scan_folders_for_platform(switch.id).unwrap();
+        assert_eq!(folders.len(), 2);
+
+        // A game linked to folder A inherits the platform emulator by default.
+        let game = crate::models::Game {
+            id: 0,
+            platform_id: switch.id,
+            folder_id: Some(folder_a),
+            title: "Zelda".to_string(),
+            sort_title: None,
+            game_type: "rom".to_string(),
+            file_path: Some("/fake/switch/a/zelda.nsp".to_string()),
+            working_dir: None,
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: Some("zelda.nsp".to_string()),
+            file_extension: Some(".nsp".to_string()),
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        };
+        db.insert_game(&game).unwrap();
+        assert_eq!(db.get_game_count_for_folder(folder_a).unwrap(), 1);
+        assert_eq!(db.get_game_count_for_folder(folder_b).unwrap(), 0);
+
+        // Configure two runners; the platform default is Ryujinx.
+        let runners = db.get_runners_for_platform(switch.id).unwrap();
+        let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap();
+        let citron = runners.iter().find(|r| r.name == "Citron").unwrap();
+        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true)
+            .unwrap();
+        db.update_runner_config(citron.id, "/fake/citron", true)
+            .unwrap();
+
+        // Without an override, the game resolves through the platform (Ryujinx).
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a)).unwrap().unwrap();
+        assert_eq!(chosen.name, "Ryujinx");
+
+        // Pin Citron to folder A -> the game now launches with Citron.
+        db.set_folder_assigned_emulator(folder_a, Some(citron.id))
+            .unwrap();
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a)).unwrap().unwrap();
+        assert_eq!(chosen.name, "Citron");
+
+        // Legacy games (no folder) are unaffected by the override.
+        let chosen = db.get_runner_for_game(switch.id, None).unwrap().unwrap();
+        assert_eq!(chosen.name, "Ryujinx");
+
+        // Unlink keeps the game (legacy), remove loses it.
+        db.delete_scan_folder(folder_a, false).unwrap();
+        assert_eq!(db.get_scanned_folder(folder_a).unwrap(), None);
+        assert_eq!(db.get_game_count_for_folder(folder_a).unwrap(), 0);
+        let zelda = db
+            .get_games_for_platform(switch.id)
+            .unwrap()
+            .into_iter()
+            .find(|g| g.title == "Zelda")
+            .expect("Zelda still in library after unlink");
+        assert_eq!(zelda.folder_id, None);
+
+        let game_b = crate::models::Game {
+            folder_id: Some(folder_b),
+            title: "Mario".to_string(),
+            file_path: Some("/fake/switch/b/mario.nsp".to_string()),
+            file_name: Some("mario.nsp".to_string()),
+            file_extension: Some(".nsp".to_string()),
+            ..game
+        };
+        db.insert_game(&game_b).unwrap();
+        db.delete_scan_folder(folder_b, true).unwrap();
+        assert!(
+            db.get_games_for_platform(switch.id)
+                .unwrap()
+                .iter()
+                .all(|g| g.title != "Mario"),
+            "Mario removed from library after folder wipe"
+        );
 
         drop(db);
         let _ = std::fs::remove_file(path);

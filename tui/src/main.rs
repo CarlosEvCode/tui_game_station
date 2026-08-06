@@ -222,6 +222,10 @@ async fn main() -> Result<()> {
                                     } = app.modal_state
                                     {
                                         *selected_field = (*selected_field + 1) % 5;
+                                    } else if let ModalState::ScanFolderForm { .. } =
+                                        app.modal_state
+                                    {
+                                        app.update(Action::SwitchScanFolderSection).await;
                                     } else if key.modifiers.contains(KeyModifiers::SHIFT) {
                                         app.update(Action::ModalPrevField).await;
                                     } else {
@@ -280,6 +284,9 @@ async fn main() -> Result<()> {
                                         } else {
                                             *selected_row - 1
                                         };
+                                    }
+                                    ModalState::ScanFolderForm { .. } => {
+                                        app.update(Action::ModalPrevField).await;
                                     }
                                     _ => {
                                         app.update(Action::ModalSelectPrev).await;
@@ -410,19 +417,27 @@ async fn main() -> Result<()> {
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                     }
+                                    ModalState::ConfirmDeleteFolder { .. } => {
+                                        app.update(Action::ToggleConfirmDeleteFolderOption).await;
+                                    }
                                     ModalState::ScanFolderForm {
                                         ref platform,
+                                        ref folders,
+                                        selected_section,
                                         selected_field,
                                         ..
                                     } => {
-                                        // On the "Emulador Activo" field, ◀ cycles
-                                        // the active emulator (or its core).
-                                        let is_emulator_field = *selected_field == 0;
-                                        let p = platform.clone();
-                                        if is_emulator_field {
+                                        // Section 0: field 0 = emulador por
+                                        // defecto de la plataforma; folder rows
+                                        // 1..=N reasignan su emulador con ◀.
+                                        if *selected_section == 0 && *selected_field == 0 {
+                                            let p = platform.clone();
                                             app.cycle_active_selector_for(&p, true);
-                                        } else {
-                                            app.update(Action::ModalSelectPrev).await;
+                                        } else if *selected_section == 0
+                                            && *selected_field >= 1
+                                            && *selected_field <= folders.len()
+                                        {
+                                            app.update(Action::CycleFolderEmulator(true)).await;
                                         }
                                     }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
@@ -527,19 +542,24 @@ async fn main() -> Result<()> {
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ToggleConfirmDeleteRunnerOption).await;
                                     }
+                                    ModalState::ConfirmDeleteFolder { .. } => {
+                                        app.update(Action::ToggleConfirmDeleteFolderOption).await;
+                                    }
                                     ModalState::ScanFolderForm {
                                         ref platform,
+                                        ref folders,
+                                        selected_section,
                                         selected_field,
                                         ..
                                     } => {
-                                        // On the "Emulador Activo" field, ▶ cycles
-                                        // the active emulator (or its core).
-                                        let is_emulator_field = *selected_field == 0;
-                                        let p = platform.clone();
-                                        if is_emulator_field {
+                                        if *selected_section == 0 && *selected_field == 0 {
+                                            let p = platform.clone();
                                             app.cycle_active_selector_for(&p, false);
-                                        } else {
-                                            app.update(Action::ModalSelectNext).await;
+                                        } else if *selected_section == 0
+                                            && *selected_field >= 1
+                                            && *selected_field <= folders.len()
+                                        {
+                                            app.update(Action::CycleFolderEmulator(false)).await;
                                         }
                                     }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
@@ -858,6 +878,9 @@ async fn main() -> Result<()> {
                                     ModalState::ConfirmDeleteRunner { .. } => {
                                         app.update(Action::ConfirmDeleteRunnerExecution).await;
                                     }
+                                    ModalState::ConfirmDeleteFolder { .. } => {
+                                        app.update(Action::ConfirmDeleteFolderExecution).await;
+                                    }
                                     ModalState::PlatformSelector { .. } => {
                                         app.update(Action::ConfirmPlatformSelectorModal).await;
                                     }
@@ -1001,24 +1024,8 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                     }
-                                    ModalState::ScanFolderForm {
-                                        ref platform,
-                                        selected_field,
-                                        ..
-                                    } => {
-                                        let supports_dat = game_core::dat_downloader::DatDownloader::supports_dat_identification(&platform.slug);
-                                        let action_field_idx = if supports_dat { 5 } else { 4 };
-                                        if selected_field == 1 {
-                                            app.update(Action::OpenFilePicker).await;
-                                        } else if selected_field == 3
-                                            || (supports_dat && selected_field == 4)
-                                        {
-                                            app.update(Action::ModalToggleCheckbox).await;
-                                        } else if selected_field == action_field_idx {
-                                            app.update(Action::StartFolderScan).await;
-                                        } else {
-                                            app.update(Action::ModalNextField).await;
-                                        }
+                                    ModalState::ScanFolderForm { .. } => {
+                                        app.handle_scan_form_enter().await;
                                     }
                                     ModalState::ManageRunnersStep2Config {
                                         ref runner_info,

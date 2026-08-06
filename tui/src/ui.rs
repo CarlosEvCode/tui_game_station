@@ -10,7 +10,11 @@ use ratatui::{
 };
 use ratatui_image::{Resize, StatefulImage};
 
-use crate::app::{App, BigPictureFocus, FocusedPane, ModalState, ViewMode};
+use crate::app::{
+    scan_folder_add_action_index, scan_folder_add_form_total, scan_folder_section0_total,
+    scan_folder_supports_dat, App, BigPictureFocus, FocusedPane,
+    ModalState, ViewMode,
+};
 use game_core::models::PlatformType;
 
 pub const DETAIL_ACTIONS: [&str; 4] = ["Play", "Favorite", "Options", "Delete"];
@@ -308,7 +312,7 @@ fn render_active_emulator_selector(frame: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(lines).block(
         Block::default()
             .title(Span::styled(
-                " Emulador Activo (◀ ▶) ",
+                " Emulador ◀ ▶ ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
@@ -2131,14 +2135,26 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         }
         ModalState::ScanFolderForm {
             ref platform,
+            ref folders,
             ref folder_path,
             ref extensions_input,
             recursive,
             use_dat_auto_id,
+            selected_section,
             selected_field,
+            selected_row,
         } => {
-            let field_style = |idx: usize| {
-                if idx == selected_field {
+            let sec_style = |sec: usize| {
+                if sec == selected_section {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }
+            };
+            let field_style = |sec: usize, idx: usize| {
+                if sec == selected_section && idx == selected_field {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
@@ -2147,20 +2163,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             };
 
-            let mut lines = Vec::new();
-            lines.push(Line::from(vec![
-                Span::styled("Target Platform: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    &platform.name,
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
+            let supports_dat = scan_folder_supports_dat(&platform.slug);
+            let num_folders = folders.len();
+            let add_action_idx = scan_folder_add_action_index(supports_dat);
+            let add_total = scan_folder_add_form_total(supports_dat);
+            let delete_idx = scan_folder_section0_total(num_folders) - 1;
 
-            // The "Emulador Activo" row: reuses the same selector info as the
-            // main navigation box (active emulator + nested core when the
-            // emulator is core-based). ◀ ▶ cycles it while this field is focused.
+            // Fixed header: platform default emulator (section 0, field 0).
+            // ◀ ▶ cycles it via the same selector as the main navigation box.
             let (emu_name, core_label) = app
                 .active_emulator_selector_info_for(platform.id)
                 .unwrap_or_else(|| ("< sin emulador >".to_string(), None));
@@ -2168,31 +2178,141 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 Some(core) => format!("{}  (Núcleo: {})", emu_name, core),
                 None => emu_name,
             };
-            lines.push(Line::from(vec![Span::styled(
-                format!("0. Emulador Activo: ◀ {} ▶", emu_display),
-                field_style(0),
-            )]));
-            lines.push(Line::from(""));
+            let emu_header = Paragraph::new(Line::from(vec![
+                Span::styled(
+                    "Emulador por Defecto: ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!("◀ {} ▶", emu_display),
+                    field_style(0, 0),
+                ),
+            ]));
 
-            lines.push(Line::from(vec![
-                Span::styled("1. Folder Path: ", field_style(1)),
+            // Section 0: registered scan folders. Rows 1..=N (◀/▶ re-assigns the
+            // folder's emulator, [Enter] re-scans it) + delete button targeting
+            // the `selected_row` folder.
+            let runners = app
+                .db
+                .get_runners_for_platform(platform.id)
+                .unwrap_or_default();
+            let folder_emu_label = |assigned: Option<i64>| -> String {
+                match assigned {
+                    Some(id) => runners
+                        .iter()
+                        .find(|r| r.id == id)
+                        .map(|r| r.name.clone())
+                        .unwrap_or_else(|| "?".to_string()),
+                    None => "Heredado".to_string(),
+                }
+            };
+
+            let mut sec0_lines = Vec::new();
+            if num_folders == 0 {
+                sec0_lines.push(Line::from(Span::styled(
+                    "No hay carpetas de ROMs registradas para esta plataforma.",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            } else {
+                for (i, folder) in folders.iter().enumerate() {
+                    let field = i + 1;
+                    let count = app.db.get_game_count_for_folder(folder.id).unwrap_or(0);
+                    let base = if selected_section == 0 && field == selected_field {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else if i == selected_row {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    sec0_lines.push(Line::from(vec![
+                        Span::styled(format!("{}. {}", field, folder.path), base),
+                        Span::styled(
+                            format!(
+                                "  ({} juego{} · Emulador: {})",
+                                count,
+                                if count == 1 { "" } else { "s" },
+                                folder_emu_label(folder.assigned_emulator_id)
+                            ),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::styled(
+                            "  [Re-escanear: Enter]  [Eliminar: ↓]",
+                            if selected_section == 0 && field == selected_field {
+                                Style::default().fg(Color::Green)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            },
+                        ),
+                    ]));
+                }
+            }
+            let delete_disabled = num_folders == 0;
+            let target_path = folders
+                .get(selected_row)
+                .map(|f| f.path.clone())
+                .unwrap_or_default();
+            let delete_selected = selected_section == 0 && selected_field == delete_idx;
+            sec0_lines.push(Line::from(Span::styled(
+                if delete_disabled {
+                    "[ ELIMINAR CARPETA  (ninguna registrada) ]".to_string()
+                } else {
+                    format!("[ ELIMINAR CARPETA: {} ]", target_path)
+                },
+                if delete_disabled {
+                    Style::default().fg(Color::DarkGray)
+                } else if delete_selected {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Red)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::BOLD)
+                },
+            )));
+
+            let sec0_widget = Paragraph::new(sec0_lines).block(
+                Block::default()
+                    .title(Span::styled(" Carpetas Registradas ", sec_style(0)))
+                    .borders(Borders::ALL)
+                    .border_style(sec_style(0)),
+            );
+
+            // Section 1: add-new-folder form.
+            let mut sec1_lines = Vec::new();
+            let path_selected = selected_section == 1 && selected_field == 0;
+            sec1_lines.push(Line::from(vec![
+                Span::styled("Ruta: ", field_style(1, 0)),
                 Span::raw(if folder_path.is_empty() {
-                    "< Press [Enter] to select folder directory >"
+                    "< [Enter] para seleccionar carpeta >"
                 } else {
                     folder_path
                 }),
+                Span::styled(
+                    "  [Examinar...]",
+                    if path_selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Cyan)
+                    },
+                ),
             ]));
-            lines.push(Line::from(""));
-
-            lines.push(Line::from(vec![
-                Span::styled("2. File Extensions: ", field_style(2)),
+            sec1_lines.push(Line::from(vec![
+                Span::styled("Extensiones: ", field_style(1, 1)),
                 Span::raw(extensions_input),
             ]));
-            lines.push(Line::from(""));
-
-            let rec_check = if recursive { "[X] Yes" } else { "[ ] No" };
-            lines.push(Line::from(vec![
-                Span::styled("3. Scan Subfolders Recursively: ", field_style(3)),
+            let rec_check = if recursive { "[X] Sí" } else { "[ ] No" };
+            sec1_lines.push(Line::from(vec![
+                Span::styled(
+                    "Escanear subcarpetas recursivamente: ",
+                    field_style(1, 2),
+                ),
                 Span::styled(
                     rec_check,
                     Style::default()
@@ -2200,20 +2320,17 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
-            lines.push(Line::from(""));
-
-            let supports_dat =
-                game_core::dat_downloader::DatDownloader::supports_dat_identification(
-                    &platform.slug,
-                );
-            let action_field_idx = if supports_dat {
+            if supports_dat {
                 let dat_check = if use_dat_auto_id {
-                    "[X] Yes (DAT / Serial Auto-ID)"
+                    "[X] Sí (DAT / Serial Auto-ID)"
                 } else {
-                    "[ ] No (Raw filenames)"
+                    "[ ] No (nombres de archivo)"
                 };
-                lines.push(Line::from(vec![
-                    Span::styled("4. Automatic DAT Identification: ", field_style(4)),
+                sec1_lines.push(Line::from(vec![
+                    Span::styled(
+                        "Identificación DAT automática: ",
+                        field_style(1, 3),
+                    ),
                     Span::styled(
                         dat_check,
                         Style::default()
@@ -2221,39 +2338,55 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]));
-                lines.push(Line::from(""));
-                5
-            } else {
-                4
-            };
+            }
+            let add_selected = selected_section == 1 && selected_field == add_action_idx;
+            sec1_lines.push(Line::from(Span::styled(
+                "[ AÑADIR Y ESCANEAR CARPETA ]",
+                Style::default()
+                    .fg(if add_selected { Color::Black } else { Color::Green })
+                    .bg(if add_selected { Color::Green } else { Color::Reset })
+                    .add_modifier(Modifier::BOLD),
+            )));
 
-            lines.push(Line::from(vec![Span::styled(
-                "[ START SCANNING ROMS ]",
-                field_style(action_field_idx),
-            )]));
-
-            let p = Paragraph::new(lines).block(
+            let sec1_widget = Paragraph::new(sec1_lines).block(
                 Block::default()
-                    .title(Span::styled(
-                        format!(" Scan ROMs Folder Options: {} ", platform.name),
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ))
+                    .title(Span::styled(" Añadir Carpeta Nueva ", sec_style(1)))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
+                    .border_style(sec_style(1)),
             );
+
+            let outer = Block::default()
+                .title(Span::styled(
+                    format!(" Folder Manager: {} ", platform.name),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+            let inner = outer.inner(popup_area);
+
+            let sec0_min = 2 + std::cmp::max(1, num_folders) + 1;
+            let sec1_min = 2 + add_total;
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(6), Constraint::Length(2)])
-                .split(popup_area);
+                .constraints([
+                    Constraint::Length(1),
+                    Constraint::Min(sec0_min as u16),
+                    Constraint::Min(sec1_min as u16),
+                    Constraint::Length(2),
+                ])
+                .split(inner);
 
-            frame.render_widget(p, chunks[0]);
+            frame.render_widget(outer, popup_area);
+            frame.render_widget(emu_header, chunks[0]);
+            frame.render_widget(sec0_widget, chunks[1]);
+            frame.render_widget(sec1_widget, chunks[2]);
 
-            let help = Paragraph::new(" [Up/Down/Tab] Navigate Fields | [◀/▶] Change Active Emulator | [Enter] Confirm / Select Folder | [Space] Toggle Subfolders | [Esc] Back")
+            let help = Paragraph::new(" [Tab] Cambiar sección | [Up/Down] Navegar | [◀/▶] Emulador (carpeta o por defecto) | [Enter] Re-escanear / Seleccionar / Acción | [Space] Toggle | [Esc] Volver")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(help, chunks[1]);
+            frame.render_widget(help, chunks[3]);
         }
         ModalState::ConfigureApiKeyInput { ref input } => {
             let mut lines = Vec::new();
@@ -3861,6 +3994,88 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(5), Constraint::Length(1)])
+                .split(popup_area);
+
+            frame.render_widget(block, chunks[0]);
+
+            let help =
+                Paragraph::new(" [Left/Right/Tab] Select Option | [Enter] Confirm | [Esc] Cancel")
+                    .alignment(Alignment::Center)
+                    .style(
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    );
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::ConfirmDeleteFolder {
+            ref folder_path,
+            selected_option,
+            ..
+        } => {
+            let popup_area = centered_rect_fixed(64, 9, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let msg = format!(
+                "Are you sure you want to remove the scan folder '{}'?",
+                folder_path
+            );
+
+            let unlink_style = if selected_option == 0 {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let wipe_style = if selected_option == 1 {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let content = vec![
+                Line::from(Span::styled(
+                    msg,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("   [ UNLINK ]   ", unlink_style),
+                    Span::raw("          "),
+                    Span::styled("   [ DELETE + GAMES ]   ", wipe_style),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "UNLINK keeps the games in your library (legacy);\nDELETE + GAMES also removes the games it scanned.",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let block = Paragraph::new(content)
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true })
+                .block(
+                    Block::default()
+                        .title(Span::styled(
+                            " Confirm Folder Deletion ",
+                            Style::default()
+                                .fg(Color::Red)
+                                .add_modifier(Modifier::BOLD),
+                        ))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Red)),
+                );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(1)])
                 .split(popup_area);
 
             frame.render_widget(block, chunks[0]);

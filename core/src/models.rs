@@ -72,19 +72,30 @@ pub struct UniqueRunnerInfo {
     pub is_configured: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScanFolder {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScannedFolder {
     pub id: i64,
     pub platform_id: i64,
     pub path: String,
     pub recursive: bool,
     pub last_scanned_at: Option<String>,
+    /// Emulator explicitly pinned to this folder. `None` means "inherit the
+    /// platform default", i.e. the folder launches with the same emulator the
+    /// platform would pick. Games inside the folder resolve to this emulator
+    /// first, then fall back to the platform resolution.
+    #[serde(default)]
+    pub assigned_emulator_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
     pub id: i64,
     pub platform_id: i64,
+    /// The `scanned_folders` row that produced this game. `None` for legacy
+    /// entries or manually added games: they resolve their emulator exactly as
+    /// before, straight through the platform.
+    #[serde(default)]
+    pub folder_id: Option<i64>,
     pub title: String,
     pub sort_title: Option<String>,
     pub game_type: String,

@@ -25,6 +25,10 @@ pub struct Scanner;
 
 impl Scanner {
     /// Scan a folder for a given platform, calculating hashes and inserting games into the DB.
+    /// `folder_id` links every inserted game to its `scan_folders` row so
+    /// per-folder emulator overrides apply. `None` keeps games as legacy
+    /// (platform resolution only).
+    #[allow(clippy::too_many_arguments)]
     pub fn scan_folder<P: AsRef<Path>>(
         db: &Database,
         platform: &Platform,
@@ -32,6 +36,7 @@ impl Scanner {
         recursive: bool,
         calculate_hashes: bool,
         use_dat_auto_id: bool,
+        folder_id: Option<i64>,
         progress_tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
     ) -> Result<usize> {
         let folder = folder_path.as_ref();
@@ -85,6 +90,7 @@ impl Scanner {
                 folder,
                 recursive,
                 calculate_hashes,
+                folder_id,
                 progress_tx,
             );
         }
@@ -170,6 +176,7 @@ impl Scanner {
             let game = Game {
                 id: 0,
                 platform_id: platform.id,
+                folder_id,
                 title,
                 sort_title: None,
                 game_type: platform.platform_type.to_string(),
@@ -232,6 +239,7 @@ impl Scanner {
         folder: &Path,
         recursive: bool,
         calculate_hashes: bool,
+        folder_id: Option<i64>,
         progress_tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
     ) -> Result<usize> {
         let mut walker = WalkDir::new(folder);
@@ -298,6 +306,7 @@ impl Scanner {
                 false,
                 Vec::new(),
                 calculate_hashes,
+                folder_id,
             );
             let title = game.title.clone();
             if db.insert_game(&game).is_ok() {
@@ -392,7 +401,7 @@ impl Scanner {
                 })
                 .map(|e| clean_game_title(&e.stem))
                 .unwrap_or_default();
-            let game = match build_switch_group_game(platform, group, calculate_hashes) {
+            let game = match build_switch_group_game(platform, group, calculate_hashes, folder_id) {
                 Some(game) => game,
                 None => continue,
             };
@@ -536,6 +545,7 @@ fn build_switch_group_game(
     platform: &Platform,
     entries: Vec<SwitchEntry>,
     calculate_hashes: bool,
+    folder_id: Option<i64>,
 ) -> Option<Game> {
     let mut bases: Vec<&SwitchEntry> = Vec::new();
     let mut updates: Vec<&SwitchEntry> = Vec::new();
@@ -605,6 +615,7 @@ fn build_switch_group_game(
         missing_base,
         components,
         calculate_hashes,
+        folder_id,
     ))
 }
 
@@ -666,11 +677,13 @@ fn game_from_reference(
     missing_base: bool,
     components: Vec<GameComponent>,
     calculate_hashes: bool,
+    folder_id: Option<i64>,
 ) -> Game {
     let meta = file_meta(&reference.path, calculate_hashes);
     Game {
         id: 0,
         platform_id: platform.id,
+        folder_id,
         title,
         sort_title: None,
         game_type: platform.platform_type.to_string(),
@@ -1103,7 +1116,7 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None, None).unwrap();
         assert_eq!(added, 5, "one library entry per Title ID family");
 
         let games = db.get_games_for_platform(platform.id).unwrap();
@@ -1219,7 +1232,7 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None, None).unwrap();
         assert_eq!(
             added, 1,
             "base + update + both DLCs collapse into one entry"
@@ -1281,7 +1294,7 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None).unwrap();
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None, None).unwrap();
         assert_eq!(added, 1, "only the .xci is a valid Switch file");
 
         let games = db.get_games_for_platform(platform.id).unwrap();

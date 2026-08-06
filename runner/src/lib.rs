@@ -874,6 +874,7 @@ mod tests {
         let game = game_core::models::Game {
             id: 0,
             platform_id: 0,
+            folder_id: None,
             title: "1943u".to_string(),
             sort_title: None,
             game_type: "emulator".to_string(),
