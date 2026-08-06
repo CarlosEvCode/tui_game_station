@@ -4796,6 +4796,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     || exe_trimmed.starts_with("flatpak run")
                     || std::path::Path::new(exe_trimmed).exists());
 
+            let is_flatpak_cmd = exe_trimmed.starts_with("flatpak run")
+                || (exe_trimmed.contains(' ') && !std::path::Path::new(exe_trimmed).exists());
+
             struct ActionBtn {
                 label: &'static str,
                 fg: Color,
@@ -4829,10 +4832,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     label: "[ Open ]",
                     fg: Color::Magenta,
                 });
-                btns.push(ActionBtn {
-                    label: "[ Delete ]",
-                    fg: Color::Red,
-                });
+                if !is_flatpak_cmd {
+                    btns.push(ActionBtn {
+                        label: "[ Delete ]",
+                        fg: Color::Red,
+                    });
+                }
             }
 
             let buttons_row = options.len() + 2;

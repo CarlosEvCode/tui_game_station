@@ -3489,7 +3489,13 @@ impl App {
                 if game.game_type == "emulator" {
                     let is_valid = match &runner {
                         Some(r) => match &r.executable_path {
-                            Some(p) => !p.trim().is_empty() && PathBuf::from(p).exists(),
+                            Some(p) => {
+                                let pt = p.trim();
+                                !pt.is_empty()
+                                    && (pt.contains(' ')
+                                        || pt.starts_with("flatpak run")
+                                        || PathBuf::from(pt).exists())
+                            }
                             None => false,
                         },
                         None => false,

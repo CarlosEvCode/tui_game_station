@@ -546,20 +546,23 @@ async fn main() -> Result<()> {
                                                 *cursor_pos += 1;
                                             }
                                         } else {
-                                            let has_executable = runner_info
-                                                .executable_path
-                                                .as_ref()
-                                                .map(|p| {
-                                                    !p.trim().is_empty()
-                                                        && std::path::Path::new(p).exists()
-                                                })
-                                                .unwrap_or(false);
-                                            let mut total_btns = 2;
+                                            let exe_t = exe_path_input.trim();
+                                            let has_executable = !exe_t.is_empty()
+                                                && (exe_t.contains(' ')
+                                                    || exe_t.starts_with("flatpak run")
+                                                    || std::path::Path::new(exe_t).exists());
+                                            let is_flatpak_cmd = exe_t.starts_with("flatpak run")
+                                                || (exe_t.contains(' ')
+                                                    && !std::path::Path::new(exe_t).exists());
+                                            let mut total_btns = 3; // browse + detect + save
                                             if runner_info.download_url.is_some() {
-                                                total_btns += 1;
+                                                total_btns += 1; // download
                                             }
                                             if has_executable {
-                                                total_btns += 2;
+                                                total_btns += 1; // open
+                                                if !is_flatpak_cmd {
+                                                    total_btns += 1; // delete (only for file paths)
+                                                }
                                             }
                                             if *selected_action_idx + 1 < total_btns {
                                                 *selected_action_idx += 1;
@@ -1166,6 +1169,9 @@ async fn main() -> Result<()> {
                                                 && (exe_trimmed.contains(' ')
                                                     || exe_trimmed.starts_with("flatpak run")
                                                     || std::path::Path::new(exe_trimmed).exists());
+                                            let is_flatpak_cmd = exe_trimmed.starts_with("flatpak run")
+                                                || (exe_trimmed.contains(' ')
+                                                    && !std::path::Path::new(exe_trimmed).exists());
                                             let mut actions = vec!["browse", "detect"];
                                             if runner_info.download_url.is_some() {
                                                 actions.push("download");
@@ -1173,9 +1179,9 @@ async fn main() -> Result<()> {
                                             actions.push("save");
                                             if has_executable {
                                                 actions.push("open");
-                                            }
-                                            if has_executable {
-                                                actions.push("delete");
+                                                if !is_flatpak_cmd {
+                                                    actions.push("delete");
+                                                }
                                             }
 
                                             let act = actions
