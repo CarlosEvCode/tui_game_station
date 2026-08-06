@@ -15,6 +15,12 @@ runner_type = "appimage"
 download_url = "https://github.com/AzaharPlus/AzaharPlus/releases/download/AZAHAR_PLUS_2126_0_A/azaharplus-2126.0-A-linux.AppImage"
 download_filename = "azahar.AppImage"
 
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
 [[platform]]
 slug = "snes"
 
@@ -75,6 +81,12 @@ runner_type = "appimage"
 download_url = "https://github.com/PCSX2/pcsx2/releases/latest/download/pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"
 download_filename = "pcsx2-v2.6.3-linux-appimage-x64-Qt.AppImage"
 
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
 [[platform]]
 slug = "gamecube"
 
@@ -84,6 +96,12 @@ runner_type = "appimage"
 download_url = "https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
 download_filename = "Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
 
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
 [[platform]]
 slug = "wii"
 
@@ -92,6 +110,12 @@ name = "Dolphin"
 runner_type = "appimage"
 download_url = "https://github.com/pkgforge-dev/Dolphin-emu-AppImage/releases/latest/download/Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
 download_filename = "Dolphin_Emulator-2606-anylinux-x86_64.AppImage"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
 
 [[platform]]
 slug = "wii_u"
@@ -111,6 +135,12 @@ runner_type = "appimage"
 download_url = "https://api.github.com/repos/pkgforge-dev/MAME-AppImage/releases/latest"
 download_filename = "MAME.AppImage"
 
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
 [[platform]]
 slug = "psp"
 
@@ -120,12 +150,60 @@ runner_type = "appimage"
 download_url = "https://github.com/hrydgard/ppsspp/releases/latest/download/PPSSPP-v1.20.4-anylinux-x86_64.AppImage"
 download_filename = "PPSSPP-v1.20.4-anylinux-x86_64.AppImage"
 
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
 [[platform]]
 slug = "dreamcast"
 
 [[platform.emulators]]
 name = "Redream"
 runner_type = "appimage"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "saturn"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "pce"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "pico8"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "javame"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
 
 [[platform]]
 slug = "switch"
@@ -152,6 +230,15 @@ name = "melonDS"
 runner_type = "appimage"
 download_url = "https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"
 download_filename = "melonDS-1.1-appimage-x86_64.zip"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "gb"
 
 [[platform.emulators]]
 name = "RetroArch"

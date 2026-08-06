@@ -9214,7 +9214,7 @@ mod tests {
         // El selector de núcleo filtra por `.so` reales en disco (no el catálogo).
         let disk_cores = add_scan_available_cores(&app.db, &nds, None);
         let disk_keys: Vec<&str> = disk_cores.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(disk_keys, vec!["melondsds", "melonds", "desmume"]);
+        assert_eq!(disk_keys, vec!["melonds", "desmume", "melondsds"]);
 
         // Flujo A → Scan Folder → confirmar plataforma → AddFolderScanForm.
         app.update(Action::OpenAddGameModal).await;
@@ -9245,7 +9245,7 @@ mod tests {
         assert_eq!(add_emulator_id, &None, "no explicit emulator override yet");
         assert_eq!(
             add_core.as_deref(),
-            Some("melondsds"),
+            Some("melonds"),
             "seeded from .so on disk (catalog default)"
         );
 
@@ -9263,7 +9263,7 @@ mod tests {
             panic!("modal closed");
         };
         assert_eq!(add_emulator_id, &Some(rid));
-        assert_eq!(add_core.as_deref(), Some("melondsds"));
+        assert_eq!(add_core.as_deref(), Some("melonds"));
         *folder_path = fake_path.clone();
         *extensions_input = "nds".to_string();
         app.update(Action::StartAddAndScan).await;
@@ -9272,7 +9272,7 @@ mod tests {
         let folders = app.db.get_scan_folders_for_platform(nds.id).expect("folders");
         let folder = folders.first().expect("saved folder");
         assert_eq!(folder.assigned_emulator_id, Some(rid));
-        assert_eq!(folder.assigned_core.as_deref(), Some("melondsds"));
+        assert_eq!(folder.assigned_core.as_deref(), Some("melonds"));
 
         // Esperar a que termine el escaneo asíncrono real.
         let mut waited = 0;
@@ -9304,7 +9304,7 @@ mod tests {
             .iter()
             .find(|f| f.assigned_emulator_id == Some(rid))
             .expect("folder with override");
-        assert_eq!(f.assigned_core.as_deref(), Some("melondsds"));
+        assert_eq!(f.assigned_core.as_deref(), Some("melonds"));
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

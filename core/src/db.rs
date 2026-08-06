@@ -325,13 +325,13 @@ impl Database {
         // This is deliberately an upsert rather than a first-run-only seed.  Older
         // installations receive new systems and corrected extension lists on startup.
         let platforms = [
-            ("3ds", "Nintendo 3DS", "emulator", ".3ds, .cia, .cci, .cxi"),
-            ("nds", "Nintendo DS", "emulator", ".nds, .ds"),
+            ("3ds", "Nintendo 3DS", "emulator", ".3ds, .cci, .cia"),
+            ("nds", "Nintendo DS", "emulator", ".nds, .zip"),
             (
                 "snes",
                 "Nintendo Super NES",
                 "emulator",
-                ".sfc, .smc, .zip, .7z",
+                ".sfc, .smc, .swc, .zip, .7z",
             ),
             (
                 "gba",
@@ -339,12 +339,12 @@ impl Database {
                 "emulator",
                 ".gba, .zip, .7z",
             ),
-            ("n64", "Nintendo 64", "emulator", ".z64, .v64, .n64, .zip"),
+            ("n64", "Nintendo 64", "emulator", ".n64, .z64, .v64"),
             (
                 "ps1",
                 "Sony PlayStation",
                 "emulator",
-                ".bin, .chd, .pbp, .cue",
+                ".cue, .chd, .pbp",
             ),
             ("ps2", "Sony PlayStation 2", "emulator", ".iso, .chd"),
             (
@@ -368,12 +368,36 @@ impl Database {
                 "emulator",
                 ".wua, .rpx, .wud, .wux",
             ),
-            ("mame", "Arcade (MAME)", "emulator", ".zip, .7z"),
+            ("mame", "Arcade", "emulator", ".zip"),
             (
                 "dreamcast",
-                "Sega Dreamcast",
+                "Sega Dreamcast / Naomi",
                 "emulator",
-                ".chd, .gdi, .cdi",
+                ".cdi, .gdi, .chd",
+            ),
+            (
+                "saturn",
+                "Sega Saturn",
+                "emulator",
+                ".cue, .chd",
+            ),
+            (
+                "pce",
+                "NEC PC Engine / TurboGrafx-16",
+                "emulator",
+                ".pce, .chd, .cue, .zip",
+            ),
+            (
+                "pico8",
+                "PICO-8",
+                "emulator",
+                ".p8, .png",
+            ),
+            (
+                "javame",
+                "Java ME",
+                "emulator",
+                ".jar, .jad",
             ),
             (
                 "switch",

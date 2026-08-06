@@ -1,6 +1,26 @@
-# Curated initial catalog of RetroArch cores per platform.
+# Curated catalog of RetroArch cores per platform.
 # Linux x86_64 cores URL convention:
 # https://buildbot.libretro.com/nightly/linux/x86_64/latest/{so_filename}.zip
+
+[platform.nes]
+[[platform.nes.cores]]
+key = "mesen"
+name = "Mesen"
+so_file = "mesen_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mesen_libretro.so.zip"
+
+[[platform.nes.cores]]
+key = "nestopia"
+name = "Nestopia UE"
+so_file = "nestopia_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/nestopia_libretro.so.zip"
+
+[[platform.nes.cores]]
+key = "fceumm"
+name = "FCEUmm"
+so_file = "fceumm_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/fceumm_libretro.so.zip"
+
 
 [platform.snes]
 [[platform.snes.cores]]
@@ -15,29 +35,55 @@ name = "bsnes"
 so_file = "bsnes_libretro.so"
 download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/bsnes_libretro.so.zip"
 
-[platform.megadrive]
-[[platform.megadrive.cores]]
-key = "genesis_plus_gx"
-name = "Genesis Plus GX"
-so_file = "genesis_plus_gx_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/genesis_plus_gx_libretro.so.zip"
+[[platform.snes.cores]]
+key = "supafaust"
+name = "Beetle Supafaust"
+so_file = "mednafen_supafaust_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mednafen_supafaust_libretro.so.zip"
 
-[[platform.megadrive.cores]]
-key = "picodrive"
-name = "PicoDrive"
-so_file = "picodrive_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/picodrive_libretro.so.zip"
+
+[platform.gb]
+[[platform.gb.cores]]
+key = "gambatte"
+name = "Gambatte"
+so_file = "gambatte_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/gambatte_libretro.so.zip"
+
+[[platform.gb.cores]]
+key = "sameboy"
+name = "SameBoy"
+so_file = "sameboy_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/sameboy_libretro.so.zip"
+
+[[platform.gb.cores]]
+key = "gearboy"
+name = "Gearboy"
+so_file = "gearboy_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/gearboy_libretro.so.zip"
+
+
+[platform.gba]
+[[platform.gba.cores]]
+key = "mgba"
+name = "mGBA"
+so_file = "mgba_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mgba_libretro.so.zip"
+
+[[platform.gba.cores]]
+key = "gpsp"
+name = "gpSP"
+so_file = "gpsp_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/gpsp_libretro.so.zip"
+
+[[platform.gba.cores]]
+key = "vbam"
+name = "VBA-M"
+so_file = "vbam_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/vbam_libretro.so.zip"
+
 
 [platform.nds]
-# `melondsds` (melonDS DS) is the default: the newer `melonds` core ships with
-# a GNU_STACK executable-stack flag that hardened kernels (e.g. CachyOS) refuse
-# to grant, so `dlopen` fails and RetroArch exits with code 1.
-[[platform.nds.cores]]
-key = "melondsds"
-name = "melonDS DS"
-so_file = "melondsds_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/melondsds_libretro.so.zip"
-
+# `melonds` core note: on some hardened kernels melonds_libretro.so has GNU_STACK RWX flags, so melondsds is listed as alternative/default.
 [[platform.nds.cores]]
 key = "melonds"
 name = "melonDS"
@@ -50,12 +96,75 @@ name = "DeSmuME"
 so_file = "desmume_libretro.so"
 download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/desmume_libretro.so.zip"
 
+[[platform.nds.cores]]
+key = "noods"
+name = "NooDS"
+so_file = "noods_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/noods_libretro.so.zip"
+
+[[platform.nds.cores]]
+key = "melondsds"
+name = "melonDS DS"
+so_file = "melondsds_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/melondsds_libretro.so.zip"
+
+
+[platform.3ds]
+[[platform.3ds.cores]]
+key = "azahar"
+name = "Azahar"
+so_file = "azahar_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/azahar_libretro.so.zip"
+
+[[platform.3ds.cores]]
+key = "panda3ds"
+name = "Panda3DS"
+so_file = "panda3ds_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/panda3ds_libretro.so.zip"
+
+[[platform.3ds.cores]]
+key = "citra"
+name = "Citra"
+so_file = "citra_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/citra_libretro.so.zip"
+
+
+[platform.n64]
+[[platform.n64.cores]]
+key = "mupen64plus_next"
+name = "Mupen64Plus-Next"
+so_file = "mupen64plus_next_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mupen64plus_next_libretro.so.zip"
+
+[[platform.n64.cores]]
+key = "parallel_n64"
+name = "ParaLLEl N64"
+so_file = "parallel_n64_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/parallel_n64_libretro.so.zip"
+
+
+[platform.gamecube]
+[[platform.gamecube.cores]]
+key = "dolphin"
+name = "Dolphin"
+so_file = "dolphin_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/dolphin_libretro.so.zip"
+
+
+[platform.wii]
+[[platform.wii.cores]]
+key = "dolphin"
+name = "Dolphin"
+so_file = "dolphin_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/dolphin_libretro.so.zip"
+
+
 [platform.ps1]
 [[platform.ps1.cores]]
-key = "pcsx_rearmed"
-name = "PCSX ReARMed"
-so_file = "pcsx_rearmed_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/pcsx_rearmed_libretro.so.zip"
+key = "swanstation"
+name = "SwanStation"
+so_file = "swanstation_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/swanstation_libretro.so.zip"
 
 [[platform.ps1.cores]]
 key = "beetle_psx"
@@ -63,28 +172,134 @@ name = "Beetle PSX HW"
 so_file = "mednafen_psx_hw_libretro.so"
 download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mednafen_psx_hw_libretro.so.zip"
 
-[platform.gba]
-[[platform.gba.cores]]
-key = "mgba"
-name = "mGBA"
-so_file = "mgba_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mgba_libretro.so.zip"
+[[platform.ps1.cores]]
+key = "pcsx_rearmed"
+name = "PCSX ReARMed"
+so_file = "pcsx_rearmed_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/pcsx_rearmed_libretro.so.zip"
 
-[[platform.gba.cores]]
-key = "vbam"
-name = "VBA-M"
-so_file = "vbam_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/vbam_libretro.so.zip"
 
-[platform.nes]
-[[platform.nes.cores]]
-key = "nestopia"
-name = "Nestopia UE"
-so_file = "nestopia_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/nestopia_libretro.so.zip"
+[platform.ps2]
+[[platform.ps2.cores]]
+key = "lrps2"
+name = "LRPS2"
+so_file = "pcsx2_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/pcsx2_libretro.so.zip"
 
-[[platform.nes.cores]]
-key = "fceumm"
-name = "FCEUmm"
-so_file = "fceumm_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/fceumm_libretro.so.zip"
+[[platform.ps2.cores]]
+key = "play"
+name = "Play!"
+so_file = "play_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/play_libretro.so.zip"
+
+[[platform.ps2.cores]]
+key = "pcee2"
+name = "PCEE2"
+so_file = "pcee2_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/pcee2_libretro.so.zip"
+
+
+[platform.psp]
+[[platform.psp.cores]]
+key = "ppsspp"
+name = "PPSSPP"
+so_file = "ppsspp_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/ppsspp_libretro.so.zip"
+
+
+[platform.dreamcast]
+[[platform.dreamcast.cores]]
+key = "flycast"
+name = "Flycast"
+so_file = "flycast_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/flycast_libretro.so.zip"
+
+
+[platform.saturn]
+[[platform.saturn.cores]]
+key = "beetle_saturn"
+name = "Beetle Saturn"
+so_file = "mednafen_saturn_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mednafen_saturn_libretro.so.zip"
+
+[[platform.saturn.cores]]
+key = "kronos"
+name = "Kronos"
+so_file = "kronos_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/kronos_libretro.so.zip"
+
+[[platform.saturn.cores]]
+key = "yabasanshiro"
+name = "YabaSanshiro"
+so_file = "yabasanshiro_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/yabasanshiro_libretro.so.zip"
+
+
+[platform.pce]
+[[platform.pce.cores]]
+key = "beetle_pce"
+name = "Beetle PCE"
+so_file = "mednafen_pce_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mednafen_pce_libretro.so.zip"
+
+[[platform.pce.cores]]
+key = "beetle_pce_fast"
+name = "Beetle PCE FAST"
+so_file = "mednafen_pce_fast_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mednafen_pce_fast_libretro.so.zip"
+
+[[platform.pce.cores]]
+key = "geargrafx"
+name = "Geargrafx"
+so_file = "geargrafx_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/geargrafx_libretro.so.zip"
+
+
+[platform.mame]
+[[platform.mame.cores]]
+key = "fbneo"
+name = "FinalBurn Neo"
+so_file = "fbneo_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/fbneo_libretro.so.zip"
+
+[[platform.mame.cores]]
+key = "mame"
+name = "MAME"
+so_file = "mame_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mame_libretro.so.zip"
+
+[[platform.mame.cores]]
+key = "mame2003_plus"
+name = "MAME 2003-Plus"
+so_file = "mame2003_plus_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mame2003_plus_libretro.so.zip"
+
+
+[platform.pico8]
+[[platform.pico8.cores]]
+key = "retro8"
+name = "Retro8"
+so_file = "retro8_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/retro8_libretro.so.zip"
+
+
+[platform.javame]
+[[platform.javame.cores]]
+key = "squirreljme"
+name = "SquirrelJME"
+so_file = "squirreljme_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/squirreljme_libretro.so.zip"
+
+
+[platform.megadrive]
+[[platform.megadrive.cores]]
+key = "genesis_plus_gx"
+name = "Genesis Plus GX"
+so_file = "genesis_plus_gx_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/genesis_plus_gx_libretro.so.zip"
+
+[[platform.megadrive.cores]]
+key = "picodrive"
+name = "PicoDrive"
+so_file = "picodrive_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/picodrive_libretro.so.zip"

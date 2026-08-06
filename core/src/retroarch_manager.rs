@@ -384,16 +384,16 @@ mod tests {
     fn test_available_cores_filters_by_disk() {
         let tmp = std::env::temp_dir().join(format!("ra_cores_test_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        // Catalog order for nds is [melondsds, melonds, desmume].
+        // Catalog order for nds is [melonds, desmume, noods, melondsds].
         std::fs::write(tmp.join("melondsds_libretro.so"), b"").unwrap();
         std::fs::write(tmp.join("melonds_libretro.so"), b"").unwrap();
         // desmume_libretro.so intentionally NOT written to disk.
 
         let available = super::available_cores_in(&tmp, "nds");
         assert_eq!(available.len(), 2);
-        assert_eq!(available[0].key, "melondsds");
-        assert_eq!(available[0].so_file, "melondsds_libretro.so");
-        assert_eq!(available[1].key, "melonds");
+        assert_eq!(available[0].key, "melonds");
+        assert_eq!(available[0].so_file, "melonds_libretro.so");
+        assert_eq!(available[1].key, "melondsds");
 
         // Empty / missing cores dir -> no cores at all.
         assert!(super::available_cores_in(&tmp.join("missing"), "nds").is_empty());
