@@ -189,23 +189,28 @@ impl GameRunner {
                 .unwrap_or_else(|| ".".to_string());
             template = template.replace("{rom_dir}", &rom_dir);
 
-            if let Some(ex) = &r.executable_path {
-                if !ex.trim().is_empty() && std::path::Path::new(ex).exists() {
-                    template = template.replace("{executable_path}", ex);
+            let is_retroarch = r.name == "RetroArch" || r.runner_type == "retroarch";
+            let option_flags = resolved_runner_flags(r);
+
+            // For non-RetroArch runners validate the executable path now.
+            // RetroArch (especially Downloaded) resolves the AppImage path
+            // dynamically inside the `if is_retroarch` branch below.
+            if !is_retroarch {
+                if let Some(ex) = &r.executable_path {
+                    if !ex.trim().is_empty() && std::path::Path::new(ex).exists() {
+                        template = template.replace("{executable_path}", ex);
+                    } else {
+                        anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}). Presiona [m] para configurar o descargar.", r.name, ex);
+                    }
                 } else {
-                    anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}). Presiona [m] para configurar o descargar.", r.name, ex);
+                    anyhow::bail!("El emulador '{}' no tiene configurado su ejecutable/AppImage. Presiona [m] para configurar o descargar.", r.name);
                 }
-            } else {
-                anyhow::bail!("El emulador '{}' no tiene configurado su ejecutable/AppImage. Presiona [m] para configurar o descargar.", r.name);
             }
 
             let mut local_envs = base_envs.clone();
             if let Some(prefix) = &game.wine_prefix {
                 local_envs.insert("WINEPREFIX".to_string(), prefix.clone());
             }
-
-            let is_retroarch = r.name == "RetroArch" || r.runner_type == "retroarch";
-            let option_flags = resolved_runner_flags(r);
 
             if is_retroarch {
                 let db = game_core::db::Database::open_default().ok();
@@ -227,21 +232,18 @@ impl GameRunner {
 
                 let core_so_path = if let Some(ref key) = resolved_core_key {
                     if let Some(core_info) = game_core::core_catalog::core_by_key(&platform_slug, key) {
-                        let candidate1 = cores_dir.join(&core_info.so_file);
-                        let candidate2 = game_core::retroarch_manager::get_retroarch_managed_dir().join("cores").join(&core_info.so_file);
-                        let candidate3 = game_core::retroarch_manager::get_retroarch_managed_dir().join("RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage.home/.config/retroarch/cores").join(&core_info.so_file);
-                        let candidate4 = game_core::retroarch_manager::get_retroarch_browsed_cores_dir().join(&core_info.so_file);
+                        // Primary: use the dynamically resolved cores dir (correct for both
+                        // Downloaded and Browsed runners).
+                        let primary = cores_dir.join(&core_info.so_file);
+                        // Fallback: system/browsed cores dir in case user installs cores there.
+                        let fallback = game_core::retroarch_manager::get_retroarch_browsed_cores_dir().join(&core_info.so_file);
 
-                        if candidate1.is_file() {
-                            candidate1
-                        } else if candidate2.is_file() {
-                            candidate2
-                        } else if candidate3.is_file() {
-                            candidate3
-                        } else if candidate4.is_file() {
-                            candidate4
+                        if primary.is_file() {
+                            primary
+                        } else if fallback.is_file() {
+                            fallback
                         } else {
-                            candidate1
+                            primary // keep primary so the error message shows the expected location
                         }
                     } else {
                         cores_dir.join(format!("{}_libretro.so", key))
@@ -259,7 +261,19 @@ impl GameRunner {
                     );
                 }
 
-                let exe = r.executable_path.clone().unwrap_or_else(|| "retroarch".to_string());
+                // Use the dynamically resolved AppImage path (handles the sub-folder
+                // layout that the .7z extraction creates).
+                let exe = game_core::retroarch_manager::resolve_retroarch_executable(r)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "retroarch".to_string());
+
+                tracing::info!(
+                    "[retroarch] launching: appimage={:?}  core={:?}  config={:?}",
+                    exe,
+                    core_so_path,
+                    config_path
+                );
+
                 let mut retroarch_args = Vec::new();
                 retroarch_args.push("-L".to_string());
                 retroarch_args.push(core_so_path.to_string_lossy().to_string());
@@ -325,12 +339,22 @@ impl GameRunner {
     /// Launch an emulator standalone (no ROM) reusing its configured options,
     /// so users can open the emulator UI / settings directly.
     pub async fn launch_standalone(runner: &Runner) -> Result<ExitStatus> {
-        let exe = runner.executable_path.clone().ok_or_else(|| {
-            anyhow::anyhow!(
-                "El emulador '{}' no tiene ejecutable configurado.",
-                runner.name
-            )
-        })?;
+        // For Downloaded RetroArch, resolve the real AppImage path dynamically.
+        let is_retroarch = runner.name == "RetroArch" || runner.runner_type == "retroarch";
+        let exe = if is_retroarch {
+            game_core::retroarch_manager::resolve_retroarch_executable(runner)
+                .map(|p| p.to_string_lossy().to_string())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "El AppImage de RetroArch no se encontró en disco. Descárgalo primero."
+                ))?
+        } else {
+            runner.executable_path.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "El emulador '{}' no tiene ejecutable configurado.",
+                    runner.name
+                )
+            })?
+        };
         if !std::path::Path::new(&exe).exists() {
             anyhow::bail!(
                 "El ejecutable/AppImage para '{}' no existe en disco ({}).",
@@ -338,6 +362,7 @@ impl GameRunner {
                 exe
             );
         }
+
 
         let expected = emulator_process_name(&runner.name);
         let args = resolved_runner_flags(runner);

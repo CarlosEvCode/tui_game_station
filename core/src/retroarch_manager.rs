@@ -7,6 +7,8 @@ pub const RETROARCH_7Z_URL: &str =
     "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z";
 
 /// Managed directory for RetroArch downloaded data + AppImage.
+/// After extraction this will contain a single sub-directory like
+/// `RetroArch-Linux-x86_64/` that holds the AppImage and its home.
 pub fn get_retroarch_managed_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
@@ -15,6 +17,80 @@ pub fn get_retroarch_managed_dir() -> PathBuf {
         .join("emulators")
         .join("retroarch-data")
 }
+
+/// Locate the first `*.AppImage` found recursively inside `managed_dir`,
+/// searching at most 2 levels deep (managed_dir/<subdir>/<name>.AppImage).
+///
+/// The `.7z` archive from buildbot extracts into a sub-folder named after
+/// the build (e.g. `RetroArch-Linux-x86_64/`), so the AppImage is at:
+///   `<managed_dir>/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage`
+///
+/// Returns `None` if no AppImage has been extracted yet.
+pub fn find_downloaded_appimage(managed_dir: &Path) -> Option<PathBuf> {
+    // First check direct children of managed_dir (unlikely but safe)
+    if let Ok(entries) = std::fs::read_dir(managed_dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|e| e.to_str()) == Some("AppImage") && p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    // Then check one level deeper (the extracted sub-folder)
+    if let Ok(entries) = std::fs::read_dir(managed_dir) {
+        for entry in entries.flatten() {
+            let sub = entry.path();
+            if sub.is_dir() {
+                if let Ok(children) = std::fs::read_dir(&sub) {
+                    for child in children.flatten() {
+                        let p = child.path();
+                        if p.extension().and_then(|e| e.to_str()) == Some("AppImage")
+                            && p.is_file()
+                        {
+                            return Some(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Given the path to a downloaded RetroArch AppImage, return the path to the
+/// `retroarch.cfg` that the AppImage creates on first run inside its home dir.
+///
+/// The AppImage sets `$HOME` to `<appimage_path>.home`, so config ends up at:
+///   `<appimage_path>.home/.config/retroarch/retroarch.cfg`
+pub fn appimage_config_path(appimage_path: &Path) -> PathBuf {
+    appimage_home_dir(appimage_path)
+        .join(".config")
+        .join("retroarch")
+        .join("retroarch.cfg")
+}
+
+/// Given the path to a downloaded RetroArch AppImage, return the `cores/`
+/// directory inside its AppImage home dir.
+///
+///   `<appimage_path>.home/.config/retroarch/cores/`
+pub fn appimage_cores_dir(appimage_path: &Path) -> PathBuf {
+    appimage_home_dir(appimage_path)
+        .join(".config")
+        .join("retroarch")
+        .join("cores")
+}
+
+/// Returns `<appimage_path>.home` — the directory the AppImage runtime
+/// uses as `$HOME` when launched.
+fn appimage_home_dir(appimage_path: &Path) -> PathBuf {
+    let mut s = appimage_path.as_os_str().to_owned();
+    s.push(".home");
+    PathBuf::from(s)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Browsed (system-wide / user-installed) paths
+// ──────────────────────────────────────────────────────────────────────────────
 
 /// Standard user config path for browsed / system RetroArch.
 pub fn get_retroarch_browsed_config_path() -> PathBuf {
@@ -32,11 +108,12 @@ pub fn get_retroarch_browsed_cores_dir() -> PathBuf {
         .join("cores")
 }
 
-/// Resolve the `retroarch.cfg` path for a given RetroArch runner depending on its `source`.
-/// - `Downloaded` -> `<managed_dir>/retroarch.cfg`
-/// - `Browsed` (or default) -> `~/.config/retroarch/retroarch.cfg`
-pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
-    let is_downloaded = runner
+// ──────────────────────────────────────────────────────────────────────────────
+// Runner-aware resolvers (used by runner/src/lib.rs and core_catalog)
+// ──────────────────────────────────────────────────────────────────────────────
+
+fn is_downloaded_runner(runner: &Runner) -> bool {
+    runner
         .source
         .as_deref()
         .map(|s| s.eq_ignore_ascii_case("Downloaded"))
@@ -46,37 +123,62 @@ pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
                 .as_deref()
                 .map(|p| p.contains("retroarch-data"))
                 .unwrap_or(false)
-        });
+        })
+}
 
-    if is_downloaded {
-        get_retroarch_managed_dir().join("retroarch.cfg")
+/// Resolve the `retroarch.cfg` path for a given RetroArch runner.
+///
+/// - `Downloaded` → looks up the AppImage dynamically and returns
+///   `<appimage>.home/.config/retroarch/retroarch.cfg`
+/// - `Browsed` (or default) → `~/.config/retroarch/retroarch.cfg`
+pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
+    if is_downloaded_runner(runner) {
+        let managed = get_retroarch_managed_dir();
+        if let Some(appimage) = find_downloaded_appimage(&managed) {
+            return appimage_config_path(&appimage);
+        }
+        // AppImage not yet extracted — return a deterministic placeholder that
+        // will produce a clear "file not found" error rather than silently
+        // using a wrong path.
+        managed.join("RetroArch.AppImage.home/.config/retroarch/retroarch.cfg")
     } else {
         get_retroarch_browsed_config_path()
     }
 }
 
-/// Resolve the `cores/` directory for a given RetroArch runner depending on its `source`.
-/// - `Downloaded` -> `<managed_dir>/cores/`
-/// - `Browsed` (or default) -> `~/.config/retroarch/cores/`
+/// Resolve the `cores/` directory for a given RetroArch runner.
+///
+/// - `Downloaded` → `<appimage>.home/.config/retroarch/cores/`
+/// - `Browsed` (or default) → `~/.config/retroarch/cores/`
 pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
-    let is_downloaded = runner
-        .source
-        .as_deref()
-        .map(|s| s.eq_ignore_ascii_case("Downloaded"))
-        .unwrap_or_else(|| {
-            runner
-                .executable_path
-                .as_deref()
-                .map(|p| p.contains("retroarch-data"))
-                .unwrap_or(false)
-        });
-
-    if is_downloaded {
-        get_retroarch_managed_dir().join("cores")
+    if is_downloaded_runner(runner) {
+        let managed = get_retroarch_managed_dir();
+        if let Some(appimage) = find_downloaded_appimage(&managed) {
+            return appimage_cores_dir(&appimage);
+        }
+        managed.join("RetroArch.AppImage.home/.config/retroarch/cores")
     } else {
         get_retroarch_browsed_cores_dir()
     }
 }
+
+/// Resolve the actual AppImage executable path for a downloaded runner.
+///
+/// Falls back to the stored `executable_path` on the runner row if the
+/// dynamic search fails (e.g. browsed runner or not yet downloaded).
+pub fn resolve_retroarch_executable(runner: &Runner) -> Option<PathBuf> {
+    if is_downloaded_runner(runner) {
+        let managed = get_retroarch_managed_dir();
+        if let Some(appimage) = find_downloaded_appimage(&managed) {
+            return Some(appimage);
+        }
+    }
+    runner.executable_path.as_deref().map(PathBuf::from)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 7z extraction helper
+// ──────────────────────────────────────────────────────────────────────────────
 
 /// Extract a `.7z` archive into `output_dir` using system `7z`, `7zr`, or `7za`.
 /// If no 7z binary is found on PATH, returns a clear user-facing error message.
@@ -128,14 +230,13 @@ mod tests {
     use super::*;
     use crate::models::Runner;
 
-    #[test]
-    fn test_retroarch_config_path_resolution() {
-        let downloaded_runner = Runner {
+    fn make_runner(source: &str, exe: &str) -> Runner {
+        Runner {
             id: 1,
             platform_id: Some(1),
             name: "RetroArch".to_string(),
             runner_type: "retroarch".to_string(),
-            executable_path: Some("/some/path/retroarch-data/RetroArch.AppImage".to_string()),
+            executable_path: Some(exe.to_string()),
             command_template: String::new(),
             default_env: None,
             download_url: None,
@@ -143,51 +244,67 @@ mod tests {
             is_default: true,
             is_active: true,
             env_vars: None,
-            source: Some("Downloaded".to_string()),
-        };
-
-        let browsed_runner = Runner {
-            id: 2,
-            platform_id: Some(1),
-            name: "RetroArch".to_string(),
-            runner_type: "retroarch".to_string(),
-            executable_path: Some("/usr/bin/retroarch".to_string()),
-            command_template: String::new(),
-            default_env: None,
-            download_url: None,
-            download_filename: None,
-            is_default: false,
-            is_active: false,
-            env_vars: None,
-            source: Some("Browsed".to_string()),
-        };
-
-        let downloaded_cfg = resolve_retroarch_config_path(&downloaded_runner);
-        assert!(downloaded_cfg.ends_with("retroarch-data/retroarch.cfg"));
-
-        let browsed_cfg = resolve_retroarch_config_path(&browsed_runner);
-        assert!(browsed_cfg.ends_with("retroarch/retroarch.cfg"));
+            source: Some(source.to_string()),
+        }
     }
 
     #[test]
-    fn test_retroarch_cores_dir_resolution() {
-        let downloaded_runner = Runner {
-            id: 1,
-            platform_id: Some(1),
-            name: "RetroArch".to_string(),
-            runner_type: "retroarch".to_string(),
-            executable_path: Some("/some/path/retroarch-data/RetroArch.AppImage".to_string()),
-            command_template: String::new(),
-            default_env: None,
-            download_url: None,
-            download_filename: None,
-            is_default: true,
-            is_active: true,
-            env_vars: None,
-            source: Some("Downloaded".to_string()),
-        };
+    fn test_appimage_home_dir() {
+        let appimage = PathBuf::from("/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage");
+        let home = appimage_home_dir(&appimage);
+        assert!(home.to_string_lossy().ends_with(".AppImage.home"));
+    }
 
-        let downloaded_cores = resolve_retroarch_cores_dir(&downloaded_runner);
-        assert!(downloaded_cores.ends_with("retroarch-data/cores"));
+    #[test]
+    fn test_appimage_config_path() {
+        let appimage = PathBuf::from("/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage");
+        let cfg = appimage_config_path(&appimage);
+        assert!(cfg.to_string_lossy().ends_with("/.config/retroarch/retroarch.cfg"));
+        assert!(cfg.to_string_lossy().contains(".AppImage.home"));
+    }
+
+    #[test]
+    fn test_appimage_cores_dir() {
+        let appimage = PathBuf::from("/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage");
+        let cores = appimage_cores_dir(&appimage);
+        assert!(cores.to_string_lossy().ends_with("/.config/retroarch/cores"));
+        assert!(cores.to_string_lossy().contains(".AppImage.home"));
+    }
+
+    #[test]
+    fn test_browsed_runner_config_path() {
+        let runner = make_runner("Browsed", "/usr/bin/retroarch");
+        let cfg = resolve_retroarch_config_path(&runner);
+        // Browsed always points to system retroarch config
+        assert!(cfg.to_string_lossy().ends_with("retroarch/retroarch.cfg"));
+        assert!(!cfg.to_string_lossy().contains("retroarch-data"));
+    }
+
+    #[test]
+    fn test_browsed_runner_cores_dir() {
+        let runner = make_runner("Browsed", "/usr/bin/retroarch");
+        let cores = resolve_retroarch_cores_dir(&runner);
+        assert!(cores.to_string_lossy().ends_with("retroarch/cores"));
+        assert!(!cores.to_string_lossy().contains("retroarch-data"));
+    }
+
+    #[test]
+    fn test_find_downloaded_appimage_with_fake_tree() {
+        let tmp = std::env::temp_dir().join(format!("ra_mgr_test_{}", std::process::id()));
+        let sub = tmp.join("RetroArch-Linux-x86_64");
+        std::fs::create_dir_all(&sub).unwrap();
+        let appimage = sub.join("RetroArch-Linux-x86_64.AppImage");
+        std::fs::write(&appimage, "fake").unwrap();
+
+        let found = find_downloaded_appimage(&tmp);
+        assert_eq!(found.as_deref(), Some(appimage.as_path()));
+
+        let cfg = appimage_config_path(&appimage);
+        assert!(cfg.to_string_lossy().contains(".AppImage.home/.config/retroarch/retroarch.cfg"));
+
+        let cores = appimage_cores_dir(&appimage);
+        assert!(cores.to_string_lossy().contains(".AppImage.home/.config/retroarch/cores"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
