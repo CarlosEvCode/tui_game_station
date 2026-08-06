@@ -230,7 +230,7 @@ impl GameRunner {
                 let config_path = game_core::retroarch_manager::resolve_retroarch_config_path(r);
                 let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(r);
 
-                let core_so_path = if let Some(ref key) = resolved_core_key {
+                let mut core_so_path = if let Some(ref key) = resolved_core_key {
                     if let Some(core_info) = game_core::core_catalog::core_by_key(&platform_slug, key) {
                         // Primary: use the dynamically resolved cores dir (correct for both
                         // Downloaded and Browsed runners).
@@ -251,6 +251,40 @@ impl GameRunner {
                 } else {
                     cores_dir.join("core_libretro.so")
                 };
+
+                // A core whose ELF header requires an executable stack
+                // (GNU_STACK RWE, e.g. the current `melonds` nightly) cannot be
+                // loaded on hardened kernels: `dlopen` fails with "cannot
+                // enable executable stack" and RetroArch exits with code 1
+                // immediately. Detect it and fall back to the first catalog
+                // core that is actually present and loadable so the game still
+                // launches. Only kicks in when the chosen core *exists* but is
+                // not loadable; a missing core keeps its clear error below.
+                if core_so_path.is_file()
+                    && !game_core::retroarch_manager::core_is_loadable(&core_so_path)
+                {
+                    let browsed_cores_dir =
+                        game_core::retroarch_manager::get_retroarch_browsed_cores_dir();
+                    let dirs = [cores_dir.as_path(), browsed_cores_dir.as_path()];
+                    if let Some(fallback) =
+                        game_core::retroarch_manager::first_loadable_core_in(&dirs, &platform_slug)
+                    {
+                        if let Some(replacement) = dirs
+                            .iter()
+                            .find_map(|d| {
+                                let p = d.join(&fallback.so_file);
+                                p.is_file().then_some(p)
+                            })
+                        {
+                            tracing::warn!(
+                                "[retroarch] núcleo {:?} requiere executable stack y no puede cargarse en este sistema; usando {:?} en su lugar",
+                                core_so_path,
+                                replacement
+                            );
+                            core_so_path = replacement;
+                        }
+                    }
+                }
 
                 if !core_so_path.is_file() {
                     let key_str = resolved_core_key.as_deref().unwrap_or("desconocido");
@@ -948,7 +982,16 @@ mod tests {
             .spawn()
             .expect("spawn sleep");
         let pid = child.id();
-        let found = find_process_by_name(pid, "sleep");
+        // `/proc/<pid>/comm` may not be populated the instant spawn() returns;
+        // retry briefly before concluding the process is unidentifiable.
+        let mut found = None;
+        for _ in 0..50 {
+            found = find_process_by_name(pid, "sleep");
+            if found.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(found, Some(pid), "the direct child must be found by name");
@@ -1033,5 +1076,145 @@ mod tests {
             .build()
             .unwrap();
         runtime.block_on(wait_until_pid_gone(u32::MAX));
+    }
+
+    fn fake_elf64_so(execstack: bool) -> Vec<u8> {
+        let mut b = vec![0u8; 64 + 56];
+        b[0..4].copy_from_slice(b"\x7fELF");
+        b[4] = 2; // ELFCLASS64
+        b[5] = 1; // little endian
+        b[6] = 1; // version
+        b[16..18].copy_from_slice(&3u16.to_le_bytes()); // ET_DYN
+        b[18..20].copy_from_slice(&62u16.to_le_bytes()); // EM_X86_64
+        b[20..24].copy_from_slice(&1u32.to_le_bytes()); // e_version
+        b[32..40].copy_from_slice(&64u64.to_le_bytes()); // e_phoff
+        b[52..54].copy_from_slice(&64u16.to_le_bytes()); // e_ehsize
+        b[54..56].copy_from_slice(&56u16.to_le_bytes()); // e_phentsize
+        b[56..58].copy_from_slice(&1u16.to_le_bytes()); // e_phnum
+        let ph = 64usize;
+        b[ph..ph + 4].copy_from_slice(&0x6474e551u32.to_le_bytes()); // PT_GNU_STACK
+        let flags: u32 = if execstack { 0x7 } else { 0x6 };
+        b[ph + 4..ph + 8].copy_from_slice(&flags.to_le_bytes());
+        b
+    }
+
+    fn fake_game(platform_id: i64) -> Game {
+        Game {
+            id: 0,
+            platform_id,
+            folder_id: None,
+            emulator_override: None,
+            core_override: None,
+            title: "Yoshi".to_string(),
+            sort_title: None,
+            game_type: "emulator".to_string(),
+            file_path: Some("/roms/nds/Yoshi.nds".to_string()),
+            working_dir: None,
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: None,
+            file_extension: None,
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        }
+    }
+
+    /// Regression: NDS + RetroArch Downloaded with `active_core=melonds` used
+    /// to launch `melonds_libretro.so`, whose ELF header requires an executable
+    /// stack (GNU_STACK RWE). Hardened kernels refuse to grant it, so `dlopen`
+    /// fails and RetroArch exits with code 1. `build_command_line` must fall
+    /// back to the first loadable catalog core (`melondsds`).
+    #[test]
+    fn retroarch_launch_falls_back_from_execstack_core_to_loadable_core() {
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "runner_ra_fallback_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        // Fake Downloaded RetroArch tree (managed dir resolves from XDG).
+        let managed = tmp
+            .join("data")
+            .join("tui_game_station")
+            .join("runners")
+            .join("emulators")
+            .join("retroarch-data");
+        let sub = managed.join("RetroArch-Linux-x86_64");
+        std::fs::create_dir_all(&sub).unwrap();
+        let appimage = sub.join("RetroArch-Linux-x86_64.AppImage");
+        std::fs::write(&appimage, "#!/bin/sh\n").unwrap();
+        let cores_dir = PathBuf::from(format!("{}.home", appimage.to_string_lossy()))
+            .join(".config")
+            .join("retroarch")
+            .join("cores");
+        std::fs::create_dir_all(&cores_dir).unwrap();
+        // melonds requires execstack (broken on hardened kernels); melondsds is RW.
+        std::fs::write(cores_dir.join("melonds_libretro.so"), fake_elf64_so(true)).unwrap();
+        std::fs::write(cores_dir.join("melondsds_libretro.so"), fake_elf64_so(false)).unwrap();
+
+        // DB: NDS with active Downloaded RetroArch whose env pins core=melonds.
+        let db = game_core::db::Database::open_default().unwrap();
+        let nds = db.get_platform_by_slug("nds").unwrap().expect("nds");
+        let rid = db
+            .insert_runner(nds.id, "RetroArch", "retroarch")
+            .expect("runner");
+        db.update_runner_config_with_source(rid, &appimage.to_string_lossy(), Some("Downloaded"))
+            .unwrap();
+        db.set_active_runner(nds.id, rid).unwrap();
+        db.update_runner_env_by_name("RetroArch", Some(r#"{"active_core":"melonds"}"#))
+            .unwrap();
+
+        let runner = db
+            .get_active_runner_for_platform(nds.id)
+            .unwrap()
+            .expect("active runner");
+        let game = fake_game(nds.id);
+        let (_exe, args, _envs) = GameRunner::build_command_line(&game, Some(&runner)).unwrap();
+        let args_str = args.join(" ");
+        assert!(
+            args_str.contains("melondsds_libretro.so"),
+            "expected fallback to melondsds, args: {args_str}"
+        );
+        assert!(
+            !args_str.contains("melonds_libretro.so"),
+            "must not use the execstack core, args: {args_str}"
+        );
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

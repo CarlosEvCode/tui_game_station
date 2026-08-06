@@ -29,6 +29,15 @@ so_file = "picodrive_libretro.so"
 download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/picodrive_libretro.so.zip"
 
 [platform.nds]
+# `melondsds` (melonDS DS) is the default: the newer `melonds` core ships with
+# a GNU_STACK executable-stack flag that hardened kernels (e.g. CachyOS) refuse
+# to grant, so `dlopen` fails and RetroArch exits with code 1.
+[[platform.nds.cores]]
+key = "melondsds"
+name = "melonDS DS"
+so_file = "melondsds_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/melondsds_libretro.so.zip"
+
 [[platform.nds.cores]]
 key = "melonds"
 name = "melonDS"

@@ -8655,8 +8655,9 @@ mod tests {
         std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
         std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
 
-        // Fake Downloaded RetroArch tree: AppImage + melonds/desmume `.so` en
-        // disco. Es el directorio que el runner resuelve (`data_local_dir`).
+        // Fake Downloaded RetroArch tree: AppImage + melondsds/melonds/desmume
+        // `.so` en disco. Es el directorio que el runner resuelve
+        // (`data_local_dir`).
         let managed = tmp
             .join("data")
             .join("tui_game_station")
@@ -8672,6 +8673,7 @@ mod tests {
             .join("retroarch")
             .join("cores");
         std::fs::create_dir_all(&cores_dir).expect("mkdir cores");
+        std::fs::write(cores_dir.join("melondsds_libretro.so"), "").expect("write melondsds");
         std::fs::write(cores_dir.join("melonds_libretro.so"), "").expect("write melonds");
         std::fs::write(cores_dir.join("desmume_libretro.so"), "").expect("write desmume");
 
@@ -8708,7 +8710,7 @@ mod tests {
         // El selector de núcleo filtra por `.so` reales en disco (no el catálogo).
         let disk_cores = add_scan_available_cores(&app.db, &nds, None);
         let disk_keys: Vec<&str> = disk_cores.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(disk_keys, vec!["melonds", "desmume"]);
+        assert_eq!(disk_keys, vec!["melondsds", "melonds", "desmume"]);
 
         // Flujo A → Scan Folder → confirmar plataforma → AddFolderScanForm.
         app.update(Action::OpenAddGameModal).await;
@@ -8737,7 +8739,11 @@ mod tests {
         };
         assert_eq!(platform.id, nds.id);
         assert_eq!(add_emulator_id, &None, "no explicit emulator override yet");
-        assert_eq!(add_core.as_deref(), Some("melonds"), "seeded from .so on disk");
+        assert_eq!(
+            add_core.as_deref(),
+            Some("melondsds"),
+            "seeded from .so on disk (catalog default)"
+        );
 
         // Ciclo el emulador (único configurado → RetroArch), apunto la carpeta
         // de ROMs real y ejecuto Añadir y Escanear.
@@ -8753,7 +8759,7 @@ mod tests {
             panic!("modal closed");
         };
         assert_eq!(add_emulator_id, &Some(rid));
-        assert_eq!(add_core.as_deref(), Some("melonds"));
+        assert_eq!(add_core.as_deref(), Some("melondsds"));
         *folder_path = fake_path.clone();
         *extensions_input = "nds".to_string();
         app.update(Action::StartAddAndScan).await;
@@ -8762,7 +8768,7 @@ mod tests {
         let folders = app.db.get_scan_folders_for_platform(nds.id).expect("folders");
         let folder = folders.first().expect("saved folder");
         assert_eq!(folder.assigned_emulator_id, Some(rid));
-        assert_eq!(folder.assigned_core.as_deref(), Some("melonds"));
+        assert_eq!(folder.assigned_core.as_deref(), Some("melondsds"));
 
         // Esperar a que termine el escaneo asíncrono real.
         let mut waited = 0;
@@ -8794,7 +8800,7 @@ mod tests {
             .iter()
             .find(|f| f.assigned_emulator_id == Some(rid))
             .expect("folder with override");
-        assert_eq!(f.assigned_core.as_deref(), Some("melonds"));
+        assert_eq!(f.assigned_core.as_deref(), Some("melondsds"));
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

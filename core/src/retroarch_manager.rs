@@ -174,6 +174,77 @@ pub fn available_cores_in(cores_dir: &Path, platform_slug: &str) -> Vec<crate::c
         .collect()
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Core loadability (ELF GNU_STACK)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// ELF64 `PT_GNU_STACK` program-header type.
+const PT_GNU_STACK: u32 = 0x6474e551;
+/// ELF program-header flag for an executable segment (`PF_X`).
+const PF_X: u32 = 0x1;
+
+fn le_u16(data: &[u8], off: usize) -> u16 {
+    u16::from_le_bytes([data[off], data[off + 1]])
+}
+fn le_u32(data: &[u8], off: usize) -> u32 {
+    u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
+}
+fn le_u64(data: &[u8], off: usize) -> u64 {
+    let mut b = [0u8; 8];
+    b.copy_from_slice(&data[off..off + 8]);
+    u64::from_le_bytes(b)
+}
+
+/// Whether a libretro core `.so` requires an executable stack (`GNU_STACK`
+/// marked RWE in the ELF header).
+///
+/// Hardened kernels (CachyOS/PaX-style hardening) refuse to map such segments,
+/// so `dlopen()` fails with "cannot enable executable stack as shared object
+/// requires: Invalid argument" and RetroArch exits with code 1 before loading
+/// any game. On stock kernels the same core loads fine, so this is only used
+/// to pick a safe fallback at launch time, never to ban cores in the UI.
+pub fn core_requires_execstack(so_path: &Path) -> bool {
+    let Ok(data) = std::fs::read(so_path) else {
+        return false;
+    };
+    // ELF64 magic + class. Anything else (32-bit, non-ELF, empty stub used by
+    // tests) is treated as loadable.
+    if data.len() < 64 || &data[0..4] != b"\x7fELF" || data[4] != 2 {
+        return false;
+    }
+    let phoff = le_u64(&data, 0x20) as usize;
+    let phentsize = le_u16(&data, 0x36) as usize;
+    let phnum = le_u16(&data, 0x38) as usize;
+    if phoff == 0 || phentsize < 8 || phnum == 0 {
+        return false;
+    }
+    for i in 0..phnum {
+        let off = phoff.saturating_add(i.saturating_mul(phentsize));
+        if off.saturating_add(8) > data.len() {
+            break;
+        }
+        if le_u32(&data, off) == PT_GNU_STACK {
+            return le_u32(&data, off + 4) & PF_X != 0;
+        }
+    }
+    false
+}
+
+/// A core `.so` is usable on this system when it exists and does not require
+/// an executable stack (hardened kernels refuse to grant it).
+pub fn core_is_loadable(so_path: &Path) -> bool {
+    so_path.is_file() && !core_requires_execstack(so_path)
+}
+
+/// First catalog core for `platform_slug`, in catalog order (default first),
+/// whose `.so` is present and loadable in any of `dirs`. Used to pick a safe
+/// fallback when the user-selected core cannot be loaded on this system.
+pub fn first_loadable_core_in(dirs: &[&Path], platform_slug: &str) -> Option<crate::core_catalog::CoreInfo> {
+    crate::core_catalog::cores_for_platform(platform_slug)
+        .into_iter()
+        .find(|core| dirs.iter().any(|dir| core_is_loadable(&dir.join(&core.so_file))))
+}
+
 /// Cores from the catalog for `platform_slug` whose libretro `.so` actually
 /// exists inside the cores dir resolved for `runner`.
 pub fn available_retroarch_cores_for_platform(
@@ -313,16 +384,84 @@ mod tests {
     fn test_available_cores_filters_by_disk() {
         let tmp = std::env::temp_dir().join(format!("ra_cores_test_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
+        // Catalog order for nds is [melondsds, melonds, desmume].
+        std::fs::write(tmp.join("melondsds_libretro.so"), b"").unwrap();
         std::fs::write(tmp.join("melonds_libretro.so"), b"").unwrap();
         // desmume_libretro.so intentionally NOT written to disk.
 
         let available = super::available_cores_in(&tmp, "nds");
-        assert_eq!(available.len(), 1);
-        assert_eq!(available[0].key, "melonds");
-        assert_eq!(available[0].so_file, "melonds_libretro.so");
+        assert_eq!(available.len(), 2);
+        assert_eq!(available[0].key, "melondsds");
+        assert_eq!(available[0].so_file, "melondsds_libretro.so");
+        assert_eq!(available[1].key, "melonds");
 
         // Empty / missing cores dir -> no cores at all.
         assert!(super::available_cores_in(&tmp.join("missing"), "nds").is_empty());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn fake_elf64_so(execstack: bool) -> Vec<u8> {
+        let mut b = vec![0u8; 64 + 56];
+        b[0..4].copy_from_slice(b"\x7fELF");
+        b[4] = 2; // ELFCLASS64
+        b[5] = 1; // little endian
+        b[6] = 1; // version
+        b[16..18].copy_from_slice(&3u16.to_le_bytes()); // ET_DYN
+        b[18..20].copy_from_slice(&62u16.to_le_bytes()); // EM_X86_64
+        b[20..24].copy_from_slice(&1u32.to_le_bytes()); // e_version
+        b[32..40].copy_from_slice(&64u64.to_le_bytes()); // e_phoff
+        b[52..54].copy_from_slice(&64u16.to_le_bytes()); // e_ehsize
+        b[54..56].copy_from_slice(&56u16.to_le_bytes()); // e_phentsize
+        b[56..58].copy_from_slice(&1u16.to_le_bytes()); // e_phnum
+        let ph = 64usize;
+        b[ph..ph + 4].copy_from_slice(&PT_GNU_STACK.to_le_bytes());
+        let flags: u32 = if execstack { 0x7 } else { 0x6 };
+        b[ph + 4..ph + 8].copy_from_slice(&flags.to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn test_core_requires_execstack_parses_gnu_stack() {
+        let tmp = std::env::temp_dir().join(format!("ra_execstack_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let rwe = tmp.join("rwe_libretro.so");
+        std::fs::write(&rwe, fake_elf64_so(true)).unwrap();
+        assert!(core_requires_execstack(&rwe));
+        assert!(!core_is_loadable(&rwe));
+
+        let rw = tmp.join("rw_libretro.so");
+        std::fs::write(&rw, fake_elf64_so(false)).unwrap();
+        assert!(!core_requires_execstack(&rw));
+        assert!(core_is_loadable(&rw));
+
+        // Empty / non-ELF stubs (as used by other tests) are treated as loadable.
+        let stub = tmp.join("stub_libretro.so");
+        std::fs::write(&stub, b"").unwrap();
+        assert!(!core_requires_execstack(&stub));
+        assert!(core_is_loadable(&stub));
+
+        // Missing file is not loadable.
+        assert!(!core_is_loadable(&tmp.join("missing_libretro.so")));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_first_loadable_core_skips_execstack_and_missing() {
+        let tmp = std::env::temp_dir().join(format!("ra_firstload_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // melondsds = RW (loadable); melonds = RWE (skipped); desmume missing.
+        std::fs::write(tmp.join("melondsds_libretro.so"), fake_elf64_so(false)).unwrap();
+        std::fs::write(tmp.join("melonds_libretro.so"), fake_elf64_so(true)).unwrap();
+
+        let dirs = [tmp.as_path()];
+        let core = first_loadable_core_in(&dirs, "nds").expect("fallback core");
+        assert_eq!(core.key, "melondsds");
+
+        // Missing dirs -> no fallback available.
+        assert!(first_loadable_core_in(&[tmp.join("nope").as_path()], "nds").is_none());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
