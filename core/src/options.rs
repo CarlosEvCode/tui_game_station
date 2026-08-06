@@ -463,32 +463,54 @@ pub fn resolve_config_file(path: &str) -> PathBuf {
         PathBuf::from(path)
     };
 
-    if !resolved.exists() {
-        if let Some(home) = dirs::home_dir() {
-            let path_str = resolved.to_string_lossy();
-            if path_str.contains(".config/") {
-                if let Some(rel) = path_str.split(".config/").nth(1) {
-                    // Try matching flatpak app config dir: ~/.var/app/*/config/<rel>
-                    let var_app = home.join(".var/app");
-                    if let Ok(entries) = std::fs::read_dir(&var_app) {
-                        for entry in entries.flatten() {
-                            let flatpak_cand = entry.path().join("config").join(rel);
-                            if flatpak_cand.exists() {
-                                return flatpak_cand;
+    if let Some(home) = dirs::home_dir() {
+        let path_str = resolved.to_string_lossy();
+        if path_str.contains(".config/") {
+            if let Some(rel) = path_str.split(".config/").nth(1) {
+                // Try matching flatpak app config dir: ~/.var/app/*/config/<rel>
+                let var_app = home.join(".var/app");
+                if let Ok(entries) = std::fs::read_dir(&var_app) {
+                    let mut found_dir = None;
+                    for entry in entries.flatten() {
+                        let flatpak_cand = entry.path().join("config").join(rel);
+                        if flatpak_cand.exists() {
+                            return flatpak_cand;
+                        }
+                        // Keep track if the flatpak app directory itself exists (e.g. ~/.var/app/net.kuribo64.melonDS)
+                        if entry.path().join("config").exists() && found_dir.is_none() {
+                            // Match relevant app dir name if possible
+                            let app_name = entry.file_name().to_string_lossy().to_lowercase();
+                            let rel_first = rel.split('/').next().unwrap_or("").to_lowercase();
+                            if app_name.contains(&rel_first) || rel_first.contains(&app_name) {
+                                found_dir = Some(flatpak_cand);
                             }
                         }
                     }
+                    if let Some(cand) = found_dir {
+                        return cand;
+                    }
                 }
-            } else if path_str.contains(".local/share/") {
-                if let Some(rel) = path_str.split(".local/share/").nth(1) {
-                    let var_app = home.join(".var/app");
-                    if let Ok(entries) = std::fs::read_dir(&var_app) {
-                        for entry in entries.flatten() {
-                            let flatpak_cand = entry.path().join("data").join(rel);
-                            if flatpak_cand.exists() {
-                                return flatpak_cand;
+            }
+        } else if path_str.contains(".local/share/") {
+            if let Some(rel) = path_str.split(".local/share/").nth(1) {
+                let var_app = home.join(".var/app");
+                if let Ok(entries) = std::fs::read_dir(&var_app) {
+                    let mut found_dir = None;
+                    for entry in entries.flatten() {
+                        let flatpak_cand = entry.path().join("data").join(rel);
+                        if flatpak_cand.exists() {
+                            return flatpak_cand;
+                        }
+                        if entry.path().join("data").exists() && found_dir.is_none() {
+                            let app_name = entry.file_name().to_string_lossy().to_lowercase();
+                            let rel_first = rel.split('/').next().unwrap_or("").to_lowercase();
+                            if app_name.contains(&rel_first) || rel_first.contains(&app_name) {
+                                found_dir = Some(flatpak_cand);
                             }
                         }
+                    }
+                    if let Some(cand) = found_dir {
+                        return cand;
                     }
                 }
             }
