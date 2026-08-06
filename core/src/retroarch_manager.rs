@@ -140,10 +140,13 @@ pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
         managed.join("RetroArch.AppImage.home/.config/retroarch/retroarch.cfg")
     } else {
         if let Some(ref path) = runner.executable_path {
-            if path.contains("org.libretro.RetroArch") {
+            let p = path.to_lowercase();
+            if p.contains("org.libretro.retroarch") || p.contains("flatpak run") {
                 if let Some(home) = dirs::home_dir() {
                     let flatpak_cfg = home.join(".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg");
-                    return flatpak_cfg;
+                    if flatpak_cfg.parent().map(|p| p.exists()).unwrap_or(false) || p.contains("org.libretro.retroarch") {
+                        return flatpak_cfg;
+                    }
                 }
             }
         }
@@ -165,10 +168,13 @@ pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
         managed.join("RetroArch.AppImage.home/.config/retroarch/cores")
     } else {
         if let Some(ref path) = runner.executable_path {
-            if path.contains("org.libretro.RetroArch") {
+            let p = path.to_lowercase();
+            if p.contains("org.libretro.retroarch") || p.contains("flatpak run") {
                 if let Some(home) = dirs::home_dir() {
                     let flatpak_cores = home.join(".var/app/org.libretro.RetroArch/config/retroarch/cores");
-                    return flatpak_cores;
+                    if flatpak_cores.parent().map(|p| p.exists()).unwrap_or(false) || p.contains("org.libretro.retroarch") {
+                        return flatpak_cores;
+                    }
                 }
             }
         }
