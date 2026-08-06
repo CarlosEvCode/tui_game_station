@@ -416,6 +416,7 @@ pub enum ModalState {
         add_emulator_id: Option<i64>,
         add_core: Option<String>,
         selected_field: usize,
+        parent_modal: Option<Box<ModalState>>,
     },
     DownloadCoreModal {
         platform: Platform,
@@ -428,6 +429,7 @@ pub enum ModalState {
     AddGameForm {
         game_type: PlatformType,
         selected_field: usize,
+        parent_modal: Option<Box<ModalState>>,
         title: String,
         platform_idx: usize,
         file_path: String,
@@ -5314,6 +5316,15 @@ impl App {
                 ModalState::DownloadCoreModal { parent_state, .. } => {
                     self.modal_state = *parent_state;
                 }
+                ModalState::AddFolderScanForm { parent_modal: Some(parent), .. } => {
+                    self.modal_state = *parent;
+                }
+                ModalState::AddGameForm { parent_modal: Some(parent), .. } => {
+                    self.modal_state = *parent;
+                }
+                ModalState::ScanFolderStep1Platform { .. } => {
+                    self.modal_state = ModalState::AddGameStep1Type { selected_type_idx: 0 };
+                }
                 _ => {
                     self.modal_state = ModalState::None;
                 }
@@ -5610,7 +5621,7 @@ impl App {
                 self.update_visual_media_preview();
             }
             Action::ModalConfirmStep1 => {
-                if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state {
+                if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state.clone() {
                     if selected_type_idx == 0 {
                         let emulator_platforms = self.get_configured_emulator_platforms();
                         if emulator_platforms.is_empty() {
@@ -5630,6 +5641,7 @@ impl App {
                         self.modal_state = ModalState::AddGameForm {
                             game_type: gtype,
                             selected_field: 0,
+                            parent_modal: Some(Box::new(self.modal_state.clone())),
                             title: String::new(),
                             platform_idx: 0,
                             file_path: String::new(),
@@ -5656,7 +5668,7 @@ impl App {
             Action::ScanModalConfirmPlatform => {
                 if let ModalState::ScanFolderStep1Platform {
                     selected_platform_idx,
-                } = self.modal_state
+                } = self.modal_state.clone()
                 {
                     let emulator_platforms = self.get_configured_emulator_platforms();
                     if let Some(p) = emulator_platforms.get(selected_platform_idx) {
@@ -5689,6 +5701,7 @@ impl App {
                             add_emulator_id: None,
                             add_core: None,
                             selected_field: 0,
+                            parent_modal: Some(Box::new(self.modal_state.clone())),
                         };
                         self.seed_add_scan_core();
                     }
@@ -8587,6 +8600,7 @@ mod tests {
             add_emulator_id: None,
             add_core: None,
             selected_field: 0,
+            parent_modal: None,
         };
 
         // Sin carpetas: los ◀ ▶ rodean sin pasar por "Default" (None).

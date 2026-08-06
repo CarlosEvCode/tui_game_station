@@ -2488,7 +2488,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             field_style(1, core_idx),
                         ),
                         Span::styled(
-                            "Core: Sin núcleos descargados — abre RetroArch",
+                            "Core: No downloaded cores",
                             Style::default().fg(Color::DarkGray),
                         ),
                     ]));
@@ -2553,6 +2553,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             add_emulator_id,
             ref add_core,
             selected_field,
+            ..
         } => {
             let field_style = |idx: usize| {
                 if idx == selected_field {
@@ -2660,7 +2661,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             field_style(core_idx),
                         ),
                         Span::styled(
-                            "Core: Sin núcleos descargados — abre RetroArch",
+                            "Core: No downloaded cores",
                             Style::default().fg(Color::DarkGray),
                         ),
                     ]));
@@ -4831,6 +4832,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             workdir_cursor,
             prefix_cursor,
             cmd_cursor,
+            ..
         } => {
             let gtype_name = match game_type {
                 PlatformType::Emulator => "EMULATOR",

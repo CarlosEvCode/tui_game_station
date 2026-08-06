@@ -343,6 +343,7 @@ async fn main() -> Result<()> {
                                     | ModalState::ManageWineRunners { .. }
                                     | ModalState::SelectWineRunnerPicker { .. }
                                     | ModalState::PlatformSelector { .. }
+                                    | ModalState::DownloadCoreModal { .. }
                                     | ModalState::WineToolsMenu { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
