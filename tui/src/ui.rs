@@ -4132,6 +4132,68 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
 
+        ModalState::SelectDetectedEmulatorModal {
+            ref runner_name,
+            ref candidates,
+            selected_idx,
+            ..
+        } => {
+            let items: Vec<ListItem> = candidates
+                .iter()
+                .enumerate()
+                .map(|(idx, cand)| {
+                    let is_selected = idx == selected_idx;
+                    let source_label = cand
+                        .sources
+                        .first()
+                        .map(|s| s.display_label())
+                        .unwrap_or("System");
+                    let cmd = cand.launch_command();
+                    let bg = if is_selected { Color::Yellow } else { Color::Reset };
+                    let fg = if is_selected { Color::Black } else { Color::White };
+                    let style = Style::default()
+                        .fg(fg)
+                        .bg(bg)
+                        .add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() });
+
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("  {} ", if is_selected { "▶" } else { " " }), style),
+                        Span::styled(format!("[{:20}] ", source_label), Style::default().fg(if is_selected { Color::Black } else { Color::Cyan }).bg(bg)),
+                        Span::styled(cmd, style),
+                    ]))
+                })
+                .collect();
+
+            let list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(
+                        format!(" Detected Executables for {} ", runner_name),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(
+                " [▲/▼] Select Executable | [Enter] Use Executable | [Esc] Cancel",
+            )
+            .style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
+            frame.render_widget(help, chunks[1]);
+        }
+
         ModalState::SelectWineRunnerPicker {
             ref installed_runners,
             selected_idx,
@@ -4582,9 +4644,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
 
             let path_label = if selected_row == 0 {
-                "▶ 1. Executable / AppImage Path: "
+                "▶ 1. Executable Path: "
             } else {
-                "  1. Executable / AppImage Path: "
+                "  1. Executable Path: "
             };
             lines.push(Line::from(vec![Span::styled(path_label, field_style(0))]));
 
@@ -4736,10 +4798,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 fg: Color,
             }
 
-            let mut btns = vec![ActionBtn {
-                label: "[ Browse ]",
-                fg: Color::Cyan,
-            }];
+            let mut btns = vec![
+                ActionBtn {
+                    label: "[ Browse ]",
+                    fg: Color::Cyan,
+                },
+                ActionBtn {
+                    label: "[ Detect ]",
+                    fg: Color::Yellow,
+                },
+            ];
 
             if runner_info.download_url.is_some() {
                 btns.push(ActionBtn {

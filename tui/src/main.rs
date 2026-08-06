@@ -274,6 +274,8 @@ async fn main() -> Result<()> {
                                     | ModalState::ManageWineRunners { .. }
                                     | ModalState::SelectWineRunnerPicker { .. }
                                     | ModalState::PlatformSelector { .. }
+                                    | ModalState::DownloadCoreModal { .. }
+                                    | ModalState::SelectDetectedEmulatorModal { .. }
                                     | ModalState::WineToolsMenu { .. } => {
                                         app.update(Action::ModalSelectPrev).await;
                                     }
@@ -344,6 +346,7 @@ async fn main() -> Result<()> {
                                     | ModalState::SelectWineRunnerPicker { .. }
                                     | ModalState::PlatformSelector { .. }
                                     | ModalState::DownloadCoreModal { .. }
+                                    | ModalState::SelectDetectedEmulatorModal { .. }
                                     | ModalState::WineToolsMenu { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
@@ -1123,6 +1126,9 @@ async fn main() -> Result<()> {
                                     ModalState::DownloadCoreModal { .. } => {
                                         app.update(Action::TriggerDownloadCore).await;
                                     }
+                                    ModalState::SelectDetectedEmulatorModal { .. } => {
+                                        app.update(Action::SelectDetectedEmulatorCandidate).await;
+                                    }
                                     ModalState::ManageRunnersStep2Config {
                                         ref runner_info,
                                         ref exe_path_input,
@@ -1158,7 +1164,7 @@ async fn main() -> Result<()> {
                                             let has_executable = !exe_path_input.trim().is_empty()
                                                 && std::path::Path::new(exe_path_input.trim())
                                                     .exists();
-                                            let mut actions = vec!["browse"];
+                                            let mut actions = vec!["browse", "detect"];
                                             if runner_info.download_url.is_some() {
                                                 actions.push("download");
                                             }
@@ -1177,6 +1183,9 @@ async fn main() -> Result<()> {
                                             match act {
                                                 "browse" => {
                                                     app.update(Action::OpenFilePicker).await
+                                                }
+                                                "detect" => {
+                                                    app.update(Action::OpenDetectEmulatorModal).await
                                                 }
                                                 "download" => {
                                                     app.update(Action::StartRunnerDownload).await

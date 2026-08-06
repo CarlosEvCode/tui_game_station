@@ -525,6 +525,12 @@ pub enum ModalState {
         selected_action_idx: usize,
         cursor_pos: usize,
     },
+    SelectDetectedEmulatorModal {
+        runner_name: String,
+        candidates: Vec<game_core::emulator_detector::DetectedEmulator>,
+        selected_idx: usize,
+        parent_modal: Box<ModalState>,
+    },
     ManageWineRunners {
         installed_runners: Vec<game_core::runner_detector::InstalledWineRunner>,
         selected_idx: usize,
@@ -729,6 +735,8 @@ pub enum Action {
     // Manage Runners Modal Actions
     OpenManageRunnersModal,
     RunnerModalConfirmPlatform,
+    OpenDetectEmulatorModal,
+    SelectDetectedEmulatorCandidate,
     SaveRunnerConfig,
     ResetRunnerConfig,
     ToggleRunnerActiveState,
@@ -5316,6 +5324,9 @@ impl App {
                 ModalState::DownloadCoreModal { parent_state, .. } => {
                     self.modal_state = *parent_state;
                 }
+                ModalState::SelectDetectedEmulatorModal { parent_modal, .. } => {
+                    self.modal_state = *parent_modal;
+                }
                 ModalState::AddFolderScanForm { parent_modal: Some(parent), .. } => {
                     self.modal_state = *parent;
                 }
@@ -5442,6 +5453,15 @@ impl App {
                     } => {
                         if !cores.is_empty() {
                             *selected_idx = (*selected_idx + 1) % cores.len();
+                        }
+                    }
+                    ModalState::SelectDetectedEmulatorModal {
+                        ref candidates,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !candidates.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % candidates.len();
                         }
                     }
                     _ => {}
@@ -5611,6 +5631,19 @@ impl App {
                         if !cores.is_empty() {
                             if *selected_idx == 0 {
                                 *selected_idx = cores.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::SelectDetectedEmulatorModal {
+                        ref candidates,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !candidates.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = candidates.len() - 1;
                             } else {
                                 *selected_idx -= 1;
                             }
@@ -7021,6 +7054,50 @@ impl App {
                     *focused_pane = 0;
                     *selected_row = row;
                     *selected_field = row;
+                }
+            }
+            Action::OpenDetectEmulatorModal => {
+                if let ModalState::ManageRunnersStep2Config { ref runner_info, .. } = self.modal_state.clone() {
+                    let detector = game_core::emulator_detector::EmulatorDetector::new();
+                    let candidates = detector.detect_for_emulator(&runner_info.name);
+
+                    if candidates.is_empty() {
+                        self.status_msg = format!("No installed versions detected for '{}'.", runner_info.name);
+                    } else if candidates.len() == 1 {
+                        let cmd = candidates[0].launch_command();
+                        if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, ref mut cursor_pos, .. } = self.modal_state {
+                            *exe_path_input = cmd.clone();
+                            *cursor_pos = cmd.len();
+                        }
+                        self.status_msg = format!("[OK] Detected and set executable for '{}': {}", runner_info.name, cmd);
+                    } else {
+                        self.modal_state = ModalState::SelectDetectedEmulatorModal {
+                            runner_name: runner_info.name.clone(),
+                            candidates,
+                            selected_idx: 0,
+                            parent_modal: Box::new(self.modal_state.clone()),
+                        };
+                    }
+                }
+            }
+            Action::SelectDetectedEmulatorCandidate => {
+                if let ModalState::SelectDetectedEmulatorModal {
+                    ref candidates,
+                    selected_idx,
+                    parent_modal,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if let Some(cand) = candidates.get(selected_idx) {
+                        let cmd = cand.launch_command();
+                        let mut new_parent = *parent_modal;
+                        if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, ref mut cursor_pos, .. } = new_parent {
+                            *exe_path_input = cmd.clone();
+                            *cursor_pos = cmd.len();
+                        }
+                        self.modal_state = new_parent;
+                        self.status_msg = format!("[OK] Selected detected executable: {}", cmd);
+                    }
                 }
             }
             Action::OpenDownloadCoreModal => {

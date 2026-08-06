@@ -453,15 +453,49 @@ pub fn value_is_valid(opt: &EmulatorOption, value: &str) -> bool {
 /// Eden stores its Qt settings at `~/.config/eden/qt-config.ini` (QSettings
 /// default location; confirmed on this system — see `assets/emulators/eden.toml`).
 pub fn resolve_config_file(path: &str) -> PathBuf {
-    if path == "~" {
-        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(path));
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        return dirs::home_dir()
+    let resolved = if path == "~" {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(path))
+    } else if let Some(rest) = path.strip_prefix("~/") {
+        dirs::home_dir()
             .map(|home| home.join(rest))
-            .unwrap_or_else(|| PathBuf::from(path));
+            .unwrap_or_else(|| PathBuf::from(path))
+    } else {
+        PathBuf::from(path)
+    };
+
+    if !resolved.exists() {
+        if let Some(home) = dirs::home_dir() {
+            let path_str = resolved.to_string_lossy();
+            if path_str.contains(".config/") {
+                if let Some(rel) = path_str.split(".config/").nth(1) {
+                    // Try matching flatpak app config dir: ~/.var/app/*/config/<rel>
+                    let var_app = home.join(".var/app");
+                    if let Ok(entries) = std::fs::read_dir(&var_app) {
+                        for entry in entries.flatten() {
+                            let flatpak_cand = entry.path().join("config").join(rel);
+                            if flatpak_cand.exists() {
+                                return flatpak_cand;
+                            }
+                        }
+                    }
+                }
+            } else if path_str.contains(".local/share/") {
+                if let Some(rel) = path_str.split(".local/share/").nth(1) {
+                    let var_app = home.join(".var/app");
+                    if let Ok(entries) = std::fs::read_dir(&var_app) {
+                        for entry in entries.flatten() {
+                            let flatpak_cand = entry.path().join("data").join(rel);
+                            if flatpak_cand.exists() {
+                                return flatpak_cand;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-    PathBuf::from(path)
+
+    resolved
 }
 
 /// Pick the config file to use among `candidates`: the only one when exactly one

@@ -13,4 +13,5 @@ pub mod serial_extractor;
 pub mod steam_scanner;
 pub mod retroarch_manager;
 pub mod core_catalog;
+pub mod emulator_detector;
 pub mod switch;

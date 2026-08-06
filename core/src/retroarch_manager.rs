@@ -137,11 +137,16 @@ pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
         if let Some(appimage) = find_downloaded_appimage(&managed) {
             return appimage_config_path(&appimage);
         }
-        // AppImage not yet extracted — return a deterministic placeholder that
-        // will produce a clear "file not found" error rather than silently
-        // using a wrong path.
         managed.join("RetroArch.AppImage.home/.config/retroarch/retroarch.cfg")
     } else {
+        if let Some(ref path) = runner.executable_path {
+            if path.contains("org.libretro.RetroArch") {
+                if let Some(home) = dirs::home_dir() {
+                    let flatpak_cfg = home.join(".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg");
+                    return flatpak_cfg;
+                }
+            }
+        }
         get_retroarch_browsed_config_path()
     }
 }
@@ -149,6 +154,7 @@ pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
 /// Resolve the `cores/` directory for a given RetroArch runner.
 ///
 /// - `Downloaded` → `<appimage>.home/.config/retroarch/cores/`
+/// - `Flatpak` → `~/.var/app/org.libretro.RetroArch/config/retroarch/cores/`
 /// - `Browsed` (or default) → `~/.config/retroarch/cores/`
 pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
     if is_downloaded_runner(runner) {
@@ -158,6 +164,14 @@ pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
         }
         managed.join("RetroArch.AppImage.home/.config/retroarch/cores")
     } else {
+        if let Some(ref path) = runner.executable_path {
+            if path.contains("org.libretro.RetroArch") {
+                if let Some(home) = dirs::home_dir() {
+                    let flatpak_cores = home.join(".var/app/org.libretro.RetroArch/config/retroarch/cores");
+                    return flatpak_cores;
+                }
+            }
+        }
         get_retroarch_browsed_cores_dir()
     }
 }
