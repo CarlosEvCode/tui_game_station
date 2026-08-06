@@ -1,0 +1,54 @@
+# Emulator launch options for RetroArch frontend.
+
+note = "RetroArch frontend options"
+process_name = "retroarch"
+requires_core_selection = true
+
+[[options]]
+key = "fullscreen"
+name = "Fullscreen"
+kind = "toggle"
+default = "0"
+[options.config_target]
+file = "retroarch.cfg"
+file_candidates = [
+    "~/.local/share/tui_game_station/runners/emulators/retroarch-data/retroarch.cfg",
+    "~/.config/retroarch/retroarch.cfg"
+]
+format = "retroarch_cfg"
+key = "video_fullscreen"
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
+
+[[options]]
+key = "vsync"
+name = "Vertical Sync (VSync)"
+kind = "toggle"
+default = "1"
+[options.config_target]
+file = "retroarch.cfg"
+file_candidates = [
+    "~/.local/share/tui_game_station/runners/emulators/retroarch-data/retroarch.cfg",
+    "~/.config/retroarch/retroarch.cfg"
+]
+format = "retroarch_cfg"
+key = "video_vsync"
+[options.config_target.value_map]
+"0" = "false"
+"1" = "true"
+
+[[options]]
+key = "video_driver"
+name = "Video Driver"
+kind = "choice"
+default = "gl"
+choices = ["gl", "vulkan", "glcore", "sdl2", "xvideo"]
+[options.config_target]
+file = "retroarch.cfg"
+file_candidates = [
+    "~/.local/share/tui_game_station/runners/emulators/retroarch-data/retroarch.cfg",
+    "~/.config/retroarch/retroarch.cfg"
+]
+format = "retroarch_cfg"
+key = "video_driver"

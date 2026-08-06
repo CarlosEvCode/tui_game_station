@@ -16,6 +16,42 @@ download_url = "https://github.com/AzaharPlus/AzaharPlus/releases/download/AZAHA
 download_filename = "azahar.AppImage"
 
 [[platform]]
+slug = "snes"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "megadrive"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "gba"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
+slug = "nes"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
+
+[[platform]]
 slug = "ps1"
 
 [[platform.emulators]]
@@ -23,6 +59,12 @@ name = "DuckStation"
 runner_type = "appimage"
 download_url = "https://github.com/stenzek/duckstation/releases/latest/download/DuckStation-x64.AppImage"
 download_filename = "DuckStation-x64.AppImage"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
 
 [[platform]]
 slug = "ps2"
@@ -110,6 +152,12 @@ name = "melonDS"
 runner_type = "appimage"
 download_url = "https://github.com/melonDS-emu/melonDS/releases/latest/download/melonDS-1.1-appimage-x86_64.zip"
 download_filename = "melonDS-1.1-appimage-x86_64.zip"
+
+[[platform.emulators]]
+name = "RetroArch"
+runner_type = "retroarch"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z"
+download_filename = "RetroArch.7z"
 
 [[platform]]
 slug = "vita"

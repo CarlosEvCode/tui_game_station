@@ -98,7 +98,7 @@ mod tests {
         let platforms = load_catalog();
         let slugs: Vec<&str> = platforms.iter().map(|p| p.slug.as_str()).collect();
         for expected in [
-            "3ds", "ps1", "ps2", "gamecube", "wii", "wii_u", "mame", "psp",
+            "3ds", "snes", "megadrive", "gba", "nes", "ps1", "ps2", "gamecube", "wii", "wii_u", "mame", "psp",
             "dreamcast", "switch", "nds", "vita",
         ] {
             assert!(
@@ -106,11 +106,11 @@ mod tests {
                 "catalog is missing platform {expected}"
             );
         }
-        // Every emulator entry has a non-empty name and a default-able type.
+        // Every emulator entry has a non-empty name and a valid runner_type.
         for p in &platforms {
             for e in &p.emulators {
                 assert!(!e.name.is_empty());
-                assert_eq!(e.runner_type, "appimage");
+                assert!(e.runner_type == "appimage" || e.runner_type == "retroarch");
             }
         }
     }

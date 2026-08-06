@@ -86,6 +86,7 @@ impl SteamScanner {
                             platform_id: steam_platform.id,
                             folder_id: None,
                             emulator_override: None,
+                            core_override: None,
                             title: name,
                             sort_title: None,
                             game_type: "steam".to_string(),

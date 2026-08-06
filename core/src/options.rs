@@ -198,6 +198,7 @@ fn emulator_toml_source(key: &str) -> Option<&'static str> {
         "melonds" => Some(include_str!("../../assets/emulators/melonds.toml")),
         "dolphin" => Some(include_str!("../../assets/emulators/dolphin.toml")),
         "mame" => Some(include_str!("../../assets/emulators/mame.toml")),
+        "retroarch" => Some(include_str!("../../assets/emulators/retroarch.toml")),
         // Fictional emulator used ONLY by tests to exercise the core selector.
         // Never registered as a runner in the catalog, so it never shows in the app.
         "testcore" => Some(include_str!("../../assets/emulators/testcore.toml")),
@@ -333,6 +334,17 @@ pub fn emulator_cores(name: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+pub fn emulator_cores_for_platform(name: &str, platform_slug: &str) -> Vec<(String, String)> {
+    let key = canonical_emulator_key(name);
+    if key == "retroarch" {
+        return crate::core_catalog::cores_for_platform(platform_slug)
+            .into_iter()
+            .map(|c| (c.key, c.name))
+            .collect();
+    }
+    emulator_cores(name)
+}
+
 /// The core key selected by default for a core-based emulator, if any.
 pub fn emulator_default_core(name: &str) -> Option<String> {
     let key = canonical_emulator_key(name);
@@ -343,12 +355,31 @@ pub fn emulator_default_core(name: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+pub fn emulator_default_core_for_platform(name: &str, platform_slug: &str) -> Option<String> {
+    let key = canonical_emulator_key(name);
+    if key == "retroarch" {
+        return crate::core_catalog::default_core_for_platform(platform_slug).map(|c| c.key);
+    }
+    emulator_default_core(name)
+}
+
 /// The display label of a core key, if the emulator defines it.
 pub fn emulator_core_label(name: &str, key: &str) -> Option<String> {
     emulator_cores(name)
         .into_iter()
         .find(|(k, _)| k == key)
         .map(|(_, label)| label)
+}
+
+pub fn emulator_core_label_for_platform(
+    name: &str,
+    platform_slug: &str,
+    core_key: &str,
+) -> Option<String> {
+    emulator_cores_for_platform(name, platform_slug)
+        .into_iter()
+        .find(|(k, _)| k == core_key)
+        .map(|(_, l)| l)
 }
 
 /// Move one step through a core list, wrapping around. `current` is the
@@ -528,6 +559,10 @@ fn read_raw_value(
             )
             .map(|opt| opt.map(|v| v.to_file_string()))
         }
+        "retroarch_cfg" => {
+            let key = target.key.as_deref().unwrap_or_default();
+            crate::config_patch::retroarch_cfg::read_retroarch_cfg_value(path, key)
+        }
         _ => {
             // Default: qt_ini
             let section = target.section.as_deref().unwrap_or_default();
@@ -612,6 +647,11 @@ fn apply_single_patch(
                 &toml_path.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
                 new_value,
             )?;
+            Ok(())
+        }
+        "retroarch_cfg" => {
+            let key = target.key.as_deref().unwrap_or_default();
+            crate::config_patch::retroarch_cfg::patch_retroarch_cfg(path, key, new_value)?;
             Ok(())
         }
         _ => {
@@ -763,7 +803,8 @@ mod tests {
     }
 
     #[test]
-    fn no_real_emulator_requires_core_selection() {
+    fn retroarch_requires_core_selection_and_others_do_not() {
+        assert!(emulator_requires_core_selection("RetroArch"));
         for name in [
             "Azahar", "Eden", "Ryujinx", "Citron", "Dolphin", "DuckStation",
             "PCSX2", "Cemu", "PPSSPP", "melonDS", "MAME", "Redream", "Vita3K",

@@ -1206,7 +1206,7 @@ impl App {
         else {
             return;
         };
-        let cores = game_core::options::emulator_cores(&active.name);
+        let cores = game_core::options::emulator_cores_for_platform(&active.name, &platform.slug);
         if cores.is_empty() {
             return;
         }
@@ -1221,7 +1221,7 @@ impl App {
         let current = env
             .active_core
             .clone()
-            .or_else(|| game_core::options::emulator_default_core(&active.name));
+            .or_else(|| game_core::options::emulator_default_core_for_platform(&active.name, &platform.slug));
         let Some(next) = game_core::options::next_core_key(&cores, current.as_deref(), backward)
         else {
             return;
@@ -1231,8 +1231,8 @@ impl App {
             &active.name,
             Some(&game_core::options::to_env_json(&env)),
         );
-        let label = game_core::options::emulator_core_label(&active.name, &next)
-            .unwrap_or(next.clone());
+        let label = game_core::options::emulator_core_label_for_platform(&active.name, &platform.slug, &next)
+            .unwrap_or_else(|| next.clone());
         self.status_msg = format!("Núcleo de {}: {}", active.name, label);
     }
 
@@ -1274,6 +1274,15 @@ impl App {
             .get_active_runner_for_platform(platform_id)
             .ok()
             .flatten()?;
+        let platform_slug = self
+            .db
+            .get_platforms()
+            .ok()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|p| p.id == platform_id)
+            .map(|p| p.slug)
+            .unwrap_or_default();
         let core_label = if game_core::options::emulator_requires_core_selection(&active.name) {
             let env_json = self
                 .db
@@ -1284,8 +1293,8 @@ impl App {
             let env = game_core::options::from_env_json(&env_json);
             let current = env
                 .active_core
-                .or_else(|| game_core::options::emulator_default_core(&active.name));
-            current.and_then(|key| game_core::options::emulator_core_label(&active.name, &key))
+                .or_else(|| game_core::options::emulator_default_core_for_platform(&active.name, &platform_slug));
+            current.and_then(|key| game_core::options::emulator_core_label_for_platform(&active.name, &platform_slug, &key))
         } else {
             None
         };
@@ -3465,6 +3474,7 @@ impl App {
                         is_default: false,
                         is_active: false,
                         env_vars: Some(env_json),
+                        source: None,
                     };
 
                     self.status_msg = format!("Opening {}...", runner_info.name);
@@ -7141,6 +7151,7 @@ impl App {
                         platform_id,
                         folder_id: None,
                         emulator_override: None,
+                        core_override: None,
                         title: title.clone(),
                         sort_title: None,
                         game_type: game_type.to_string(),

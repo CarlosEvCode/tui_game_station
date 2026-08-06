@@ -63,7 +63,8 @@ impl Database {
                 is_configured BOOLEAN DEFAULT 0,
                 is_default BOOLEAN DEFAULT 0,
                 is_active BOOLEAN DEFAULT 0,
-                env_vars TEXT
+                env_vars TEXT,
+                source TEXT
             );
 
             CREATE TABLE IF NOT EXISTS scan_folders (
@@ -72,7 +73,8 @@ impl Database {
                 path TEXT NOT NULL UNIQUE,
                 recursive BOOLEAN DEFAULT 1,
                 last_scanned_at DATETIME,
-                assigned_emulator_id INTEGER REFERENCES runners(id)
+                assigned_emulator_id INTEGER REFERENCES runners(id),
+                assigned_core TEXT
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -113,7 +115,8 @@ impl Database {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 is_missing_base BOOLEAN DEFAULT 0,
-                emulator_override INTEGER REFERENCES runners(id)
+                emulator_override INTEGER REFERENCES runners(id),
+                core_override TEXT
             );
 
             CREATE TABLE IF NOT EXISTS game_components (
@@ -254,6 +257,42 @@ impl Database {
                 "ALTER TABLE games ADD COLUMN emulator_override INTEGER REFERENCES runners(id)",
                 [],
             )?;
+        }
+
+        // Migrate runners.source column.
+        let has_runner_source = self
+            .conn
+            .prepare("PRAGMA table_info(runners)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "source");
+        if !has_runner_source {
+            self.conn.execute("ALTER TABLE runners ADD COLUMN source TEXT", [])?;
+        }
+
+        // Migrate scan_folders.assigned_core column.
+        let has_folder_assigned_core = self
+            .conn
+            .prepare("PRAGMA table_info(scan_folders)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "assigned_core");
+        if !has_folder_assigned_core {
+            self.conn.execute("ALTER TABLE scan_folders ADD COLUMN assigned_core TEXT", [])?;
+        }
+
+        // Migrate games.core_override column.
+        let has_game_core_override = self
+            .conn
+            .prepare("PRAGMA table_info(games)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "core_override");
+        if !has_game_core_override {
+            self.conn.execute("ALTER TABLE games ADD COLUMN core_override TEXT", [])?;
         }
 
         // Clean up the stale "Nintendo DS" platform from the old `ds` slug. It
@@ -656,7 +695,7 @@ impl Database {
     // ----------------------------------------------------
     pub fn get_scan_folders_for_platform(&self, platform_id: i64) -> Result<Vec<ScannedFolder>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, path, recursive, last_scanned_at, assigned_emulator_id
+            "SELECT id, platform_id, path, recursive, last_scanned_at, assigned_emulator_id, assigned_core
              FROM scan_folders WHERE platform_id = ?1 ORDER BY last_scanned_at DESC, id ASC",
         )?;
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -667,6 +706,7 @@ impl Database {
                 recursive: row.get(3)?,
                 last_scanned_at: row.get(4)?,
                 assigned_emulator_id: row.get(5)?,
+                assigned_core: row.get(6)?,
             })
         })?;
         let mut list = Vec::new();
@@ -678,7 +718,7 @@ impl Database {
 
     pub fn get_scanned_folder(&self, folder_id: i64) -> Result<Option<ScannedFolder>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, path, recursive, last_scanned_at, assigned_emulator_id
+            "SELECT id, platform_id, path, recursive, last_scanned_at, assigned_emulator_id, assigned_core
              FROM scan_folders WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![folder_id])?;
@@ -690,6 +730,7 @@ impl Database {
                 recursive: row.get(3)?,
                 last_scanned_at: row.get(4)?,
                 assigned_emulator_id: row.get(5)?,
+                assigned_core: row.get(6)?,
             }))
         } else {
             Ok(None)
@@ -742,6 +783,18 @@ impl Database {
         self.conn.execute(
             "UPDATE scan_folders SET assigned_emulator_id = ?1 WHERE id = ?2",
             params![emulator_id, folder_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_folder_assigned_core(
+        &self,
+        folder_id: i64,
+        assigned_core: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE scan_folders SET assigned_core = ?1 WHERE id = ?2",
+            params![assigned_core, folder_id],
         )?;
         Ok(())
     }
@@ -873,7 +926,7 @@ impl Database {
 
     pub fn get_runners_for_platform(&self, platform_id: i64) -> Result<Vec<Runner>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default, is_active, env_vars FROM runners WHERE platform_id = ?1",
+            "SELECT id, platform_id, name, runner_type, executable_path, command_template, default_env, download_url, download_filename, is_default, is_active, env_vars, source FROM runners WHERE platform_id = ?1",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -890,6 +943,7 @@ impl Database {
                 is_default: row.get(9)?,
                 is_active: row.get(10)?,
                 env_vars: row.get(11)?,
+                source: row.get(12)?,
             })
         })?;
 
@@ -1017,7 +1071,8 @@ impl Database {
         runner_id: i64,
         exe_path: &str,
         is_configured: bool,
-    ) -> Result<()> {        let _ = is_configured;
+    ) -> Result<()> {
+        let _ = is_configured;
         self.conn.execute(
             "UPDATE runners SET executable_path = ?1, is_configured = 1 WHERE id = ?2",
             params![exe_path, runner_id],
@@ -1025,9 +1080,34 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_runner_source(
+        &self,
+        runner_id: i64,
+        source: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET source = ?1 WHERE id = ?2",
+            params![source, runner_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_runner_config_with_source(
+        &self,
+        runner_id: i64,
+        exe_path: &str,
+        source: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runners SET executable_path = ?1, is_configured = 1, source = ?3 WHERE id = ?2",
+            params![exe_path, runner_id, source],
+        )?;
+        Ok(())
+    }
+
     pub fn reset_runner_config(&self, runner_id: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE runners SET executable_path = NULL, is_configured = 0 WHERE id = ?1",
+            "UPDATE runners SET executable_path = NULL, is_configured = 0, source = NULL WHERE id = ?1",
             params![runner_id],
         )?;
         Ok(())
@@ -1081,7 +1161,7 @@ impl Database {
     // ----------------------------------------------------
     pub fn get_games_for_platform(&self, platform_id: i64) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id, emulator_override FROM games WHERE platform_id = ?1 ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id, emulator_override, core_override FROM games WHERE platform_id = ?1 ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -1120,6 +1200,7 @@ impl Database {
                 is_missing_base: row.get(31)?,
                 folder_id: row.get(32)?,
                 emulator_override: row.get(33)?,
+                core_override: row.get(34)?,
                 components: Vec::new(),
             })
         })?;
@@ -1134,7 +1215,7 @@ impl Database {
 
     pub fn get_all_games(&self) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id, emulator_override FROM games ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id, emulator_override, core_override FROM games ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -1173,6 +1254,7 @@ impl Database {
                 is_missing_base: row.get(31)?,
                 folder_id: row.get(32)?,
                 emulator_override: row.get(33)?,
+                core_override: row.get(34)?,
                 components: Vec::new(),
             })
         })?;
@@ -1191,8 +1273,8 @@ impl Database {
                 platform_id, title, sort_title, game_type, file_path, working_dir,
                 custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
                 file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial,
-                is_missing_base, folder_id, emulator_override
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+                is_missing_base, folder_id, emulator_override, core_override
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
             ON CONFLICT(file_path) DO UPDATE SET
                 title = excluded.title,
                 serial = excluded.serial,
@@ -1202,6 +1284,7 @@ impl Database {
                 is_missing_base = excluded.is_missing_base,
                 folder_id = excluded.folder_id,
                 emulator_override = excluded.emulator_override,
+                core_override = excluded.core_override,
                 updated_at = CURRENT_TIMESTAMP",
             params![
                 game.platform_id,
@@ -1225,6 +1308,7 @@ impl Database {
                 game.is_missing_base,
                 game.folder_id,
                 game.emulator_override,
+                game.core_override,
             ],
         )?;
 
@@ -1357,8 +1441,9 @@ impl Database {
                 steam_appid = ?6,
                 env_vars = ?7,
                 emulator_override = ?8,
+                core_override = ?9,
                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?9",
+             WHERE id = ?10",
             params![
                 game.title,
                 game.file_path,
@@ -1368,6 +1453,7 @@ impl Database {
                 game.steam_appid,
                 game.env_vars,
                 game.emulator_override,
+                game.core_override,
                 game.id,
             ],
         )?;
@@ -1384,6 +1470,56 @@ impl Database {
             params![emulator_override, game_id],
         )?;
         Ok(())
+    }
+
+    pub fn set_game_core_override(
+        &self,
+        game_id: i64,
+        core_override: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE games SET core_override = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![core_override, game_id],
+        )?;
+        Ok(())
+    }
+
+    /// Resolve effective RetroArch core for a game following 4-level hierarchy:
+    /// Game `core_override` -> Folder `assigned_core` -> Platform active runner `active_core` -> Catalog default core
+    pub fn get_effective_core_for_game(
+        &self,
+        game: &Game,
+        platform_slug: &str,
+    ) -> Option<String> {
+        // 1. Game core override
+        if let Some(ref c) = game.core_override {
+            if !c.trim().is_empty() {
+                return Some(c.clone());
+            }
+        }
+        // 2. Folder assigned core
+        if let Some(folder_id) = game.folder_id {
+            if let Ok(Some(folder)) = self.get_scanned_folder(folder_id) {
+                if let Some(ref c) = folder.assigned_core {
+                    if !c.trim().is_empty() {
+                        return Some(c.clone());
+                    }
+                }
+            }
+        }
+        // 3. Platform active runner's active_core from env_vars
+        if let Ok(Some(active_runner)) = self.get_active_runner_for_platform(game.platform_id) {
+            if let Ok(Some(env_json)) = self.get_runner_env_by_name(&active_runner.name) {
+                let env = crate::options::from_env_json(&env_json);
+                if let Some(active_c) = env.active_core {
+                    if !active_c.trim().is_empty() {
+                        return Some(active_c);
+                    }
+                }
+            }
+        }
+        // 4. Catalog default core for platform
+        crate::core_catalog::default_core_for_platform(platform_slug).map(|c| c.key)
     }
 
     pub fn delete_game(&self, game_id: i64) -> Result<()> {
@@ -1622,6 +1758,7 @@ mod tests {
             platform_id: switch.id,
             folder_id: Some(folder_a),
             emulator_override: None,
+            core_override: None,
             title: "Zelda".to_string(),
             sort_title: None,
             game_type: "rom".to_string(),

@@ -8,6 +8,13 @@ pub struct EmulatorOverrideChoice {
     pub display_label: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreOverrideChoice {
+    /// `None` for "Heredado (...)", `Some(key)` for specific core key.
+    pub core_key: Option<String>,
+    pub display_label: String,
+}
+
 pub struct EditGameFormHelper;
 
 impl EditGameFormHelper {
@@ -103,6 +110,91 @@ impl EditGameFormHelper {
         };
         choices[next_idx].runner_id
     }
+
+    /// Build list of choices for Core override in Edit Game Details.
+    pub fn get_core_choices(
+        db: &Database,
+        game: &Game,
+        platform_slug: &str,
+        emulator_name: &str,
+    ) -> Vec<CoreOverrideChoice> {
+        let mut choices = Vec::new();
+
+        let game_no_override = Game {
+            core_override: None,
+            ..game.clone()
+        };
+        let inherited_core_key = db.get_effective_core_for_game(&game_no_override, platform_slug);
+
+        let inherited_label = if let Some(ref key) = inherited_core_key {
+            let label = game_core::options::emulator_core_label_for_platform(
+                emulator_name,
+                platform_slug,
+                key,
+            )
+            .unwrap_or_else(|| key.clone());
+
+            let came_from_folder = if let Some(fid) = game.folder_id {
+                if let Ok(Some(folder)) = db.get_scanned_folder(fid) {
+                    folder.assigned_core.as_deref() == Some(key.as_str())
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if came_from_folder {
+                format!("Heredado ({} — de carpeta)", label)
+            } else {
+                format!("Heredado ({} — de plataforma)", label)
+            }
+        } else {
+            "Heredado (Sin núcleo)".to_string()
+        };
+
+        choices.push(CoreOverrideChoice {
+            core_key: None,
+            display_label: inherited_label,
+        });
+
+        let cores = game_core::options::emulator_cores_for_platform(emulator_name, platform_slug);
+        for (k, l) in cores {
+            choices.push(CoreOverrideChoice {
+                core_key: Some(k),
+                display_label: l,
+            });
+        }
+
+        choices
+    }
+
+    pub fn cycle_core_choice(
+        choices: &[CoreOverrideChoice],
+        current_core: Option<&str>,
+        prev: bool,
+    ) -> Option<String> {
+        if choices.is_empty() {
+            return None;
+        }
+        let curr_idx = match current_core {
+            None => 0,
+            Some(key) => choices
+                .iter()
+                .position(|c| c.core_key.as_deref() == Some(key))
+                .unwrap_or(0),
+        };
+        let next_idx = if prev {
+            if curr_idx == 0 {
+                choices.len() - 1
+            } else {
+                curr_idx - 1
+            }
+        } else {
+            (curr_idx + 1) % choices.len()
+        };
+        choices[next_idx].core_key.clone()
+    }
 }
 
 #[cfg(test)]
@@ -135,6 +227,7 @@ mod tests {
             platform_id: switch.id,
             folder_id: None,
             emulator_override: None,
+            core_override: None,
             title: "Zelda".to_string(),
             sort_title: None,
             game_type: "emulator".to_string(),

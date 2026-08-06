@@ -1,0 +1,81 @@
+# Curated initial catalog of RetroArch cores per platform.
+# Linux x86_64 cores URL convention:
+# https://buildbot.libretro.com/nightly/linux/x86_64/latest/{so_filename}.zip
+
+[platform.snes]
+[[platform.snes.cores]]
+key = "snes9x"
+name = "Snes9x"
+so_file = "snes9x_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/snes9x_libretro.so.zip"
+
+[[platform.snes.cores]]
+key = "bsnes"
+name = "bsnes"
+so_file = "bsnes_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/bsnes_libretro.so.zip"
+
+[platform.megadrive]
+[[platform.megadrive.cores]]
+key = "genesis_plus_gx"
+name = "Genesis Plus GX"
+so_file = "genesis_plus_gx_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/genesis_plus_gx_libretro.so.zip"
+
+[[platform.megadrive.cores]]
+key = "picodrive"
+name = "PicoDrive"
+so_file = "picodrive_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/picodrive_libretro.so.zip"
+
+[platform.nds]
+[[platform.nds.cores]]
+key = "melonds"
+name = "melonDS"
+so_file = "melonds_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/melonds_libretro.so.zip"
+
+[[platform.nds.cores]]
+key = "desmume"
+name = "DeSmuME"
+so_file = "desmume_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/desmume_libretro.so.zip"
+
+[platform.ps1]
+[[platform.ps1.cores]]
+key = "pcsx_rearmed"
+name = "PCSX ReARMed"
+so_file = "pcsx_rearmed_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/pcsx_rearmed_libretro.so.zip"
+
+[[platform.ps1.cores]]
+key = "beetle_psx"
+name = "Beetle PSX HW"
+so_file = "beetle_psx_hw_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/beetle_psx_hw_libretro.so.zip"
+
+[platform.gba]
+[[platform.gba.cores]]
+key = "mgba"
+name = "mGBA"
+so_file = "mgba_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/mgba_libretro.so.zip"
+
+[[platform.gba.cores]]
+key = "vbam"
+name = "VBA-M"
+so_file = "vbam_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/vbam_libretro.so.zip"
+
+[platform.nes]
+[[platform.nes.cores]]
+key = "nestopia"
+name = "Nestopia UE"
+so_file = "nestopia_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/nestopia_libretro.so.zip"
+
+[[platform.nes.cores]]
+key = "fceumm"
+name = "FCEUmm"
+so_file = "fceumm_libretro.so"
+download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/fceumm_libretro.so.zip"

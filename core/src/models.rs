@@ -59,6 +59,9 @@ pub struct Runner {
     pub is_active: bool,
     /// JSON payload for emulator options (`emulator_options` map + `custom_args`).
     pub env_vars: Option<String>,
+    /// Origin of the runner executable: "Downloaded" or "Browsed".
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,6 +88,9 @@ pub struct ScannedFolder {
     /// first, then fall back to the platform resolution.
     #[serde(default)]
     pub assigned_emulator_id: Option<i64>,
+    /// RetroArch core explicitly pinned to this folder. `None` means "inherit platform active core".
+    #[serde(default)]
+    pub assigned_core: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +106,10 @@ pub struct Game {
     /// (falling back to folder -> platform -> catalog default).
     #[serde(default)]
     pub emulator_override: Option<i64>,
+    /// RetroArch core explicitly pinned to this game. `None` means "Inherited"
+    /// (falling back to folder -> platform -> catalog default).
+    #[serde(default)]
+    pub core_override: Option<String>,
     pub title: String,
     pub sort_title: Option<String>,
     pub game_type: String,

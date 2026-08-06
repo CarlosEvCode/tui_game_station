@@ -204,15 +204,59 @@ impl GameRunner {
                 local_envs.insert("WINEPREFIX".to_string(), prefix.clone());
             }
 
-            let (e, mut a, mut pe) = parse_command_string(&template, game)?;
-            pe.extend(local_envs);
-
-            // Inject TOML-defined emulator options + custom args before the ROM.
+            let is_retroarch = r.name == "RetroArch" || r.runner_type == "retroarch";
             let option_flags = resolved_runner_flags(r);
-            if !option_flags.is_empty() {
-                a.splice(0..0, option_flags);
+
+            if is_retroarch {
+                let db = game_core::db::Database::open_default().ok();
+                let platform_slug = db
+                    .as_ref()
+                    .and_then(|d| d.get_platforms().ok())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|p| p.id == game.platform_id)
+                    .map(|p| p.slug)
+                    .unwrap_or_default();
+
+                let resolved_core_key = db
+                    .as_ref()
+                    .and_then(|d| d.get_effective_core_for_game(game, &platform_slug));
+
+                let config_path = game_core::retroarch_manager::resolve_retroarch_config_path(r);
+                let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(r);
+
+                let core_so_path = if let Some(ref key) = resolved_core_key {
+                    if let Some(core_info) = game_core::core_catalog::core_by_key(&platform_slug, key) {
+                        cores_dir.join(&core_info.so_file)
+                    } else {
+                        cores_dir.join(format!("{}_libretro.so", key))
+                    }
+                } else {
+                    cores_dir.join("core_libretro.so")
+                };
+
+                let exe = r.executable_path.clone().unwrap_or_else(|| "retroarch".to_string());
+                let mut retroarch_args = Vec::new();
+                retroarch_args.push("-L".to_string());
+                retroarch_args.push(core_so_path.to_string_lossy().to_string());
+                retroarch_args.push("-c".to_string());
+                retroarch_args.push(config_path.to_string_lossy().to_string());
+
+                retroarch_args.extend(option_flags);
+                if let Some(ref path) = game.file_path {
+                    retroarch_args.push(path.clone());
+                }
+
+                (exe, retroarch_args, local_envs)
+            } else {
+                let (e, mut a, mut pe) = parse_command_string(&template, game)?;
+                pe.extend(local_envs);
+
+                if !option_flags.is_empty() {
+                    a.splice(0..0, option_flags);
+                }
+                (e, a, pe)
             }
-            (e, a, pe)
         } else if let Some(path) = &game.file_path {
             let (e, a, mut pe) = parse_command_string(&format!("\"{}\"", path), game)?;
             pe.extend(base_envs.clone());
@@ -876,6 +920,7 @@ mod tests {
             platform_id: 0,
             folder_id: None,
             emulator_override: None,
+            core_override: None,
             title: "1943u".to_string(),
             sort_title: None,
             game_type: "emulator".to_string(),
@@ -921,6 +966,7 @@ mod tests {
             is_default: false,
             is_active: false,
             env_vars: None,
+            source: None,
         };
 
         let (_exe, args, _envs) = GameRunner::build_command_line(&game, Some(&runner)).unwrap();

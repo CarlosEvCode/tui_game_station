@@ -18,7 +18,9 @@
 pub mod cemu_xml;
 pub mod melonds_toml;
 pub mod qt_ini;
+pub mod retroarch_cfg;
 
 pub use cemu_xml::{patch_cemu_xml, read_cemu_xml_value, CemuPatchResult};
 pub use melonds_toml::{patch_melonds_toml, read_melonds_toml_value, TomlPatchResult, TomlValue};
 pub use qt_ini::{patch_qt_ini, read_qt_ini_value, PatchError, PatchResult};
+pub use retroarch_cfg::{patch_retroarch_cfg, read_retroarch_cfg_value};
