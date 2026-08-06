@@ -197,10 +197,12 @@ impl GameRunner {
             // dynamically inside the `if is_retroarch` branch below.
             if !is_retroarch {
                 if let Some(ex) = &r.executable_path {
-                    if !ex.trim().is_empty() && std::path::Path::new(ex).exists() {
-                        template = template.replace("{executable_path}", ex);
+                    let trimmed = ex.trim();
+                    let is_cmd = trimmed.starts_with("flatpak run") || trimmed.contains(' ');
+                    if !trimmed.is_empty() && (is_cmd || std::path::Path::new(trimmed).exists()) {
+                        template = template.replace("{executable_path}", trimmed);
                     } else {
-                        anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}). Presiona [m] para configurar o descargar.", r.name, ex);
+                        anyhow::bail!("El ejecutable/AppImage para '{}' no existe en disco ({}). Presiona [m] para configurar o descargar.", r.name, trimmed);
                     }
                 } else {
                     anyhow::bail!("El emulador '{}' no tiene configurado su ejecutable/AppImage. Presiona [m] para configurar o descargar.", r.name);
@@ -389,7 +391,8 @@ impl GameRunner {
                 )
             })?
         };
-        if !std::path::Path::new(&exe).exists() {
+        let is_cmd = exe.trim().starts_with("flatpak run") || exe.trim().contains(' ');
+        if !is_cmd && !std::path::Path::new(&exe).exists() {
             anyhow::bail!(
                 "El ejecutable/AppImage para '{}' no existe en disco ({}).",
                 runner.name,
@@ -397,10 +400,51 @@ impl GameRunner {
             );
         }
 
-
         let expected = emulator_process_name(&runner.name);
-        let args = resolved_runner_flags(runner);
-        Self::spawn_and_wait(&exe, &args, &HashMap::new(), None, expected.as_deref()).await
+        let flags = resolved_runner_flags(runner);
+
+        let dummy_game = Game {
+            id: 0,
+            platform_id: 0,
+            folder_id: None,
+            emulator_override: None,
+            core_override: None,
+            title: String::new(),
+            sort_title: None,
+            game_type: String::new(),
+            file_path: None,
+            working_dir: None,
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: None,
+            file_extension: None,
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        };
+        let (final_exe, mut final_args, envs) = parse_command_string(&exe, &dummy_game)?;
+        final_args.extend(flags);
+
+        Self::spawn_and_wait(&final_exe, &final_args, &envs, None, expected.as_deref()).await
     }
 
     async fn spawn_and_wait(
