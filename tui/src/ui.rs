@@ -16,8 +16,127 @@ use crate::app::{
     scan_folder_supports_dat, App, BigPictureFocus, FocusedPane, ModalState, ViewMode,
 };
 use game_core::models::PlatformType;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub const DETAIL_ACTIONS: [&str; 4] = ["Play", "Favorite", "Options", "Delete"];
+
+/// Byte offset in `s` where the display column reaches `col`, snapping to the
+/// nearest char boundary (never cutting a multi-byte / wide char in half).
+fn byte_off_at_col(s: &str, col: usize) -> usize {
+    let mut w = 0usize;
+    for (i, ch) in s.char_indices() {
+        if w >= col {
+            return i;
+        }
+        w += UnicodeWidthChar::width(ch).unwrap_or(0);
+    }
+    s.len()
+}
+
+/// Truncate `path` so it fits in `max_cols` columns, keeping the tail (the most
+/// useful part of a path: the file/folder name) and a leading "…" marker when
+/// something was cut off. Returns `path` unchanged when it already fits.
+pub fn ellipsize_path_tail(path: &str, max_cols: usize) -> String {
+    if path.width() <= max_cols {
+        return path.to_string();
+    }
+    let budget = max_cols.saturating_sub(1);
+    let start = path.width().saturating_sub(budget);
+    let start_byte = byte_off_at_col(path, start);
+    format!("…{}", &path[start_byte..])
+}
+
+/// Compute the visible window of an editable single-line input that must be
+/// rendered inside `max_cols` columns. Returns `(before, after, show_left, show_right)`
+/// where `before`/`after` are the text slices around the cursor and the booleans
+/// tell the caller to prepend/append a "…" marker because there is more content
+/// off-screen. The window follows the cursor so it is always visible.
+pub fn editable_input_window(
+    input: &str,
+    cursor: usize,
+    max_cols: usize,
+) -> (String, String, bool, bool) {
+    let cursor = cursor.min(input.len());
+    let total = input.width();
+    if total <= max_cols {
+        return (
+            input[..cursor].to_string(),
+            input[cursor..].to_string(),
+            false,
+            false,
+        );
+    }
+    let ccol = input[..cursor].width();
+    let ideal_start = ccol.saturating_sub(max_cols / 3);
+    let start_col = ideal_start.min(total.saturating_sub(max_cols));
+    let end_col = start_col + max_cols;
+    let start_byte = byte_off_at_col(input, start_col);
+    let end_byte = byte_off_at_col(input, end_col.min(total));
+    (
+        input[start_byte..cursor].to_string(),
+        input[cursor..end_byte].to_string(),
+        start_col > 0,
+        end_col < total,
+    )
+}
+
+/// Keep `budget` columns available for a path inside a row that also uses
+/// `other_cols` columns; never lets the path shrink below a readable minimum.
+fn path_budget(area_cols: usize, other_cols: usize) -> usize {
+    area_cols.saturating_sub(other_cols).max(12)
+}
+
+/// Build the spans of an editable single-line input rendered inside a
+/// `max_cols`-wide area. When `active` the █ cursor is shown and the window
+/// follows it (with "…" markers when content is cut off); otherwise the value
+/// is shown tail-ellipsized in a muted style.
+fn field_input_spans(text: &str, cursor: usize, max_cols: usize, active: bool) -> Vec<Span<'static>> {
+    if active {
+        let (before, after, l, r) = editable_input_window(text, cursor, max_cols);
+        vec![
+            Span::styled(
+                format!("{}{}", if l { "…" } else { "" }, before),
+                Style::default().fg(Color::White).bg(Color::DarkGray),
+            ),
+            Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+            Span::styled(
+                format!("{}{}", after, if r { "…" } else { "" }),
+                Style::default().fg(Color::White).bg(Color::DarkGray),
+            ),
+        ]
+    } else {
+        vec![Span::styled(
+            ellipsize_path_tail(text, max_cols),
+            Style::default().fg(Color::DarkGray),
+        )]
+    }
+}
+
+/// Render a game-form path/text row: `label` followed by the editable value
+/// limited to the width remaining in the modal. `placeholder` is shown while
+/// the field is empty.
+fn form_text_row(
+    label: &str,
+    text: &str,
+    placeholder: &str,
+    cursor: usize,
+    max_cols: usize,
+    selected: bool,
+    style: Style,
+) -> Line<'static> {
+    let label_w = label.width();
+    let budget = max_cols.saturating_sub(label_w).max(12);
+    let mut spans = vec![Span::styled(label.to_string(), style)];
+    if text.is_empty() {
+        spans.push(Span::styled(
+            placeholder.to_string(),
+            Style::default().fg(Color::DarkGray),
+        ));
+    } else {
+        spans.extend(field_input_spans(text, cursor, budget, selected));
+    }
+    Line::from(spans)
+}
 
 pub fn render_ui(frame: &mut Frame, app: &mut App) {
     if app.is_big_picture {
@@ -2192,9 +2311,25 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         .find(|r| r.id == id)
                         .map(|r| r.name.clone())
                         .unwrap_or_else(|| "?".to_string()),
-                    None => "Inherited".to_string(),
+                    None => "Default".to_string(),
                 }
             };
+
+            let outer = Block::default()
+                .title(Span::styled(
+                    format!(" Folder Manager: {} ", platform.name),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+
+            let inner = outer.inner(popup_area);
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(inner);
 
             let mut left_lines = Vec::new();
             if num_folders == 0 {
@@ -2220,19 +2355,23 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     } else {
                         Style::default().fg(Color::White)
                     };
+                    let suffix = format!(
+                        "  ({} game{} · Emu: {})",
+                        count,
+                        if count == 1 { "" } else { "s" },
+                        folder_emu_label(folder.assigned_emulator_id)
+                    );
+                    let prefix_w = 2 + 4 + format!("{}. ", i + 1).width();
+                    let budget = path_budget(
+                        cols[0].width.saturating_sub(2) as usize,
+                        prefix_w + suffix.width(),
+                    );
                     left_lines.push(Line::from(vec![
                         Span::styled(if is_focused { "▶ " } else { "  " }, base),
                         Span::styled(if is_sel { "[x] " } else { "[ ] " }, base),
-                        Span::styled(format!("{}. {}", i + 1, folder.path), base),
-                        Span::styled(
-                            format!(
-                                "  ({} game{} · Emu: {})",
-                                count,
-                                if count == 1 { "" } else { "s" },
-                                folder_emu_label(folder.assigned_emulator_id)
-                            ),
-                            Style::default().fg(Color::DarkGray),
-                        ),
+                        Span::styled(format!("{}. ", i + 1), base),
+                        Span::styled(ellipsize_path_tail(&folder.path, budget), base),
+                        Span::styled(suffix, Style::default().fg(Color::DarkGray)),
                     ]));
                 }
             }
@@ -2261,16 +2400,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             // Right pane: add-new-folder form.
             let mut right_lines = Vec::new();
             let path_selected = focused_pane == 1 && selected_field == 0;
+            let path_budget_r = path_budget(
+                cols[1].width.saturating_sub(2) as usize,
+                2 + 6 + 8,
+            );
             right_lines.push(Line::from(vec![
                 Span::styled(if path_selected { "▶ " } else { "  " }, field_style(1, 0)),
                 Span::styled("Path: ", field_style(1, 0)),
                 Span::raw(if folder_path.is_empty() {
-                    "< [Enter] to pick a folder >"
+                    "< [Enter] to pick a folder >".to_string()
                 } else {
-                    folder_path
+                    ellipsize_path_tail(&folder_path, path_budget_r)
                 }),
                 Span::styled(
-                    "  [Browse...]",
+                    "  Browse",
                     if path_selected {
                         Style::default()
                             .fg(Color::Black)
@@ -2326,21 +2469,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             // Emulator selection field for Add New Folder
             let emu_selected = focused_pane == 1 && selected_field == emu_idx;
-            let emu_label = match add_emulator_id {
-                Some(id) => runners
-                    .iter()
-                    .find(|r| r.id == id)
-                    .map(|r| r.name.clone())
-                    .unwrap_or_else(|| "Heredado".to_string()),
-                None => {
-                    let active_name = runners
-                        .iter()
-                        .find(|r| r.is_active)
-                        .map(|r| r.name.clone())
-                        .unwrap_or_else(|| "Ninguno".to_string());
-                    format!("Por defecto ({})", active_name)
-                }
-            };
+            let emu_label =
+                crate::app::add_scan_emulator_label(&app.db, platform, add_emulator_id, &runners);
             right_lines.push(Line::from(vec![
                 Span::styled(if emu_selected { "▶ " } else { "  " }, field_style(1, emu_idx)),
                 Span::styled("Emulador: ", field_style(1, emu_idx)),
@@ -2367,7 +2497,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         .as_deref()
                         .and_then(|k| available.iter().find(|(ck, _)| ck == k))
                         .map(|(_, label)| label.clone())
-                        .unwrap_or_else(|| "Por defecto".to_string());
+                        .unwrap_or_else(|| "Default".to_string());
                     right_lines.push(Line::from(vec![
                         Span::styled(if core_selected { "▶ " } else { "  " }, field_style(1, core_idx)),
                         Span::styled("Core: ", field_style(1, core_idx)),
@@ -2399,22 +2529,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .borders(Borders::ALL)
                     .border_style(pane_style(1)),
             );
-
-            let outer = Block::default()
-                .title(Span::styled(
-                    format!(" Folder Manager: {} ", platform.name),
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow));
-
-            let inner = outer.inner(popup_area);
-            let cols = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(inner);
 
             frame.render_widget(outer, popup_area);
             frame.render_widget(left_widget, cols[0]);
@@ -2454,16 +2568,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let mut lines = Vec::new();
 
             let path_selected = selected_field == 0;
+            let path_budget_f = path_budget(
+                popup_area.width.saturating_sub(4) as usize,
+                2 + 6 + 8,
+            );
             lines.push(Line::from(vec![
                 Span::styled(if path_selected { "▶ " } else { "  " }, field_style(0)),
                 Span::styled("Path: ", field_style(0)),
                 Span::raw(if folder_path.is_empty() {
-                    "< [Enter] to pick a folder >"
+                    "< [Enter] to pick a folder >".to_string()
                 } else {
-                    folder_path
+                    ellipsize_path_tail(&folder_path, path_budget_f)
                 }),
                 Span::styled(
-                    "  [Browse...]",
+                    "  Browse",
                     if path_selected {
                         Style::default()
                             .fg(Color::Black)
@@ -2474,7 +2592,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     },
                 ),
             ]));
-
             let ext_selected = selected_field == 1;
             lines.push(Line::from(vec![
                 Span::styled(if ext_selected { "▶ " } else { "  " }, field_style(1)),
@@ -2515,21 +2632,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             }
 
             let emu_selected = selected_field == emu_idx;
-            let emu_label = match add_emulator_id {
-                Some(id) => runners
-                    .iter()
-                    .find(|r| r.id == id)
-                    .map(|r| r.name.clone())
-                    .unwrap_or_else(|| "Heredado".to_string()),
-                None => {
-                    let active_name = runners
-                        .iter()
-                        .find(|r| r.is_active)
-                        .map(|r| r.name.clone())
-                        .unwrap_or_else(|| "Ninguno".to_string());
-                    format!("Por defecto ({})", active_name)
-                }
-            };
+            let emu_label =
+                crate::app::add_scan_emulator_label(&app.db, platform, add_emulator_id, &runners);
             lines.push(Line::from(vec![
                 Span::styled(if emu_selected { "▶ " } else { "  " }, field_style(emu_idx)),
                 Span::styled("Emulador: ", field_style(emu_idx)),
@@ -2555,7 +2659,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         .as_deref()
                         .and_then(|k| available.iter().find(|(ck, _)| ck == k))
                         .map(|(_, label)| label.clone())
-                        .unwrap_or_else(|| "Por defecto".to_string());
+                        .unwrap_or_else(|| "Default".to_string());
                     lines.push(Line::from(vec![
                         Span::styled(
                             if core_selected { "▶ " } else { "  " },
@@ -2570,18 +2674,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let add_selected = selected_field == action_idx;
             lines.push(Line::from(Span::styled(
                 format!(
-                    "{} [ Añadir y Escanear ]",
+                    "{} [ Add & Scan ]",
                     if add_selected { "▶" } else { " " }
                 ),
                 Style::default()
                     .fg(if add_selected { Color::Black } else { Color::Green })
                     .bg(if add_selected { Color::Green } else { Color::Reset })
                     .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "◀ ▶ emulador/núcleo · [Enter] en Path para explorar",
-                Style::default().fg(Color::DarkGray),
             )));
 
             let widget = Paragraph::new(lines).block(
@@ -4405,25 +4504,30 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
             lines.push(Line::from(vec![Span::styled(path_label, field_style(0))]));
 
-            let (before, after) = exe_path_input.split_at(cursor_pos.min(exe_path_input.len()));
+            let path_input_max = (popup_area.width.saturating_sub(7)) as usize;
+            let (before, after, show_left, show_right) =
+                editable_input_window(exe_path_input, cursor_pos, path_input_max);
             let path_span = if selected_row == 0 {
                 vec![
                     Span::raw("   "),
                     Span::styled(
-                        before,
+                        format!("{}{}", if show_left { "…" } else { "" }, before),
                         Style::default().fg(Color::White).bg(Color::DarkGray),
                     ),
                     Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
-                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{}{}", after, if show_right { "…" } else { "" }),
+                        Style::default().fg(Color::White).bg(Color::DarkGray),
+                    ),
                 ]
             } else {
                 vec![
                     Span::raw("   "),
                     Span::styled(
                         if exe_path_input.is_empty() {
-                            "< No file selected >"
+                            "< No file selected >".to_string()
                         } else {
-                            exe_path_input
+                            ellipsize_path_tail(exe_path_input, path_input_max)
                         },
                         Style::default().fg(Color::DarkGray),
                     ),
@@ -4509,11 +4613,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 "  Custom Args: "
             };
             let mut custom_line = vec![Span::styled(custom_label, field_style(custom_row))];
+            let custom_label_w = custom_label.width();
+            let custom_max = (popup_area.width.saturating_sub(4) as usize).saturating_sub(custom_label_w).max(12);
             if selected_row == custom_row {
-                let cpos = cursor_pos.min(custom_args.len());
-                let (cbefore, cafter) = custom_args.split_at(cpos);
+                let (cbefore, cafter, c_left, c_right) =
+                    editable_input_window(&custom_args, cursor_pos, custom_max);
                 custom_line.push(Span::styled(
-                    cbefore,
+                    format!("{}{}", if c_left { "…" } else { "" }, cbefore),
                     Style::default().fg(Color::White).bg(Color::DarkGray),
                 ));
                 custom_line.push(Span::styled(
@@ -4521,15 +4627,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Style::default().fg(Color::Yellow).bg(Color::DarkGray),
                 ));
                 custom_line.push(Span::styled(
-                    cafter,
+                    format!("{}{}", cafter, if c_right { "…" } else { "" }),
                     Style::default().fg(Color::White).bg(Color::DarkGray),
                 ));
             } else {
                 custom_line.push(Span::styled(
                     if custom_args.is_empty() {
-                        "< no extra flags >"
+                        "< no extra flags >".to_string()
                     } else {
-                        custom_args.as_str()
+                        ellipsize_path_tail(&custom_args, custom_max)
                     },
                     Style::default().fg(Color::DarkGray),
                 ));
@@ -4638,6 +4744,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             dxvk,
             vkd3d,
             cursor_pos,
+            path_cursor,
+            workdir_cursor,
+            prefix_cursor,
+            cmd_cursor,
         } => {
             let gtype_name = match game_type {
                 PlatformType::Emulator => "EMULATOR",
@@ -4689,6 +4799,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 ])
             };
 
+            let form_max = (popup_area.width as usize).saturating_sub(4);
+
             match game_type {
                 PlatformType::Emulator => {
                     let p_name = app
@@ -4701,14 +4813,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Span::styled("2. Platform: ", field_style(1)),
                         Span::styled(format!("< {} >", p_name), field_style(1)),
                     ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. ROM Path: ", field_style(2)),
-                        Span::raw(if file_path.is_empty() {
-                            "< Press [Enter] to select ROM >"
-                        } else {
-                            file_path
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "3. ROM Path: ",
+                        file_path,
+                        "< Press [Enter] to select ROM >",
+                        path_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
                     lines.push(Line::from(""));
                     lines.push(mk_cb(gamemode, "GameMode", 3));
                     lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
@@ -4721,30 +4834,33 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
                 PlatformType::Native => {
                     lines.push(title_line);
-                    lines.push(Line::from(vec![
-                        Span::styled("2. Executable Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() {
-                            "< Press [Enter] to browse >"
-                        } else {
-                            file_path
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. Working Dir: ", field_style(2)),
-                        Span::raw(if working_dir.is_empty() {
-                            "< Auto-populated >"
-                        } else {
-                            working_dir
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("4. Custom Args: ", field_style(3)),
-                        Span::raw(if custom_command.is_empty() {
-                            "< Optional >"
-                        } else {
-                            custom_command
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "2. Executable Path: ",
+                        file_path,
+                        "< Press [Enter] to browse >",
+                        path_cursor,
+                        form_max,
+                        selected_field == 1,
+                        field_style(1),
+                    ));
+                    lines.push(form_text_row(
+                        "3. Working Dir: ",
+                        working_dir,
+                        "< Auto-populated >",
+                        workdir_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
+                    lines.push(form_text_row(
+                        "4. Custom Args: ",
+                        custom_command,
+                        "< Optional >",
+                        cmd_cursor,
+                        form_max,
+                        selected_field == 3,
+                        field_style(3),
+                    ));
                     lines.push(Line::from(""));
                     lines.push(mk_cb(gamemode, "GameMode", 4));
                     lines.push(mk_cb(mangohud, "MangoHud OSD", 5));
@@ -4757,30 +4873,33 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
                 PlatformType::Wine => {
                     lines.push(title_line);
-                    lines.push(Line::from(vec![
-                        Span::styled("2. Executable .exe Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() {
-                            "< Press [Enter] to browse .exe >"
-                        } else {
-                            file_path
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. Prefix: ", field_style(2)),
-                        Span::raw(if wine_prefix.is_empty() {
-                            "< Auto-created in working folder if empty >"
-                        } else {
-                            wine_prefix
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("4. Working Dir: ", field_style(3)),
-                        Span::raw(if working_dir.is_empty() {
-                            "< Auto-populated >"
-                        } else {
-                            working_dir
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "2. Executable .exe Path: ",
+                        file_path,
+                        "< Press [Enter] to browse .exe >",
+                        path_cursor,
+                        form_max,
+                        selected_field == 1,
+                        field_style(1),
+                    ));
+                    lines.push(form_text_row(
+                        "3. Prefix: ",
+                        wine_prefix,
+                        "< Auto-created in working folder if empty >",
+                        prefix_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
+                    lines.push(form_text_row(
+                        "4. Working Dir: ",
+                        working_dir,
+                        "< Auto-populated >",
+                        workdir_cursor,
+                        form_max,
+                        selected_field == 3,
+                        field_style(3),
+                    ));
 
                     let runner_str = extract_runner_display_name(custom_command);
 
@@ -4797,7 +4916,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
                     lines.push(Line::from(vec![
                         Span::styled("6. Custom Args: ", field_style(5)),
-                        Span::raw(flags_display),
+                        Span::styled(
+                            ellipsize_path_tail(&flags_display, form_max.saturating_sub(15)),
+                            Style::default().fg(Color::DarkGray),
+                        ),
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![Span::styled(
@@ -4826,20 +4948,24 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Steam AppID: ", field_style(1)),
-                        Span::raw(if steam_appid.is_empty() {
-                            "< Enter AppID >"
-                        } else {
-                            steam_appid
-                        }),
+                        Span::styled(
+                            if steam_appid.is_empty() {
+                                "< Enter AppID >".to_string()
+                            } else {
+                                ellipsize_path_tail(&steam_appid, form_max.saturating_sub(16))
+                            },
+                            Style::default().fg(Color::DarkGray),
+                        ),
                     ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. Custom Args: ", field_style(2)),
-                        Span::raw(if custom_command.is_empty() {
-                            "< Optional >"
-                        } else {
-                            custom_command
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "3. Custom Args: ",
+                        custom_command,
+                        "< Optional >",
+                        cmd_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
                     lines.push(Line::from(""));
                     lines.push(mk_cb(gamemode, "GameMode", 3));
                     lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
@@ -4893,6 +5019,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             dxvk,
             vkd3d,
             cursor_pos,
+            path_cursor,
+            workdir_cursor,
+            prefix_cursor,
+            cmd_cursor,
             emulator_override,
             ref core_override,
             ..
@@ -4906,6 +5036,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             let block_title = format!(" Edit Game Details ({}) ", gtype_name);
             let mut lines = Vec::new();
+            let form_max = (popup_area.width as usize).saturating_sub(4);
 
             let field_style = |idx: usize| {
                 if idx == selected_field {
@@ -4954,7 +5085,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         let platform_slug = app.db.get_platforms().unwrap_or_default().into_iter().find(|p| p.id == platform_id).map(|p| p.slug).unwrap_or_default();
                         let choices = crate::edit_game_details::EditGameFormHelper::get_emulator_choices(&app.db, game);
                         let idx = crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(&choices, emulator_override);
-                        let elabel = choices.get(idx).map(|c| c.display_label.clone()).unwrap_or_else(|| "Heredado".to_string());
+                        let elabel = choices.get(idx).map(|c| c.display_label.clone()).unwrap_or_else(|| "Default".to_string());
 
                         let has_core = scan_folder_add_has_core(&app.db, platform_id, emulator_override);
 
@@ -4964,23 +5095,24 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             app.db.get_runner_for_game(game.platform_id, game.folder_id, None).ok().flatten().map(|r| r.name).unwrap_or_else(|| "RetroArch".to_string())
                         };
 
-                        let core_choices = crate::edit_game_details::EditGameFormHelper::get_core_choices(&app.db, game, &platform_slug, &emu_name);
-                        let clabel = core_choices.iter().find(|c| c.core_key == *core_override).map(|c| c.display_label.clone()).unwrap_or_else(|| "Heredado".to_string());
+                        let core_choices = crate::edit_game_details::EditGameFormHelper::get_core_choices(&platform_slug, &emu_name);
+                        let clabel = core_choices.iter().find(|c| c.core_key == *core_override).map(|c| c.display_label.clone()).unwrap_or_else(|| "Default".to_string());
 
                         (elabel, has_core, clabel)
                     } else {
-                        ("Heredado".to_string(), false, "Heredado".to_string())
+                        ("Default".to_string(), false, "Default".to_string())
                     };
 
                     lines.push(title_line);
-                    lines.push(Line::from(vec![
-                        Span::styled("2. ROM Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() {
-                            "< Press [Enter] to select ROM >"
-                        } else {
-                            file_path
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "2. ROM Path: ",
+                        file_path,
+                        "< Press [Enter] to select ROM >",
+                        path_cursor,
+                        form_max,
+                        selected_field == 1,
+                        field_style(1),
+                    ));
                     lines.push(Line::from(vec![
                         Span::styled("3. Emulador: ", field_style(2)),
                         Span::styled(format!("◀ {} ▶", emu_label), field_style(2)),
@@ -4995,14 +5127,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         f_idx += 1;
                     }
 
-                    lines.push(Line::from(vec![
-                        Span::styled(format!("{}. Custom Command / Args: ", f_idx + 1), field_style(f_idx)),
-                        Span::raw(if custom_command.is_empty() {
-                            "< Optional >"
-                        } else {
-                            custom_command
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        &format!("{}. Custom Command / Args: ", f_idx + 1),
+                        custom_command,
+                        "< Optional >",
+                        cmd_cursor,
+                        form_max,
+                        selected_field == f_idx,
+                        field_style(f_idx),
+                    ));
                     lines.push(Line::from(""));
                     lines.push(mk_cb(gamemode, "GameMode", f_idx + 1));
                     lines.push(mk_cb(mangohud, "MangoHud OSD", f_idx + 2));
@@ -5015,30 +5148,33 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
                 PlatformType::Native => {
                     lines.push(title_line);
-                    lines.push(Line::from(vec![
-                        Span::styled("2. Executable Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() {
-                            "< Press [Enter] to browse >"
-                        } else {
-                            file_path
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. Working Directory: ", field_style(2)),
-                        Span::raw(if working_dir.is_empty() {
-                            "< Optional >"
-                        } else {
-                            working_dir
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("4. Custom Args / Command: ", field_style(3)),
-                        Span::raw(if custom_command.is_empty() {
-                            "< Optional >"
-                        } else {
-                            custom_command
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "2. Executable Path: ",
+                        file_path,
+                        "< Press [Enter] to browse >",
+                        path_cursor,
+                        form_max,
+                        selected_field == 1,
+                        field_style(1),
+                    ));
+                    lines.push(form_text_row(
+                        "3. Working Directory: ",
+                        working_dir,
+                        "< Optional >",
+                        workdir_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
+                    lines.push(form_text_row(
+                        "4. Custom Args / Command: ",
+                        custom_command,
+                        "< Optional >",
+                        cmd_cursor,
+                        form_max,
+                        selected_field == 3,
+                        field_style(3),
+                    ));
                     lines.push(Line::from(""));
                     lines.push(mk_cb(gamemode, "GameMode", 4));
                     lines.push(mk_cb(mangohud, "MangoHud OSD", 5));
@@ -5051,30 +5187,33 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
                 PlatformType::Wine => {
                     lines.push(title_line);
-                    lines.push(Line::from(vec![
-                        Span::styled("2. Executable .exe Path: ", field_style(1)),
-                        Span::raw(if file_path.is_empty() {
-                            "< Press [Enter] to browse .exe >"
-                        } else {
-                            file_path
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. Prefix: ", field_style(2)),
-                        Span::raw(if wine_prefix.is_empty() {
-                            "< Auto-created in working folder if empty >"
-                        } else {
-                            wine_prefix
-                        }),
-                    ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("4. Working Directory: ", field_style(3)),
-                        Span::raw(if working_dir.is_empty() {
-                            "< Optional >"
-                        } else {
-                            working_dir
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "2. Executable .exe Path: ",
+                        file_path,
+                        "< Press [Enter] to browse .exe >",
+                        path_cursor,
+                        form_max,
+                        selected_field == 1,
+                        field_style(1),
+                    ));
+                    lines.push(form_text_row(
+                        "3. Prefix: ",
+                        wine_prefix,
+                        "< Auto-created in working folder if empty >",
+                        prefix_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
+                    lines.push(form_text_row(
+                        "4. Working Directory: ",
+                        working_dir,
+                        "< Optional >",
+                        workdir_cursor,
+                        form_max,
+                        selected_field == 3,
+                        field_style(3),
+                    ));
 
                     let runner_str = extract_runner_display_name(custom_command);
 
@@ -5091,7 +5230,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
                     lines.push(Line::from(vec![
                         Span::styled("6. Custom Args: ", field_style(5)),
-                        Span::raw(flags_display),
+                        Span::styled(
+                            ellipsize_path_tail(&flags_display, form_max.saturating_sub(15)),
+                            Style::default().fg(Color::DarkGray),
+                        ),
                     ]));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![Span::styled(
@@ -5120,16 +5262,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. Steam AppID: ", field_style(1)),
-                        Span::raw(steam_appid),
+                        Span::styled(
+                            ellipsize_path_tail(steam_appid, form_max.saturating_sub(16)),
+                            Style::default().fg(Color::DarkGray),
+                        ),
                     ]));
-                    lines.push(Line::from(vec![
-                        Span::styled("3. Custom Args: ", field_style(2)),
-                        Span::raw(if custom_command.is_empty() {
-                            "< Optional >"
-                        } else {
-                            custom_command
-                        }),
-                    ]));
+                    lines.push(form_text_row(
+                        "3. Custom Args: ",
+                        custom_command,
+                        "< Optional >",
+                        cmd_cursor,
+                        form_max,
+                        selected_field == 2,
+                        field_style(2),
+                    ));
                     lines.push(Line::from(""));
                     lines.push(mk_cb(gamemode, "GameMode", 3));
                     lines.push(mk_cb(mangohud, "MangoHud OSD", 4));

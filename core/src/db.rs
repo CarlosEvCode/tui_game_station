@@ -591,11 +591,20 @@ impl Database {
                 "Redream" => "DC".to_string(),
                 "Vita3K" => "PS Vita".to_string(),
                 "MAME" => "Arcade".to_string(),
-                _ => slugs
-                    .iter()
-                    .map(|s| s.to_uppercase())
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                _ => {
+                    // Multi-platform runners (RetroArch, or anything covering 4+
+                    // consoles) collapse to a single "Multi" tag instead of a
+                    // long, ever-growing list of platform initials.
+                    if runner_type == "retroarch" || slugs.len() >= 4 {
+                        "Multi".to_string()
+                    } else {
+                        slugs
+                            .iter()
+                            .map(|s| s.to_uppercase())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                }
             };
 
             Ok(crate::models::UniqueRunnerInfo {
@@ -1860,6 +1869,41 @@ mod tests {
                 .all(|g| g.title != "Mario"),
             "Mario removed from library after folder wipe"
         );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn unique_runner_initials_collapse_multi_platform_runners_to_multi() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_initials_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+
+        let runners = db.get_unique_runners().unwrap();
+
+        // RetroArch spans many consoles → a single "Multi" tag.
+        let retroarch = runners
+            .iter()
+            .find(|r| r.name == "RetroArch")
+            .expect("RetroArch runner");
+        assert_eq!(retroarch.console_initials, "Multi");
+        assert_eq!(retroarch.runner_type, "retroarch");
+
+        // Single/multi-console runners keep their specific initials.
+        let dolphin = runners
+            .iter()
+            .find(|r| r.name == "Dolphin")
+            .expect("Dolphin runner");
+        assert_eq!(dolphin.console_initials, "GC, Wii");
+        let pcsx2 = runners
+            .iter()
+            .find(|r| r.name == "PCSX2")
+            .expect("PCSX2 runner");
+        assert_eq!(pcsx2.console_initials, "PS2");
 
         drop(db);
         let _ = std::fs::remove_file(path);

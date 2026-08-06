@@ -102,11 +102,11 @@ pub struct Game {
     /// before, straight through the platform.
     #[serde(default)]
     pub folder_id: Option<i64>,
-    /// Emulator explicitly pinned to this game. `None` means "Inherited"
+    /// Emulator explicitly pinned to this game. `None` means "Default"
     /// (falling back to folder -> platform -> catalog default).
     #[serde(default)]
     pub emulator_override: Option<i64>,
-    /// RetroArch core explicitly pinned to this game. `None` means "Inherited"
+    /// RetroArch core explicitly pinned to this game. `None` means "Default"
     /// (falling back to folder -> platform -> catalog default).
     #[serde(default)]
     pub core_override: Option<String>,

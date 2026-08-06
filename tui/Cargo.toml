@@ -8,6 +8,7 @@ game_core = { path = "../core" }
 runner = { path = "../runner" }
 scraper = { path = "../scraper" }
 ratatui = "0.29"
+unicode-width = "0.2"
 figlet-rs = "1.0"
 crossterm = "0.28"
 ratatui-image = "3.0"

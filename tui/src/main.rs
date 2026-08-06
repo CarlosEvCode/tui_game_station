@@ -426,15 +426,31 @@ async fn main() -> Result<()> {
                                         app.update(Action::ToggleConfirmDeleteFolderOption).await;
                                     }
                                     ModalState::ScanFolderForm {
+                                        ref platform,
+                                        add_emulator_id,
                                         focused_pane,
                                         selected_field,
                                         ..
                                     } => {
-                                        // Left pane: folder rows 0..N-1 re-assign
-                                        // their emulator with ◀.
-                                        if *focused_pane == 0
-                                            && *selected_field < app.scan_folder_num_rows()
-                                        {
+                                        if *focused_pane == 1 {
+                                            // Right pane: cycle the new-folder
+                                            // Emulador / Core selector with ◀.
+                                            let dat = scan_folder_supports_dat(&platform.slug);
+                                            let emu_idx = scan_folder_add_emu_idx(dat);
+                                            let has_core = scan_folder_add_has_core(
+                                                &app.db,
+                                                platform.id,
+                                                *add_emulator_id,
+                                            );
+                                            let core_idx = scan_folder_add_core_idx(dat);
+                                            if *selected_field == emu_idx {
+                                                app.cycle_add_folder_emulator(true);
+                                            } else if has_core && *selected_field == core_idx {
+                                                app.cycle_add_folder_core(true);
+                                            }
+                                        } else if *selected_field < app.scan_folder_num_rows() {
+                                            // Left pane: folder rows re-assign
+                                            // their emulator with ◀.
                                             app.update(Action::CycleFolderEmulator(true)).await;
                                         }
                                     }
@@ -564,13 +580,29 @@ async fn main() -> Result<()> {
                                         app.update(Action::ToggleConfirmDeleteFolderOption).await;
                                     }
                                     ModalState::ScanFolderForm {
+                                        ref platform,
+                                        add_emulator_id,
                                         focused_pane,
                                         selected_field,
                                         ..
                                     } => {
-                                        if *focused_pane == 0
-                                            && *selected_field < app.scan_folder_num_rows()
-                                        {
+                                        if *focused_pane == 1 {
+                                            // Right pane: cycle the new-folder
+                                            // Emulador / Core selector with ▶.
+                                            let dat = scan_folder_supports_dat(&platform.slug);
+                                            let emu_idx = scan_folder_add_emu_idx(dat);
+                                            let has_core = scan_folder_add_has_core(
+                                                &app.db,
+                                                platform.id,
+                                                *add_emulator_id,
+                                            );
+                                            let core_idx = scan_folder_add_core_idx(dat);
+                                            if *selected_field == emu_idx {
+                                                app.cycle_add_folder_emulator(false);
+                                            } else if has_core && *selected_field == core_idx {
+                                                app.cycle_add_folder_core(false);
+                                            }
+                                        } else if *selected_field < app.scan_folder_num_rows() {
                                             app.update(Action::CycleFolderEmulator(false)).await;
                                         }
                                     }

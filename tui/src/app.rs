@@ -171,6 +171,39 @@ pub(crate) fn add_scan_available_cores(
     }
 }
 
+/// Label for the Emulador field in the add/scan forms.
+///
+/// "Default" (no override) only makes sense once the platform already has a
+/// scan folder to inherit from. For the very first folder there is nothing to
+/// inherit yet, so the effective platform emulator is shown instead.
+pub(crate) fn add_scan_emulator_label(
+    db: &Database,
+    platform: &Platform,
+    emu_id: Option<i64>,
+    runners: &[Runner],
+) -> String {
+    if let Some(id) = emu_id {
+        return runners
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| "Default".to_string());
+    }
+    let has_folders = db
+        .get_scan_folders_for_platform(platform.id)
+        .map(|folders| !folders.is_empty())
+        .unwrap_or(false);
+    if has_folders {
+        "Default".to_string()
+    } else {
+        db.get_runner_for_platform(platform.id)
+            .ok()
+            .flatten()
+            .map(|r| r.name)
+            .unwrap_or_else(|| "Default".to_string())
+    }
+}
+
 pub(crate) fn scan_folder_section0_total(num_folders: usize) -> usize {
     num_folders + 1
 }
@@ -180,6 +213,69 @@ fn track_scan_folder_row(field: usize, num_folders: usize, selected_row: &mut us
         *selected_row = field;
     } else if num_folders == 0 {
         *selected_row = 0;
+    }
+}
+
+/// Which editable text field (if any) a game form field index maps to, so the
+/// text cursor can be tracked per field. `is_edit` distinguishes the
+/// EditGameForm layout from the AddGameForm layout (the emulator ROM path
+/// moves between field 1 and field 2).
+enum FormTextField {
+    Path,
+    Workdir,
+    Prefix,
+    Cmd,
+}
+
+fn form_text_field(gtype: &PlatformType, is_edit: bool, field: usize) -> Option<FormTextField> {
+    match gtype {
+        PlatformType::Emulator => match field {
+            1 if is_edit => Some(FormTextField::Path),
+            2 if !is_edit => Some(FormTextField::Path),
+            _ => None,
+        },
+        PlatformType::Native => match field {
+            1 => Some(FormTextField::Path),
+            2 => Some(FormTextField::Workdir),
+            3 => Some(FormTextField::Cmd),
+            _ => None,
+        },
+        PlatformType::Wine => match field {
+            1 => Some(FormTextField::Path),
+            2 => Some(FormTextField::Prefix),
+            3 => Some(FormTextField::Workdir),
+            5 => Some(FormTextField::Cmd),
+            _ => None,
+        },
+        PlatformType::Steam => match field {
+            2 => Some(FormTextField::Cmd),
+            _ => None,
+        },
+    }
+}
+
+/// Move the cursor of a form text field to the end of its text (the usual
+/// position when a field gains focus). Called after field navigation so a
+/// stale cursor from a previous field never lands mid-string.
+fn sync_form_field_cursor(
+    gtype: &PlatformType,
+    is_edit: bool,
+    field: usize,
+    path_cursor: &mut usize,
+    workdir_cursor: &mut usize,
+    prefix_cursor: &mut usize,
+    cmd_cursor: &mut usize,
+    path_len: usize,
+    workdir_len: usize,
+    prefix_len: usize,
+    cmd_len: usize,
+) {
+    match form_text_field(gtype, is_edit, field) {
+        Some(FormTextField::Path) => *path_cursor = path_len,
+        Some(FormTextField::Workdir) => *workdir_cursor = workdir_len,
+        Some(FormTextField::Prefix) => *prefix_cursor = prefix_len,
+        Some(FormTextField::Cmd) => *cmd_cursor = cmd_len,
+        None => {}
     }
 }
 
@@ -335,6 +431,10 @@ pub enum ModalState {
         dxvk: bool,
         vkd3d: bool,
         cursor_pos: usize,
+        path_cursor: usize,
+        workdir_cursor: usize,
+        prefix_cursor: usize,
+        cmd_cursor: usize,
     },
     EditGameForm {
         game_id: i64,
@@ -354,6 +454,10 @@ pub enum ModalState {
         dxvk: bool,
         vkd3d: bool,
         cursor_pos: usize,
+        path_cursor: usize,
+        workdir_cursor: usize,
+        prefix_cursor: usize,
+        cmd_cursor: usize,
         emulator_override: Option<i64>,
         core_override: Option<String>,
     },
@@ -1280,18 +1384,31 @@ impl App {
             return;
         }
 
+        // "Default" (no override) is only offered once the platform already has
+        // a scan folder to inherit from. For the very first folder there is
+        // nothing to inherit, so the selector wraps around the real emulators.
+        let allow_default = self
+            .db
+            .get_scan_folders_for_platform(platform.id)
+            .map(|folders| !folders.is_empty())
+            .unwrap_or(false);
+
         let current = current_emu.and_then(|id| configured.iter().position(|r| r.id == id));
         let next_idx = if let Some(idx) = current {
             if !backward {
                 if idx + 1 < configured.len() {
                     Some(idx + 1)
-                } else {
+                } else if allow_default {
                     None
+                } else {
+                    Some(0)
                 }
             } else if idx > 0 {
                 Some(idx - 1)
-            } else {
+            } else if allow_default {
                 None
+            } else {
+                Some(configured.len() - 1)
             }
         } else if backward {
             Some(configured.len() - 1)
@@ -1405,8 +1522,6 @@ impl App {
                 };
 
                 let choices = crate::edit_game_details::EditGameFormHelper::get_core_choices(
-                    &self.db,
-                    &game,
                     &platform_slug,
                     &emu_name,
                 );
@@ -1424,7 +1539,7 @@ impl App {
                     .iter()
                     .find(|c| c.core_key == new_core)
                     .map(|c| c.display_label.clone())
-                    .unwrap_or_else(|| "Heredado".to_string());
+                    .unwrap_or_else(|| "Default".to_string());
                 self.status_msg = format!("Núcleo asignado al juego: {}", choice_label);
             }
         }
@@ -4534,7 +4649,9 @@ impl App {
                     self.status_msg = "[OK] Custom launcher arguments updated.".to_string();
                 }
             }
-            Action::FormNavLeft => match self.modal_state {
+            Action::FormNavLeft => {
+                let is_edit = matches!(self.modal_state, ModalState::EditGameForm { .. });
+                match self.modal_state {
                 ModalState::AddGameForm {
                     selected_field: 0,
                     ref mut cursor_pos,
@@ -4551,6 +4668,40 @@ impl App {
                     ref mut cursor_pos, ..
                 } => {
                     *cursor_pos = cursor_pos.saturating_sub(1);
+                }
+                ModalState::AddGameForm {
+                    game_type: ref gtype,
+                    selected_field,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ..
+                }
+                | ModalState::EditGameForm {
+                    game_type: ref gtype,
+                    selected_field,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ..
+                } if form_text_field(gtype, is_edit, selected_field).is_some() => {
+                    match form_text_field(gtype, is_edit, selected_field) {
+                        Some(FormTextField::Path) => {
+                            *path_cursor = path_cursor.saturating_sub(1)
+                        }
+                        Some(FormTextField::Workdir) => {
+                            *workdir_cursor = workdir_cursor.saturating_sub(1)
+                        }
+                        Some(FormTextField::Prefix) => {
+                            *prefix_cursor = prefix_cursor.saturating_sub(1)
+                        }
+                        Some(FormTextField::Cmd) => {
+                            *cmd_cursor = cmd_cursor.saturating_sub(1)
+                        }
+                        None => {}
+                    }
                 }
                 ModalState::AddGameForm {
                     game_type: PlatformType::Wine,
@@ -4634,8 +4785,11 @@ impl App {
                     self.cycle_edit_game_emulator(true);
                 }
                 _ => {}
-            },
-            Action::FormNavRight => match self.modal_state {
+            }
+            }
+            Action::FormNavRight => {
+                let is_edit = matches!(self.modal_state, ModalState::EditGameForm { .. });
+                match self.modal_state {
                 ModalState::AddGameForm {
                     selected_field: 0,
                     ref title,
@@ -4656,6 +4810,48 @@ impl App {
                     ..
                 } => {
                     self.cycle_edit_game_emulator(false);
+                }
+                ModalState::AddGameForm {
+                    game_type: ref gtype,
+                    selected_field,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ref file_path,
+                    ref working_dir,
+                    ref wine_prefix,
+                    ref custom_command,
+                    ..
+                }
+                | ModalState::EditGameForm {
+                    game_type: ref gtype,
+                    selected_field,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ref file_path,
+                    ref working_dir,
+                    ref wine_prefix,
+                    ref custom_command,
+                    ..
+                } if form_text_field(gtype, is_edit, selected_field).is_some() => {
+                    match form_text_field(gtype, is_edit, selected_field) {
+                        Some(FormTextField::Path) => {
+                            *path_cursor = (*path_cursor + 1).min(file_path.len())
+                        }
+                        Some(FormTextField::Workdir) => {
+                            *workdir_cursor = (*workdir_cursor + 1).min(working_dir.len())
+                        }
+                        Some(FormTextField::Prefix) => {
+                            *prefix_cursor = (*prefix_cursor + 1).min(wine_prefix.len())
+                        }
+                        Some(FormTextField::Cmd) => {
+                            *cmd_cursor = (*cmd_cursor + 1).min(custom_command.len())
+                        }
+                        None => {}
+                    }
                 }
                 ModalState::EditCustomArgsInput {
                     ref mut cursor_pos,
@@ -4735,7 +4931,8 @@ impl App {
                     }
                 }
                 _ => {}
-            },
+            }
+            }
             Action::CycleWineRunner(step) => {
                 let installed =
                     game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
@@ -4960,6 +5157,10 @@ impl App {
                         dxvk,
                         vkd3d,
                         cursor_pos: cpos,
+                        path_cursor: game.file_path.clone().unwrap_or_default().len(),
+                        workdir_cursor: game.working_dir.clone().unwrap_or_default().len(),
+                        prefix_cursor: game.wine_prefix.clone().unwrap_or_default().len(),
+                        cmd_cursor: game.custom_command.clone().unwrap_or_default().len(),
                         emulator_override: game.emulator_override,
                         core_override: game.core_override.clone(),
                     };
@@ -5399,6 +5600,10 @@ impl App {
                             dxvk: false,
                             vkd3d: false,
                             cursor_pos: 0,
+                            path_cursor: 0,
+                            workdir_cursor: 0,
+                            prefix_cursor: 0,
+                            cmd_cursor: 0,
                         };
                     }
                 }
@@ -5618,6 +5823,14 @@ impl App {
                     ref mut selected_field,
                     ref title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ref file_path,
+                    ref working_dir,
+                    ref wine_prefix,
+                    ref custom_command,
                     ..
                 } => {
                     let total_fields = match gtype {
@@ -5630,6 +5843,19 @@ impl App {
                     if *selected_field == 0 {
                         *cursor_pos = title.len();
                     }
+                    sync_form_field_cursor(
+                        gtype,
+                        false,
+                        *selected_field,
+                        path_cursor,
+                        workdir_cursor,
+                        prefix_cursor,
+                        cmd_cursor,
+                        file_path.len(),
+                        working_dir.len(),
+                        wine_prefix.len(),
+                        custom_command.len(),
+                    );
                 }
                 ModalState::EditGameForm {
                     game_id,
@@ -5637,6 +5863,14 @@ impl App {
                     ref mut selected_field,
                     ref title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ref file_path,
+                    ref working_dir,
+                    ref wine_prefix,
+                    ref custom_command,
                     emulator_override,
                     ..
                 } => {
@@ -5652,6 +5886,19 @@ impl App {
                     if *selected_field == 0 {
                         *cursor_pos = title.len();
                     }
+                    sync_form_field_cursor(
+                        gtype,
+                        true,
+                        *selected_field,
+                        path_cursor,
+                        workdir_cursor,
+                        prefix_cursor,
+                        cmd_cursor,
+                        file_path.len(),
+                        working_dir.len(),
+                        wine_prefix.len(),
+                        custom_command.len(),
+                    );
                 }
                 ModalState::ScanFolderForm {
                     ref platform,
@@ -5718,6 +5965,14 @@ impl App {
                     ref mut selected_field,
                     ref title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ref file_path,
+                    ref working_dir,
+                    ref wine_prefix,
+                    ref custom_command,
                     ..
                 } => {
                     let total_fields = match gtype {
@@ -5734,6 +5989,19 @@ impl App {
                     if *selected_field == 0 {
                         *cursor_pos = title.len();
                     }
+                    sync_form_field_cursor(
+                        gtype,
+                        false,
+                        *selected_field,
+                        path_cursor,
+                        workdir_cursor,
+                        prefix_cursor,
+                        cmd_cursor,
+                        file_path.len(),
+                        working_dir.len(),
+                        wine_prefix.len(),
+                        custom_command.len(),
+                    );
                 }
                 ModalState::EditGameForm {
                     game_id,
@@ -5741,6 +6009,14 @@ impl App {
                     ref mut selected_field,
                     ref title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
+                    ref file_path,
+                    ref working_dir,
+                    ref wine_prefix,
+                    ref custom_command,
                     emulator_override,
                     ..
                 } => {
@@ -5760,6 +6036,19 @@ impl App {
                     if *selected_field == 0 {
                         *cursor_pos = title.len();
                     }
+                    sync_form_field_cursor(
+                        gtype,
+                        true,
+                        *selected_field,
+                        path_cursor,
+                        workdir_cursor,
+                        prefix_cursor,
+                        cmd_cursor,
+                        file_path.len(),
+                        working_dir.len(),
+                        wine_prefix.len(),
+                        custom_command.len(),
+                    );
                 }
                 ModalState::ScanFolderForm {
                     ref platform,
@@ -5820,6 +6109,10 @@ impl App {
                 if let ModalState::AddGameForm {
                     ref mut title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -5832,6 +6125,10 @@ impl App {
                 | ModalState::EditGameForm {
                     ref mut title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -5849,27 +6146,51 @@ impl App {
                     } else {
                         match gtype {
                             PlatformType::Emulator => match selected_field {
-                                1 if is_edit => file_path.push(ch),
-                                2 if !is_edit => file_path.push(ch),
-                                3 => custom_command.push(ch),
+                                1 if is_edit => {
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    file_path.insert(pos, ch);
+                                    *path_cursor = pos + 1;
+                                }
+                                2 if !is_edit => {
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    file_path.insert(pos, ch);
+                                    *path_cursor = pos + 1;
+                                }
+                                3 => {
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    custom_command.insert(pos, ch);
+                                    *cmd_cursor = pos + 1;
+                                }
                                 _ => {}
                             },
                             PlatformType::Native => match selected_field {
                                 1 => {
-                                    file_path.push(ch);
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    file_path.insert(pos, ch);
+                                    *path_cursor = pos + 1;
                                     if let Some(parent) = std::path::Path::new(file_path).parent() {
                                         if !parent.as_os_str().is_empty() {
                                             *working_dir = parent.to_string_lossy().to_string();
                                         }
                                     }
                                 }
-                                2 => working_dir.push(ch),
-                                3 => custom_command.push(ch),
+                                2 => {
+                                    let pos = (*workdir_cursor).min(working_dir.len());
+                                    working_dir.insert(pos, ch);
+                                    *workdir_cursor = pos + 1;
+                                }
+                                3 => {
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    custom_command.insert(pos, ch);
+                                    *cmd_cursor = pos + 1;
+                                }
                                 _ => {}
                             },
                             PlatformType::Wine => match selected_field {
                                 1 => {
-                                    file_path.push(ch);
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    file_path.insert(pos, ch);
+                                    *path_cursor = pos + 1;
                                     if let Some(parent) = std::path::Path::new(file_path).parent() {
                                         if !parent.as_os_str().is_empty() {
                                             *working_dir = parent.to_string_lossy().to_string();
@@ -5882,10 +6203,22 @@ impl App {
                                         }
                                     }
                                 }
-                                2 => wine_prefix.push(ch),
-                                3 => working_dir.push(ch),
+                                2 => {
+                                    let pos = (*prefix_cursor).min(wine_prefix.len());
+                                    wine_prefix.insert(pos, ch);
+                                    *prefix_cursor = pos + 1;
+                                }
+                                3 => {
+                                    let pos = (*workdir_cursor).min(working_dir.len());
+                                    working_dir.insert(pos, ch);
+                                    *workdir_cursor = pos + 1;
+                                }
                                 4 => {}
-                                5 => custom_command.push(ch),
+                                5 => {
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    custom_command.insert(pos, ch);
+                                    *cmd_cursor = pos + 1;
+                                }
                                 _ => {}
                             },
                             PlatformType::Steam => match selected_field {
@@ -5894,7 +6227,11 @@ impl App {
                                         steam_appid.push(ch);
                                     }
                                 }
-                                2 => custom_command.push(ch),
+                                2 => {
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    custom_command.insert(pos, ch);
+                                    *cmd_cursor = pos + 1;
+                                }
                                 _ => {}
                             },
                         }
@@ -5987,6 +6324,10 @@ impl App {
                 if let ModalState::AddGameForm {
                     ref mut title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -5999,6 +6340,10 @@ impl App {
                 | ModalState::EditGameForm {
                     ref mut title,
                     ref mut cursor_pos,
+                    ref mut path_cursor,
+                    ref mut workdir_cursor,
+                    ref mut prefix_cursor,
+                    ref mut cmd_cursor,
                     ref mut file_path,
                     ref mut working_dir,
                     ref mut wine_prefix,
@@ -6019,19 +6364,35 @@ impl App {
                         match gtype {
                             PlatformType::Emulator => match selected_field {
                                 1 if is_edit => {
-                                    file_path.pop();
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    if pos > 0 && !file_path.is_empty() {
+                                        file_path.remove(pos - 1);
+                                        *path_cursor = pos - 1;
+                                    }
                                 }
                                 2 if !is_edit => {
-                                    file_path.pop();
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    if pos > 0 && !file_path.is_empty() {
+                                        file_path.remove(pos - 1);
+                                        *path_cursor = pos - 1;
+                                    }
                                 }
                                 3 => {
-                                    custom_command.pop();
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    if pos > 0 && !custom_command.is_empty() {
+                                        custom_command.remove(pos - 1);
+                                        *cmd_cursor = pos - 1;
+                                    }
                                 }
                                 _ => {}
                             },
                             PlatformType::Native => match selected_field {
                                 1 => {
-                                    file_path.pop();
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    if pos > 0 && !file_path.is_empty() {
+                                        file_path.remove(pos - 1);
+                                        *path_cursor = pos - 1;
+                                    }
                                     if let Some(parent) = std::path::Path::new(file_path).parent() {
                                         if !parent.as_os_str().is_empty() {
                                             *working_dir = parent.to_string_lossy().to_string();
@@ -6041,16 +6402,28 @@ impl App {
                                     }
                                 }
                                 2 => {
-                                    working_dir.pop();
+                                    let pos = (*workdir_cursor).min(working_dir.len());
+                                    if pos > 0 && !working_dir.is_empty() {
+                                        working_dir.remove(pos - 1);
+                                        *workdir_cursor = pos - 1;
+                                    }
                                 }
                                 3 => {
-                                    custom_command.pop();
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    if pos > 0 && !custom_command.is_empty() {
+                                        custom_command.remove(pos - 1);
+                                        *cmd_cursor = pos - 1;
+                                    }
                                 }
                                 _ => {}
                             },
                             PlatformType::Wine => match selected_field {
                                 1 => {
-                                    file_path.pop();
+                                    let pos = (*path_cursor).min(file_path.len());
+                                    if pos > 0 && !file_path.is_empty() {
+                                        file_path.remove(pos - 1);
+                                        *path_cursor = pos - 1;
+                                    }
                                     if let Some(parent) = std::path::Path::new(file_path).parent() {
                                         if !parent.as_os_str().is_empty() {
                                             *working_dir = parent.to_string_lossy().to_string();
@@ -6060,14 +6433,26 @@ impl App {
                                     }
                                 }
                                 2 => {
-                                    wine_prefix.pop();
+                                    let pos = (*prefix_cursor).min(wine_prefix.len());
+                                    if pos > 0 && !wine_prefix.is_empty() {
+                                        wine_prefix.remove(pos - 1);
+                                        *prefix_cursor = pos - 1;
+                                    }
                                 }
                                 3 => {
-                                    working_dir.pop();
+                                    let pos = (*workdir_cursor).min(working_dir.len());
+                                    if pos > 0 && !working_dir.is_empty() {
+                                        working_dir.remove(pos - 1);
+                                        *workdir_cursor = pos - 1;
+                                    }
                                 }
                                 4 => {}
                                 5 => {
-                                    custom_command.pop();
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    if pos > 0 && !custom_command.is_empty() {
+                                        custom_command.remove(pos - 1);
+                                        *cmd_cursor = pos - 1;
+                                    }
                                 }
                                 _ => {}
                             },
@@ -6076,7 +6461,11 @@ impl App {
                                     steam_appid.pop();
                                 }
                                 2 => {
-                                    custom_command.pop();
+                                    let pos = (*cmd_cursor).min(custom_command.len());
+                                    if pos > 0 && !custom_command.is_empty() {
+                                        custom_command.remove(pos - 1);
+                                        *cmd_cursor = pos - 1;
+                                    }
                                 }
                                 _ => {}
                             },
@@ -6369,7 +6758,7 @@ impl App {
                             .find(|r| r.id == id)
                             .map(|r| r.name.clone())
                             .unwrap_or_else(|| "?".to_string()),
-                        None => "Heredado de plataforma".to_string(),
+                        None => "Default".to_string(),
                     };
                     self.status_msg = format!("Carpeta {} → {}", folder_path, label);
                 }
@@ -7998,6 +8387,121 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// La etiqueta del campo "Emulador" de los formularios de escaneo solo
+    /// ofrece "Default" cuando la plataforma ya tiene una carpeta que heredar.
+    /// Para la primera carpeta muestra el emulador efectivo de la plataforma.
+    #[test]
+    fn add_scan_emulator_label_omits_default_for_first_folder() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("tui_scan_emu_label_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+        let switch = db.get_platform_by_slug("switch").unwrap().unwrap();
+
+        let runners = db.get_runners_for_platform(switch.id).unwrap();
+        assert!(db.get_scan_folders_for_platform(switch.id).unwrap().is_empty());
+
+        // Primera carpeta: nada que heredar → el emulador efectivo, no "Default".
+        let label = add_scan_emulator_label(&db, &switch, None, &runners);
+        assert_eq!(label, "Ryujinx");
+
+        // Con una carpeta ya registrada, "Default" (heredar) es válido.
+        db.save_scan_folder(switch.id, "/fake/switch", true).unwrap();
+        let label = add_scan_emulator_label(&db, &switch, None, &runners);
+        assert_eq!(label, "Default");
+
+        // Emulador explícito → su nombre.
+        let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap();
+        let label = add_scan_emulator_label(&db, &switch, Some(ryujinx.id), &runners);
+        assert_eq!(label, "Ryujinx");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// El selector "Emulador" del formulario de escaneo no debe permitir caer
+    /// en "Default" (sin override) mientras no exista ninguna carpeta para la
+    /// plataforma: en la primera carpeta los ◀ ▶ rodean entre emuladores
+    /// reales. Una vez registrada una carpeta, "Default" vuelve a ser opción.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn add_scan_emulator_selector_skips_default_when_no_folders_exist() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_scan_cycle_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+        let switch = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch platform")
+            .clone();
+
+        // Configura Ryujinx y Citron: el selector tiene dos emuladores reales.
+        let runners = app.db.get_runners_for_platform(switch.id).unwrap();
+        let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap().id;
+        let citron = runners.iter().find(|r| r.name == "Citron").unwrap().id;
+        app.db.update_runner_config(ryujinx, "/fake/ryujinx", true).unwrap();
+        app.db.update_runner_config(citron, "/fake/citron", true).unwrap();
+
+        app.modal_state = ModalState::AddFolderScanForm {
+            platform: switch.clone(),
+            folder_path: "/fake/switch".to_string(),
+            extensions_input: ".nsp".to_string(),
+            recursive: true,
+            use_dat_auto_id: false,
+            add_emulator_id: None,
+            add_core: None,
+            selected_field: 0,
+        };
+
+        // Sin carpetas: los ◀ ▶ rodean sin pasar por "Default" (None).
+        app.cycle_add_folder_emulator(false);
+        let (_, emu, _) = app.add_scan_form_selection().unwrap();
+        assert_eq!(emu, Some(ryujinx), "forward picks the first emulator");
+        app.cycle_add_folder_emulator(false);
+        let (_, emu, _) = app.add_scan_form_selection().unwrap();
+        assert_eq!(emu, Some(citron), "forward reaches the last emulator");
+        app.cycle_add_folder_emulator(false);
+        let (_, emu, _) = app.add_scan_form_selection().unwrap();
+        assert_eq!(emu, Some(ryujinx), "forward wraps, never lands on None");
+        app.cycle_add_folder_emulator(true);
+        let (_, emu, _) = app.add_scan_form_selection().unwrap();
+        assert_eq!(emu, Some(citron), "backward wraps, never lands on None");
+
+        // Con una carpeta registrada, "Default" (None) vuelve a ser alcanzable.
+        app.db.save_scan_folder(switch.id, "/fake/switch", true).unwrap();
+        app.cycle_add_folder_emulator(true);
+        let (_, emu, _) = app.add_scan_form_selection().unwrap();
+        assert_eq!(emu, Some(ryujinx), "backward to first emulator");
+        app.cycle_add_folder_emulator(true);
+        let (_, emu, _) = app.add_scan_form_selection().unwrap();
+        assert_eq!(emu, None, "backward reaches Default once a folder exists");
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// End-to-end del selector "Emulador Activo (◀ ▶)" y de la fila anidada
     /// "Núcleo": inyecta el emulador ficticio core-based `testcore` junto a
     /// Ryujinx en Switch y comprueba que ◀ ▶ alterna entre emuladores, que con
@@ -8456,7 +8960,7 @@ mod tests {
             assigned
         );
 
-        // ◀ cycles back to "Heredado de plataforma" (None).
+        // ◀ cycles back to "Default" (None).
         app.update(Action::CycleFolderEmulator(true)).await;
         let ModalState::ScanFolderForm { ref folders, .. } = app.modal_state else {
             panic!("modal still open");

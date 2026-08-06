@@ -3,14 +3,14 @@ use game_core::models::Game;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmulatorOverrideChoice {
-    /// `None` for "Heredado (...)", `Some(id)` for specific configured runner.
+    /// `None` for "Default" (inherited), `Some(id)` for a specific configured runner.
     pub runner_id: Option<i64>,
     pub display_label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreOverrideChoice {
-    /// `None` for "Heredado (...)", `Some(key)` for specific core key.
+    /// `None` for "Default" (inherited), `Some(key)` for a specific core key.
     pub core_key: Option<String>,
     pub display_label: String,
 }
@@ -19,45 +19,15 @@ pub struct EditGameFormHelper;
 
 impl EditGameFormHelper {
     /// Build list of choices for the Emulator selector in Edit Game Details.
-    /// Choice 0: "Heredado (mostrando entre paréntesis el efectivo actual, ej. 'Heredado (Citron — de carpeta)')"
+    /// Choice 0: "Default" (no override: resolves through folder → platform).
     /// Choices 1..N: Configured emulators compatible with the game's platform.
     pub fn get_emulator_choices(db: &Database, game: &Game) -> Vec<EmulatorOverrideChoice> {
         let mut choices = Vec::new();
 
-        // 1. Calculate effective inherited emulator and label (without game-level override)
-        let inherited_runner = db
-            .get_runner_for_game(game.platform_id, game.folder_id, None)
-            .ok()
-            .flatten();
-
-        let inherited_label = if let Some(ref r) = inherited_runner {
-            // Determine if the effective runner came from folder or platform
-            let came_from_folder = if let Some(fid) = game.folder_id {
-                if let Ok(Some(folder)) = db.get_scanned_folder(fid) {
-                    if let Some(folder_emu_id) = folder.assigned_emulator_id {
-                        folder_emu_id == r.id
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if came_from_folder {
-                format!("Heredado ({} — de carpeta)", r.name)
-            } else {
-                format!("Heredado ({} — de plataforma)", r.name)
-            }
-        } else {
-            "Heredado (Sin emulador)".to_string()
-        };
-
+        // 1. Inherited / no override choice
         choices.push(EmulatorOverrideChoice {
             runner_id: None,
-            display_label: inherited_label,
+            display_label: "Default".to_string(),
         });
 
         // 2. Add configured runners for this platform
@@ -112,50 +82,14 @@ impl EditGameFormHelper {
     }
 
     /// Build list of choices for Core override in Edit Game Details.
-    pub fn get_core_choices(
-        db: &Database,
-        game: &Game,
-        platform_slug: &str,
-        emulator_name: &str,
-    ) -> Vec<CoreOverrideChoice> {
+    /// Choice 0: "Default" (no override: resolves through game → folder → platform).
+    pub fn get_core_choices(platform_slug: &str, emulator_name: &str) -> Vec<CoreOverrideChoice> {
         let mut choices = Vec::new();
 
-        let game_no_override = Game {
-            core_override: None,
-            ..game.clone()
-        };
-        let inherited_core_key = db.get_effective_core_for_game(&game_no_override, platform_slug);
-
-        let inherited_label = if let Some(ref key) = inherited_core_key {
-            let label = game_core::options::emulator_core_label_for_platform(
-                emulator_name,
-                platform_slug,
-                key,
-            )
-            .unwrap_or_else(|| key.clone());
-
-            let came_from_folder = if let Some(fid) = game.folder_id {
-                if let Ok(Some(folder)) = db.get_scanned_folder(fid) {
-                    folder.assigned_core.as_deref() == Some(key.as_str())
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if came_from_folder {
-                format!("Heredado ({} — de carpeta)", label)
-            } else {
-                format!("Heredado ({} — de plataforma)", label)
-            }
-        } else {
-            "Heredado (Sin núcleo)".to_string()
-        };
-
+        // 1. Inherited / no override choice
         choices.push(CoreOverrideChoice {
             core_key: None,
-            display_label: inherited_label,
+            display_label: "Default".to_string(),
         });
 
         let cores = game_core::options::emulator_cores_for_platform(emulator_name, platform_slug);
@@ -263,7 +197,7 @@ mod tests {
 
         // 1. Inherited from platform
         let choices = EditGameFormHelper::get_emulator_choices(&db, &game);
-        assert_eq!(choices[0].display_label, "Heredado (Ryujinx — de plataforma)");
+        assert_eq!(choices[0].display_label, "Default");
 
         // 2. Inherited from folder
         let folder_id = db.save_scan_folder(switch.id, "/fake/folder", true).unwrap();
@@ -271,8 +205,8 @@ mod tests {
         game.folder_id = Some(folder_id);
 
         let choices = EditGameFormHelper::get_emulator_choices(&db, &game);
-        assert_eq!(choices[0].display_label, "Heredado (Citron — de carpeta)");
-        assert_eq!(choices.len(), 3); // Heredado, Ryujinx, Citron
+        assert_eq!(choices[0].display_label, "Default");
+        assert_eq!(choices.len(), 3); // Default, Ryujinx, Citron
 
         // 3. Cycle choices
         let curr = EditGameFormHelper::cycle_choice(&choices, None, false);
