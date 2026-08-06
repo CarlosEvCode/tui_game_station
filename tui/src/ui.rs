@@ -11,9 +11,9 @@ use ratatui::{
 use ratatui_image::{Resize, StatefulImage};
 
 use crate::app::{
-    scan_folder_add_action_index, scan_folder_add_core_idx, scan_folder_add_emu_idx,
-    scan_folder_add_has_core, scan_folder_add_scan_index, scan_folder_supports_dat, App,
-    BigPictureFocus, FocusedPane, ModalState, ViewMode,
+    add_scan_available_cores, scan_folder_add_action_index, scan_folder_add_core_idx,
+    scan_folder_add_emu_idx, scan_folder_add_has_core, scan_folder_add_scan_index,
+    scan_folder_supports_dat, App, BigPictureFocus, FocusedPane, ModalState, ViewMode,
 };
 use game_core::models::PlatformType;
 
@@ -2350,19 +2350,30 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             // Conditional Core field for RetroArch
             if has_core {
                 let core_selected = focused_pane == 1 && selected_field == core_idx;
-                let emu_name = add_emulator_id
-                    .and_then(|id| runners.iter().find(|r| r.id == id).map(|r| r.name.as_str()))
-                    .unwrap_or("RetroArch");
-                let core_name = add_core
-                    .as_deref()
-                    .and_then(|k| game_core::options::emulator_core_label_for_platform(emu_name, &platform.slug, k))
-                    .unwrap_or_else(|| "Por defecto".to_string());
-
-                right_lines.push(Line::from(vec![
-                    Span::styled(if core_selected { "▶ " } else { "  " }, field_style(1, core_idx)),
-                    Span::styled("Core: ", field_style(1, core_idx)),
-                    Span::styled(format!("◀ {} ▶", core_name), field_style(1, core_idx)),
-                ]));
+                let available = add_scan_available_cores(&app.db, platform, add_emulator_id);
+                if available.is_empty() {
+                    right_lines.push(Line::from(vec![
+                        Span::styled(
+                            if core_selected { "▶ " } else { "  " },
+                            field_style(1, core_idx),
+                        ),
+                        Span::styled(
+                            "Core: Sin núcleos descargados — abre RetroArch y descarga uno primero",
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                } else {
+                    let core_name = add_core
+                        .as_deref()
+                        .and_then(|k| available.iter().find(|(ck, _)| ck == k))
+                        .map(|(_, label)| label.clone())
+                        .unwrap_or_else(|| "Por defecto".to_string());
+                    right_lines.push(Line::from(vec![
+                        Span::styled(if core_selected { "▶ " } else { "  " }, field_style(1, core_idx)),
+                        Span::styled("Core: ", field_style(1, core_idx)),
+                        Span::styled(format!("◀ {} ▶", core_name), field_style(1, core_idx)),
+                    ]));
+                }
             }
 
             let add_selected = focused_pane == 1 && selected_field == add_action_idx;
@@ -2408,6 +2419,184 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(outer, popup_area);
             frame.render_widget(left_widget, cols[0]);
             frame.render_widget(right_widget, cols[1]);
+        }
+        ModalState::AddFolderScanForm {
+            ref platform,
+            ref folder_path,
+            ref extensions_input,
+            recursive,
+            use_dat_auto_id,
+            add_emulator_id,
+            ref add_core,
+            selected_field,
+        } => {
+            let field_style = |idx: usize| {
+                if idx == selected_field {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                }
+            };
+
+            let supports_dat = scan_folder_supports_dat(&platform.slug);
+            let has_core = scan_folder_add_has_core(&app.db, platform.id, add_emulator_id);
+            let emu_idx = scan_folder_add_emu_idx(supports_dat);
+            let core_idx = scan_folder_add_core_idx(supports_dat);
+            let action_idx = scan_folder_add_action_index(supports_dat, has_core);
+
+            let runners = app
+                .db
+                .get_runners_for_platform(platform.id)
+                .unwrap_or_default();
+
+            let mut lines = Vec::new();
+
+            let path_selected = selected_field == 0;
+            lines.push(Line::from(vec![
+                Span::styled(if path_selected { "▶ " } else { "  " }, field_style(0)),
+                Span::styled("Path: ", field_style(0)),
+                Span::raw(if folder_path.is_empty() {
+                    "< [Enter] to pick a folder >"
+                } else {
+                    folder_path
+                }),
+                Span::styled(
+                    "  [Browse...]",
+                    if path_selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Cyan)
+                    },
+                ),
+            ]));
+
+            let ext_selected = selected_field == 1;
+            lines.push(Line::from(vec![
+                Span::styled(if ext_selected { "▶ " } else { "  " }, field_style(1)),
+                Span::styled("Extensions: ", field_style(1)),
+                Span::raw(extensions_input),
+            ]));
+
+            let rec_selected = selected_field == 2;
+            let rec_check = if recursive { "[x] Yes" } else { "[ ] No" };
+            lines.push(Line::from(vec![
+                Span::styled(if rec_selected { "▶ " } else { "  " }, field_style(2)),
+                Span::styled("Scan subfolders recursively: ", field_style(2)),
+                Span::styled(
+                    rec_check,
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+            if supports_dat {
+                let dat_selected = selected_field == 3;
+                let dat_check = if use_dat_auto_id {
+                    "[x] Yes (DAT / Serial Auto-ID)"
+                } else {
+                    "[ ] No (filename matching)"
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(if dat_selected { "▶ " } else { "  " }, field_style(3)),
+                    Span::styled("Automatic DAT identification: ", field_style(3)),
+                    Span::styled(
+                        dat_check,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+            }
+
+            let emu_selected = selected_field == emu_idx;
+            let emu_label = match add_emulator_id {
+                Some(id) => runners
+                    .iter()
+                    .find(|r| r.id == id)
+                    .map(|r| r.name.clone())
+                    .unwrap_or_else(|| "Heredado".to_string()),
+                None => {
+                    let active_name = runners
+                        .iter()
+                        .find(|r| r.is_active)
+                        .map(|r| r.name.clone())
+                        .unwrap_or_else(|| "Ninguno".to_string());
+                    format!("Por defecto ({})", active_name)
+                }
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if emu_selected { "▶ " } else { "  " }, field_style(emu_idx)),
+                Span::styled("Emulador: ", field_style(emu_idx)),
+                Span::styled(format!("◀ {} ▶", emu_label), field_style(emu_idx)),
+            ]));
+
+            if has_core {
+                let core_selected = selected_field == core_idx;
+                let available = add_scan_available_cores(&app.db, platform, add_emulator_id);
+                if available.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            if core_selected { "▶ " } else { "  " },
+                            field_style(core_idx),
+                        ),
+                        Span::styled(
+                            "Core: Sin núcleos descargados — abre RetroArch y descarga uno primero",
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                } else {
+                    let core_name = add_core
+                        .as_deref()
+                        .and_then(|k| available.iter().find(|(ck, _)| ck == k))
+                        .map(|(_, label)| label.clone())
+                        .unwrap_or_else(|| "Por defecto".to_string());
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            if core_selected { "▶ " } else { "  " },
+                            field_style(core_idx),
+                        ),
+                        Span::styled("Core: ", field_style(core_idx)),
+                        Span::styled(format!("◀ {} ▶", core_name), field_style(core_idx)),
+                    ]));
+                }
+            }
+
+            let add_selected = selected_field == action_idx;
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{} [ Añadir y Escanear ]",
+                    if add_selected { "▶" } else { " " }
+                ),
+                Style::default()
+                    .fg(if add_selected { Color::Black } else { Color::Green })
+                    .bg(if add_selected { Color::Green } else { Color::Reset })
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "◀ ▶ emulador/núcleo · [Enter] en Path para explorar",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let widget = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        format!(" Add Game · {} ", platform.name),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            frame.render_widget(widget, popup_area);
         }
         ModalState::ConfigureApiKeyInput { ref input } => {
             let mut lines = Vec::new();

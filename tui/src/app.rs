@@ -63,6 +63,7 @@ fn is_destructive_action(action: &Action) -> bool {
             | Action::ScanCurrentFolder
             | Action::StartFolderScan
             | Action::RescanFolder
+            | Action::StartAddAndScan
             | Action::ConfirmDeleteFolderExecution
             | Action::KillWineProcesses
     )
@@ -129,6 +130,45 @@ pub(crate) fn scan_folder_add_scan_index(supports_dat: bool, has_core: bool) -> 
 
 pub(crate) fn scan_folder_add_form_total(supports_dat: bool, has_core: bool) -> usize {
     scan_folder_add_scan_index(supports_dat, has_core) + 1
+}
+
+/// Total fields of the simplified single-folder scan form: path, extensions,
+/// recursive, optional DAT toggle, emulator, optional core and the final
+/// [Añadir y Escanear] button (which sits at `scan_folder_add_action_index`).
+pub(crate) fn simple_scan_form_total(supports_dat: bool, has_core: bool) -> usize {
+    scan_folder_add_action_index(supports_dat, has_core) + 1
+}
+
+/// Real cores for the emulator currently selected in an add-scan form.
+///
+/// For RetroArch this is filtered by the `.so` files actually present in the
+/// cores dir resolved for the runner — the catalog alone is not enough, it
+/// lists cores that may not be downloaded. Other core-based emulators fall
+/// back to their catalog/TOML core list. Returns `(key, display_label)` in
+/// catalog order.
+pub(crate) fn add_scan_available_cores(
+    db: &Database,
+    platform: &Platform,
+    emu_id: Option<i64>,
+) -> Vec<(String, String)> {
+    let runners = db.get_runners_for_platform(platform.id).unwrap_or_default();
+    let Some(runner) = emu_id
+        .and_then(|id| runners.iter().find(|r| r.id == id))
+        .or_else(|| runners.iter().find(|r| r.is_active))
+    else {
+        return Vec::new();
+    };
+    let is_retroarch = runner.name == "RetroArch" || runner.runner_type == "retroarch";
+    if is_retroarch {
+        game_core::retroarch_manager::available_retroarch_cores_for_platform(runner, &platform.slug)
+            .into_iter()
+            .map(|c| (c.key, c.name))
+            .collect()
+    } else if game_core::options::emulator_default_core(&runner.name).is_some() {
+        game_core::options::emulator_cores_for_platform(&runner.name, &platform.slug)
+    } else {
+        Vec::new()
+    }
 }
 
 pub(crate) fn scan_folder_section0_total(num_folders: usize) -> usize {
@@ -263,6 +303,19 @@ pub enum ModalState {
         focused_pane: usize,
         selected_field: usize,
         selected_row: usize,
+    },
+    /// Simplified single-folder "Add Game" flow reached from [A] → Scan Folder.
+    /// Registers one folder and scans it immediately with the chosen emulator
+    /// and core (no folder manager, no multi-selection).
+    AddFolderScanForm {
+        platform: Platform,
+        folder_path: String,
+        extensions_input: String,
+        recursive: bool,
+        use_dat_auto_id: bool,
+        add_emulator_id: Option<i64>,
+        add_core: Option<String>,
+        selected_field: usize,
     },
     AddGameForm {
         game_type: PlatformType,
@@ -517,6 +570,12 @@ pub enum Action {
     /// Register the folder currently filled in the "Add New Folder" pane and
     /// keep the manager open so more folders can be queued before scanning.
     AddFolder,
+    /// Register the folder filled in the simplified Add-Game scan form and
+    /// scan it immediately with the chosen emulator/core ([Añadir y Escanear]).
+    StartAddAndScan,
+    /// Open the full folder manager (`ScanFolderForm`) for the selected
+    /// platform ([e] while the Platforms panel is focused).
+    OpenFolderManagerForPlatform,
     /// Toggle a scan folder row in/out of the multi-selection ([Space]).
     ToggleSelectFolder,
     /// Switch the folder-manager modal focus between the "Registered Folders"
@@ -1070,6 +1129,7 @@ impl App {
             selected_field: 0,
             selected_row: 0,
         };
+        self.seed_add_scan_core();
     }
 
     /// Helper for `Action::ModalConfirm`: handles [Enter] on `ScanFolderForm` fields.
@@ -1109,6 +1169,39 @@ impl App {
         }
     }
 
+    /// Enter on the simplified single-folder scan form: browse on Path, skip
+    /// text fields, toggle the recursive/DAT checkboxes and start the add+scan
+    /// on the final [Añadir y Escanear] button.
+    pub(crate) async fn handle_add_scan_form_enter(&mut self) {
+        let ModalState::AddFolderScanForm {
+            ref platform,
+            add_emulator_id,
+            selected_field,
+            ..
+        } = self.modal_state
+        else {
+            return;
+        };
+        let supports_dat = scan_folder_supports_dat(&platform.slug);
+        let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
+        let action_idx = scan_folder_add_action_index(supports_dat, has_core);
+        match selected_field {
+            0 => self.update(Action::OpenFolderPicker).await,
+            1 => self.update(Action::ModalNextField).await,
+            f if f == action_idx => self.update(Action::StartAddAndScan).await,
+            _ => self.update(Action::ModalToggleCheckbox).await,
+        }
+    }
+
+    /// Number of registered folder rows in the folder manager (rows occupy
+    /// fields 0..N-1; field N is the [DELETE SELECTED] button).
+    pub fn scan_folder_num_rows(&self) -> usize {
+        match &self.modal_state {
+            ModalState::ScanFolderForm { folders, .. } => folders.len(),
+            _ => 0,
+        }
+    }
+
     /// Runners of a platform whose executable path is configured. These are the
     /// only emulators the "Emulador: ◀ ▶" selector cycles through.
     fn configured_runners_for(&self, platform_id: i64) -> Vec<Runner> {
@@ -1120,85 +1213,134 @@ impl App {
             .collect()
     }
 
-    pub fn cycle_add_folder_emulator(&mut self, backward: bool) {
-        let (platform_id, platform_slug) = match &self.modal_state {
-            ModalState::ScanFolderForm { platform, .. } => (platform.id, platform.slug.clone()),
-            _ => return,
+    /// Current `(platform, emulator, core)` selection shared by the folder
+    /// manager and the simplified add-scan form.
+    fn add_scan_form_selection(&self) -> Option<(Platform, Option<i64>, Option<String>)> {
+        match &self.modal_state {
+            ModalState::ScanFolderForm {
+                platform,
+                add_emulator_id,
+                add_core,
+                ..
+            }
+            | ModalState::AddFolderScanForm {
+                platform,
+                add_emulator_id,
+                add_core,
+                ..
+            } => Some((platform.clone(), *add_emulator_id, add_core.clone())),
+            _ => None,
+        }
+    }
+
+    fn set_add_scan_form_selection(&mut self, emu: Option<i64>, core: Option<String>) {
+        match &mut self.modal_state {
+            ModalState::ScanFolderForm {
+                add_emulator_id,
+                add_core,
+                ..
+            }
+            | ModalState::AddFolderScanForm {
+                add_emulator_id,
+                add_core,
+                ..
+            } => {
+                *add_emulator_id = emu;
+                *add_core = core;
+            }
+            _ => {}
+        }
+    }
+
+    /// When the selected emulator needs a core and none is chosen yet, seed the
+    /// first core that is actually available on disk (for RetroArch this is
+    /// the downloaded `.so` list, not the raw catalog).
+    fn seed_add_scan_core(&mut self) {
+        let Some((platform, emu, core)) = self.add_scan_form_selection() else {
+            return;
         };
-        let configured = self.configured_runners_for(platform_id);
+        if core.is_some() {
+            return;
+        }
+        if !scan_folder_add_has_core(&self.db, platform.id, emu) {
+            return;
+        }
+        let available = add_scan_available_cores(&self.db, &platform, emu);
+        if let Some((key, _)) = available.first() {
+            self.set_add_scan_form_selection(emu, Some(key.clone()));
+        }
+    }
+
+    pub fn cycle_add_folder_emulator(&mut self, backward: bool) {
+        let Some((platform, current_emu, current_core)) = self.add_scan_form_selection() else {
+            return;
+        };
+        let configured = self.configured_runners_for(platform.id);
         if configured.is_empty() {
             return;
         }
 
-        if let ModalState::ScanFolderForm {
-            ref mut add_emulator_id,
-            ref mut add_core,
-            ..
-        } = self.modal_state
-        {
-            let current = add_emulator_id.and_then(|id| configured.iter().position(|r| r.id == id));
-            let next_idx = if let Some(idx) = current {
-                if !backward {
-                    if idx + 1 < configured.len() {
-                        Some(idx + 1)
-                    } else {
-                        None
-                    }
-                } else if idx > 0 {
-                    Some(idx - 1)
+        let current = current_emu.and_then(|id| configured.iter().position(|r| r.id == id));
+        let next_idx = if let Some(idx) = current {
+            if !backward {
+                if idx + 1 < configured.len() {
+                    Some(idx + 1)
                 } else {
                     None
                 }
-            } else if backward {
-                Some(configured.len() - 1)
+            } else if idx > 0 {
+                Some(idx - 1)
             } else {
-                Some(0)
-            };
-            *add_emulator_id = next_idx.map(|i| configured[i].id);
-
-            let has_core = scan_folder_add_has_core(&self.db, platform_id, *add_emulator_id);
-            if has_core && add_core.is_none() {
-                let emu_name = add_emulator_id
-                    .and_then(|id| configured.iter().find(|r| r.id == id).map(|r| r.name.as_str()))
-                    .unwrap_or("RetroArch");
-                *add_core = game_core::options::emulator_default_core_for_platform(emu_name, &platform_slug);
+                None
             }
+        } else if backward {
+            Some(configured.len() - 1)
+        } else {
+            Some(0)
+        };
+        let next_id = next_idx.map(|i| configured[i].id);
+
+        let has_core = scan_folder_add_has_core(&self.db, platform.id, next_id);
+        let mut next_core = current_core;
+        if has_core {
+            // Seed/refresh the core from the cores actually available on disk
+            // (for RetroArch this filters by the downloaded `.so` files).
+            let available = add_scan_available_cores(&self.db, &platform, next_id);
+            let still_valid = next_core
+                .as_deref()
+                .map(|k| available.iter().any(|(ck, _)| ck == k))
+                .unwrap_or(false);
+            if !still_valid {
+                next_core = available.first().map(|(k, _)| k.clone());
+            }
+        } else {
+            next_core = None;
         }
+        self.set_add_scan_form_selection(next_id, next_core);
     }
 
     pub fn cycle_add_folder_core(&mut self, backward: bool) {
-        let (platform_id, platform_slug) = match &self.modal_state {
-            ModalState::ScanFolderForm { platform, .. } => (platform.id, platform.slug.clone()),
-            _ => return,
+        let Some((platform, emu, current_core)) = self.add_scan_form_selection() else {
+            return;
         };
-        let configured = self.configured_runners_for(platform_id);
-
-        if let ModalState::ScanFolderForm {
-            add_emulator_id,
-            ref mut add_core,
-            ..
-        } = self.modal_state
-        {
-            let emu_name = add_emulator_id
-                .and_then(|id| configured.iter().find(|r| r.id == id).map(|r| r.name.as_str()))
-                .unwrap_or("RetroArch");
-            let cores = game_core::options::emulator_cores_for_platform(emu_name, &platform_slug);
-            if cores.is_empty() {
-                return;
-            }
-            let curr_key = add_core.as_deref();
-            let curr_pos = curr_key.and_then(|k| cores.iter().position(|(ck, _)| ck == k)).unwrap_or(0);
-            let next_pos = if backward {
-                if curr_pos == 0 {
-                    cores.len() - 1
-                } else {
-                    curr_pos - 1
-                }
-            } else {
-                (curr_pos + 1) % cores.len()
-            };
-            *add_core = Some(cores[next_pos].0.clone());
+        let available = add_scan_available_cores(&self.db, &platform, emu);
+        if available.is_empty() {
+            return;
         }
+        let curr_pos = current_core
+            .as_deref()
+            .and_then(|k| available.iter().position(|(ck, _)| ck == k))
+            .unwrap_or(0);
+        let next_pos = if backward {
+            if curr_pos == 0 {
+                available.len() - 1
+            } else {
+                curr_pos - 1
+            }
+        } else {
+            (curr_pos + 1) % available.len()
+        };
+        self.set_add_scan_form_selection(emu, Some(available[next_pos].0.clone()));
     }
 
     pub fn cycle_edit_game_emulator(&mut self, backward: bool) {
@@ -2331,7 +2473,10 @@ impl App {
         match action {
             crate::gamepad::GamepadAction::Up => {
                 if self.modal_state != ModalState::None {
-                    if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
+                    if matches!(
+                        self.modal_state,
+                        ModalState::ScanFolderForm { .. } | ModalState::AddFolderScanForm { .. }
+                    ) {
                         self.update(Action::ModalPrevField).await;
                     } else {
                         self.update(Action::ModalSelectPrev).await;
@@ -2348,7 +2493,10 @@ impl App {
             }
             crate::gamepad::GamepadAction::Down => {
                 if self.modal_state != ModalState::None {
-                    if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
+                    if matches!(
+                        self.modal_state,
+                        ModalState::ScanFolderForm { .. } | ModalState::AddFolderScanForm { .. }
+                    ) {
                         self.update(Action::ModalNextField).await;
                     } else {
                         self.update(Action::ModalSelectNext).await;
@@ -2386,6 +2534,22 @@ impl App {
                             selected_field,
                             ..
                         } if *focused_pane == 1 => {
+                            let dat = scan_folder_supports_dat(&platform.slug);
+                            let emu_idx = scan_folder_add_emu_idx(dat);
+                            let has_core = scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
+                            let core_idx = scan_folder_add_core_idx(dat);
+                            if *selected_field == emu_idx {
+                                self.cycle_add_folder_emulator(true);
+                            } else if has_core && *selected_field == core_idx {
+                                self.cycle_add_folder_core(true);
+                            }
+                        }
+                        ModalState::AddFolderScanForm {
+                            ref platform,
+                            add_emulator_id,
+                            selected_field,
+                            ..
+                        } => {
                             let dat = scan_folder_supports_dat(&platform.slug);
                             let emu_idx = scan_folder_add_emu_idx(dat);
                             let has_core = scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
@@ -2456,6 +2620,22 @@ impl App {
                             selected_field,
                             ..
                         } if *focused_pane == 1 => {
+                            let dat = scan_folder_supports_dat(&platform.slug);
+                            let emu_idx = scan_folder_add_emu_idx(dat);
+                            let has_core = scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
+                            let core_idx = scan_folder_add_core_idx(dat);
+                            if *selected_field == emu_idx {
+                                self.cycle_add_folder_emulator(false);
+                            } else if has_core && *selected_field == core_idx {
+                                self.cycle_add_folder_core(false);
+                            }
+                        }
+                        ModalState::AddFolderScanForm {
+                            ref platform,
+                            add_emulator_id,
+                            selected_field,
+                            ..
+                        } => {
                             let dat = scan_folder_supports_dat(&platform.slug);
                             let emu_idx = scan_folder_add_emu_idx(dat);
                             let has_core = scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
@@ -2553,6 +2733,9 @@ impl App {
                         }
                         ModalState::ScanFolderForm { .. } => {
                             self.handle_scan_form_enter().await;
+                        }
+                        ModalState::AddFolderScanForm { .. } => {
+                            self.handle_add_scan_form_enter().await;
                         }
                         ModalState::EditCustomArgsInput { .. } => {
                             self.update(Action::SaveCustomArgsInput).await;
@@ -3274,6 +3457,13 @@ impl App {
                     let path_str = picked.to_string_lossy().to_string();
                     match self.modal_state {
                         ModalState::ScanFolderForm {
+                            ref mut folder_path,
+                            ..
+                        } => {
+                            *folder_path = path_str.clone();
+                            self.status_msg = format!("Folder selected: {}", path_str);
+                        }
+                        ModalState::AddFolderScanForm {
                             ref mut folder_path,
                             ..
                         } => {
@@ -5221,18 +5411,16 @@ impl App {
                     let emulator_platforms = self.get_configured_emulator_platforms();
                     if let Some(p) = emulator_platforms.get(selected_platform_idx) {
                         let default_exts = p.default_extensions.join(", ");
-                        let folders = self
+                        let saved_folder = self
                             .db
-                            .get_scan_folders_for_platform(p.id)
-                            .unwrap_or_default();
-                        let saved_folder = folders
-                            .first()
-                            .map(|f| f.path.clone())
+                            .get_scan_folder_for_platform(p.id)
+                            .ok()
+                            .flatten()
                             .or_else(|| {
                                 self.db
-                                    .get_scan_folder_for_platform(p.id)
+                                    .get_scan_folders_for_platform(p.id)
                                     .ok()
-                                    .flatten()
+                                    .and_then(|folders| folders.first().map(|f| f.path.clone()))
                             })
                             .unwrap_or_else(|| {
                                 dirs::home_dir()
@@ -5242,20 +5430,17 @@ impl App {
                                     .to_string()
                             });
 
-                        self.modal_state = ModalState::ScanFolderForm {
+                        self.modal_state = ModalState::AddFolderScanForm {
                             platform: p.clone(),
-                            folders,
                             folder_path: saved_folder,
                             extensions_input: default_exts,
                             recursive: true,
                             use_dat_auto_id: game_core::dat_downloader::DatDownloader::supports_dat_identification(&p.slug),
                             add_emulator_id: None,
                             add_core: None,
-                            focused_pane: 0,
-                            selected: Vec::new(),
                             selected_field: 0,
-                            selected_row: 0,
                         };
+                        self.seed_add_scan_core();
                     }
                 }
             }
@@ -5375,6 +5560,20 @@ impl App {
                             *use_dat_auto_id = !*use_dat_auto_id;
                         }
                     }
+                } else if let ModalState::AddFolderScanForm {
+                    ref platform,
+                    ref mut recursive,
+                    ref mut use_dat_auto_id,
+                    selected_field,
+                    ..
+                } = self.modal_state
+                {
+                    let dat = scan_folder_supports_dat(&platform.slug);
+                    if selected_field == 2 {
+                        *recursive = !*recursive;
+                    } else if dat && selected_field == 3 {
+                        *use_dat_auto_id = !*use_dat_auto_id;
+                    }
                 } else if let ModalState::VisualMediaSelector {
                     active_tab,
                     selected_cover_idx,
@@ -5476,6 +5675,19 @@ impl App {
                         *selected_field = (*selected_field + 1) % total;
                     }
                 }
+                ModalState::AddFolderScanForm {
+                    ref platform,
+                    add_emulator_id,
+                    ref mut selected_field,
+                    ..
+                } => {
+                    let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
+                    let total = simple_scan_form_total(
+                        scan_folder_supports_dat(&platform.slug),
+                        has_core,
+                    );
+                    *selected_field = (*selected_field + 1) % total;
+                }
                 ModalState::ManageRunnersStep2Config {
                     ref mut selected_row,
                     ..
@@ -5572,12 +5784,28 @@ impl App {
                             scan_folder_supports_dat(&platform.slug),
                             has_core,
                         );
-                        *selected_field = if *selected_field == 0 {
-                            total - 1
+                        *selected_field = if *selected_field == 0 {                            total - 1
                         } else {
                             *selected_field - 1
                         };
                     }
+                }
+                ModalState::AddFolderScanForm {
+                    ref platform,
+                    add_emulator_id,
+                    ref mut selected_field,
+                    ..
+                } => {
+                    let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
+                    let total = simple_scan_form_total(
+                        scan_folder_supports_dat(&platform.slug),
+                        has_core,
+                    );
+                    *selected_field = if *selected_field == 0 {
+                        total - 1
+                    } else {
+                        *selected_field - 1
+                    };
                 }
                 ModalState::ManageRunnersStep2Config {
                     ref mut selected_row,
@@ -6345,7 +6573,86 @@ impl App {
                         .unwrap_or(folders.len().saturating_sub(1));
                     *focused_pane = 0;
                     *selected_row = row;
-                    *selected_field = row + 1;
+                    *selected_field = row;
+                }
+            }
+            Action::StartAddAndScan => {
+                let ModalState::AddFolderScanForm {
+                    ref platform,
+                    ref folder_path,
+                    ref extensions_input,
+                    recursive,
+                    use_dat_auto_id,
+                    add_emulator_id,
+                    ref add_core,
+                    ..
+                } = self.modal_state.clone()
+                else {
+                    return;
+                };
+                let path = folder_path.trim();
+                if path.is_empty() {
+                    self.status_msg =
+                        "Error: enter a folder path or press [Enter] on Path to browse.".to_string();
+                    return;
+                }
+                let pathbuf = PathBuf::from(path);
+                if !pathbuf.exists() || !pathbuf.is_dir() {
+                    self.status_msg = format!(
+                        "Error: folder does not exist or is not a directory: '{}'",
+                        path
+                    );
+                    return;
+                }
+                let selected_extensions: Vec<String> = extensions_input
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|extension| !extension.is_empty())
+                    .map(|extension| {
+                        let extension = extension.to_ascii_lowercase();
+                        if extension.starts_with('.') {
+                            extension
+                        } else {
+                            format!(".{}", extension)
+                        }
+                    })
+                    .collect();
+                if selected_extensions.is_empty() {
+                    self.status_msg =
+                        "Error: enter at least one ROM extension to scan.".to_string();
+                    return;
+                }
+                let folder_id = match self.db.save_scan_folder(platform.id, path, recursive) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        self.status_msg = format!("Error registering folder: {}", e);
+                        return;
+                    }
+                };
+                if add_emulator_id.is_some() {
+                    let _ = self.db.set_folder_assigned_emulator(folder_id, add_emulator_id);
+                }
+                if add_core.is_some() {
+                    let _ = self.db.set_folder_assigned_core(folder_id, add_core.as_deref());
+                }
+                let mut scan_platform = platform.clone();
+                scan_platform.default_extensions = selected_extensions;
+                self.status_msg = format!("[OK] Folder registered: '{}'.", path);
+                self.begin_scan(
+                    scan_platform,
+                    pathbuf,
+                    recursive,
+                    use_dat_auto_id,
+                    Some(folder_id),
+                );
+            }
+            Action::OpenFolderManagerForPlatform => {
+                if self.modal_state == ModalState::None
+                    && !self.platforms.is_empty()
+                    && self.selected_platform_idx < self.platforms.len()
+                {
+                    let platform = &self.platforms[self.selected_platform_idx];
+                    self.reload_scan_folder_modal(platform.id);
                 }
             }
             Action::ToggleSelectFolder => {
@@ -6357,8 +6664,9 @@ impl App {
                     ..
                 } = self.modal_state
                 {
-                    if *selected_field >= 1 && *selected_field <= folders.len() {
-                        let row = *selected_field - 1;
+                    // Rows live at fields 0..N-1 (N is the delete button).
+                    if *selected_field < folders.len() {
+                        let row = *selected_field;
                         if let Some(pos) = selected.iter().position(|i| *i == row) {
                             selected.remove(pos);
                         } else {
@@ -6367,9 +6675,9 @@ impl App {
                         *selected_row = row;
                         // Move to the next row after toggling, like the normal
                         // game list (Space selects and advances).
-                        if *selected_field < folders.len() {
+                        if *selected_field + 1 < folders.len() {
                             *selected_field += 1;
-                            *selected_row = *selected_field - 1;
+                            *selected_row = *selected_field;
                         }
                     }
                 }
@@ -8312,6 +8620,181 @@ mod tests {
             app.games.iter().any(|g| g.title.contains("Mario")),
             "in-memory games refreshed"
         );
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// TAREA 3 + Objetivos 1/2: el flujo A → "Escanear carpeta" abre el
+    /// formulario simplificado (`AddFolderScanForm`) y su selector de núcleo
+    /// se alimenta de los `.so` realmente presentes en disco (NDS + RetroArch
+    /// Downloaded → `melonds`), no del catálogo a ciegas. El override de
+    /// emulador/núcleo se persiste en la carpeta, el escaneo sigue
+    /// funcionando y el folder manager ([e]) lo muestra después.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn add_scan_form_seeds_disk_core_for_retroarch_and_flows_to_scan() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_addscanflow_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        // Fake Downloaded RetroArch tree: AppImage + melonds/desmume `.so` en
+        // disco. Es el directorio que el runner resuelve (`data_local_dir`).
+        let managed = tmp
+            .join("data")
+            .join("tui_game_station")
+            .join("runners")
+            .join("emulators")
+            .join("retroarch-data");
+        let sub = managed.join("RetroArch-Linux-x86_64");
+        std::fs::create_dir_all(&sub).expect("mkdir managed sub");
+        let appimage = sub.join("RetroArch-Linux-x86_64.AppImage");
+        std::fs::write(&appimage, "#!/bin/sh\n").expect("write AppImage");
+        let cores_dir = PathBuf::from(format!("{}.home", appimage.to_string_lossy()))
+            .join(".config")
+            .join("retroarch")
+            .join("cores");
+        std::fs::create_dir_all(&cores_dir).expect("mkdir cores");
+        std::fs::write(cores_dir.join("melonds_libretro.so"), "").expect("write melonds");
+        std::fs::write(cores_dir.join("desmume_libretro.so"), "").expect("write desmume");
+
+        let fake_dir = tmp.join("roms");
+        std::fs::create_dir_all(&fake_dir).expect("mkdir roms");
+        std::fs::write(fake_dir.join("New Super Mario Bros.nds"), "ROM").expect("write rom");
+        let fake_path = fake_dir.to_string_lossy().into_owned();
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+
+        let nds = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "nds")
+            .expect("nds platform")
+            .clone();
+
+        // Configura el runner RetroArch descargado como activo para NDS.
+        let rid = app
+            .db
+            .insert_runner(nds.id, "RetroArch", "retroarch")
+            .expect("runner");
+        app.db
+            .update_runner_config_with_source(rid, &appimage.to_string_lossy(), Some("Downloaded"))
+            .expect("config runner");
+        app.db.set_active_runner(nds.id, rid).expect("activate");
+        let runners = app.db.get_runners_for_platform(nds.id).expect("runners");
+        let active = runners.iter().find(|r| r.is_active).expect("active runner");
+        assert_eq!(active.name, "RetroArch");
+        assert_eq!(active.source.as_deref(), Some("Downloaded"));
+
+        // El selector de núcleo filtra por `.so` reales en disco (no el catálogo).
+        let disk_cores = add_scan_available_cores(&app.db, &nds, None);
+        let disk_keys: Vec<&str> = disk_cores.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(disk_keys, vec!["melonds", "desmume"]);
+
+        // Flujo A → Scan Folder → confirmar plataforma → AddFolderScanForm.
+        app.update(Action::OpenAddGameModal).await;
+        app.update(Action::ModalConfirmStep1).await;
+        let ModalState::ScanFolderStep1Platform { .. } = app.modal_state else {
+            panic!("expected platform selection, got {:?}", app.modal_state);
+        };
+        let emulator_platforms = app.get_configured_emulator_platforms();
+        let nds_idx = emulator_platforms
+            .iter()
+            .position(|p| p.id == nds.id)
+            .expect("nds in configured emulator platforms");
+        if let ModalState::ScanFolderStep1Platform { selected_platform_idx } = &mut app.modal_state {
+            *selected_platform_idx = nds_idx;
+        }
+        app.update(Action::ScanModalConfirmPlatform).await;
+
+        let ModalState::AddFolderScanForm {
+            platform,
+            add_emulator_id,
+            add_core,
+            ..
+        } = &app.modal_state
+        else {
+            panic!("expected AddFolderScanForm, got {:?}", app.modal_state);
+        };
+        assert_eq!(platform.id, nds.id);
+        assert_eq!(add_emulator_id, &None, "no explicit emulator override yet");
+        assert_eq!(add_core.as_deref(), Some("melonds"), "seeded from .so on disk");
+
+        // Ciclo el emulador (único configurado → RetroArch), apunto la carpeta
+        // de ROMs real y ejecuto Añadir y Escanear.
+        app.cycle_add_folder_emulator(false);
+        let ModalState::AddFolderScanForm {
+            add_emulator_id,
+            add_core,
+            folder_path,
+            extensions_input,
+            ..
+        } = &mut app.modal_state
+        else {
+            panic!("modal closed");
+        };
+        assert_eq!(add_emulator_id, &Some(rid));
+        assert_eq!(add_core.as_deref(), Some("melonds"));
+        *folder_path = fake_path.clone();
+        *extensions_input = "nds".to_string();
+        app.update(Action::StartAddAndScan).await;
+
+        assert_eq!(app.modal_state, ModalState::None, "modal closed after scan start");
+        let folders = app.db.get_scan_folders_for_platform(nds.id).expect("folders");
+        let folder = folders.first().expect("saved folder");
+        assert_eq!(folder.assigned_emulator_id, Some(rid));
+        assert_eq!(folder.assigned_core.as_deref(), Some("melonds"));
+
+        // Esperar a que termine el escaneo asíncrono real.
+        let mut waited = 0;
+        while app.scan_rx.is_some() && waited < 500 {
+            app.check_download_events().await;
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            waited += 1;
+        }
+        assert!(app.scan_rx.is_none(), "scan should finish, waited {waited}");
+
+        let games = app.db.get_games_for_platform(nds.id).expect("games");
+        assert!(
+            games.iter().any(|g| g.title.contains("Mario")),
+            "scanned game present: {:?}",
+            games.iter().map(|g| g.title.clone()).collect::<Vec<_>>()
+        );
+
+        // El folder manager ([e] en una plataforma) muestra el override.
+        app.selected_platform_idx = app
+            .platforms
+            .iter()
+            .position(|p| p.id == nds.id)
+            .expect("nds index");
+        app.update(Action::OpenFolderManagerForPlatform).await;
+        let ModalState::ScanFolderForm { ref folders, .. } = app.modal_state else {
+            panic!("expected folder manager, got {:?}", app.modal_state);
+        };
+        let f = folders
+            .iter()
+            .find(|f| f.assigned_emulator_id == Some(rid))
+            .expect("folder with override");
+        assert_eq!(f.assigned_core.as_deref(), Some("melonds"));
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

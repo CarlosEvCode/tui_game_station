@@ -162,6 +162,27 @@ pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
     }
 }
 
+/// Catalog cores whose libretro `.so` actually exists inside `cores_dir`.
+///
+/// The filesystem is the source of truth: the catalog may list cores that
+/// have not been downloaded yet, and launching with those would fail with a
+/// "core not found" error. Preserves catalog order (first = default).
+pub fn available_cores_in(cores_dir: &Path, platform_slug: &str) -> Vec<crate::core_catalog::CoreInfo> {
+    crate::core_catalog::cores_for_platform(platform_slug)
+        .into_iter()
+        .filter(|core| cores_dir.join(&core.so_file).is_file())
+        .collect()
+}
+
+/// Cores from the catalog for `platform_slug` whose libretro `.so` actually
+/// exists inside the cores dir resolved for `runner`.
+pub fn available_retroarch_cores_for_platform(
+    runner: &Runner,
+    platform_slug: &str,
+) -> Vec<crate::core_catalog::CoreInfo> {
+    available_cores_in(&resolve_retroarch_cores_dir(runner), platform_slug)
+}
+
 /// Resolve the actual AppImage executable path for a downloaded runner.
 ///
 /// Falls back to the stored `executable_path` on the runner row if the
@@ -286,6 +307,24 @@ mod tests {
         let cores = resolve_retroarch_cores_dir(&runner);
         assert!(cores.to_string_lossy().ends_with("retroarch/cores"));
         assert!(!cores.to_string_lossy().contains("retroarch-data"));
+    }
+
+    #[test]
+    fn test_available_cores_filters_by_disk() {
+        let tmp = std::env::temp_dir().join(format!("ra_cores_test_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("melonds_libretro.so"), b"").unwrap();
+        // desmume_libretro.so intentionally NOT written to disk.
+
+        let available = super::available_cores_in(&tmp, "nds");
+        assert_eq!(available.len(), 1);
+        assert_eq!(available[0].key, "melonds");
+        assert_eq!(available[0].so_file, "melonds_libretro.so");
+
+        // Empty / missing cores dir -> no cores at all.
+        assert!(super::available_cores_in(&tmp.join("missing"), "nds").is_empty());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

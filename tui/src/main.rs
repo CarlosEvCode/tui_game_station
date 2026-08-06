@@ -13,7 +13,10 @@ pub mod edit_game_details;
 mod window_helper;
 
 use anyhow::Result;
-use app::{Action, App, BigPictureFocus, FocusedPane, ModalState};
+use app::{
+    Action, App, BigPictureFocus, FocusedPane, ModalState, scan_folder_add_core_idx,
+    scan_folder_add_emu_idx, scan_folder_add_has_core, scan_folder_supports_dat,
+};
 use clap::Parser;
 use crossterm::{
     cursor,
@@ -286,7 +289,8 @@ async fn main() -> Result<()> {
                                             *selected_row - 1
                                         };
                                     }
-                                    ModalState::ScanFolderForm { .. } => {
+                                    ModalState::ScanFolderForm { .. }
+                                    | ModalState::AddFolderScanForm { .. } => {
                                         app.update(Action::ModalPrevField).await;
                                     }
                                     _ => {
@@ -422,23 +426,36 @@ async fn main() -> Result<()> {
                                         app.update(Action::ToggleConfirmDeleteFolderOption).await;
                                     }
                                     ModalState::ScanFolderForm {
-                                        ref platform,
-                                        ref folders,
                                         focused_pane,
                                         selected_field,
                                         ..
                                     } => {
-                                        // Left pane: field 0 = platform default
-                                        // emulator; folder rows 1..=N re-assign
+                                        // Left pane: folder rows 0..N-1 re-assign
                                         // their emulator with ◀.
-                                        if *focused_pane == 0 && *selected_field == 0 {
-                                            let p = platform.clone();
-                                            app.cycle_active_selector_for(&p, true);
-                                        } else if *focused_pane == 0
-                                            && *selected_field >= 1
-                                            && *selected_field <= folders.len()
+                                        if *focused_pane == 0
+                                            && *selected_field < app.scan_folder_num_rows()
                                         {
                                             app.update(Action::CycleFolderEmulator(true)).await;
+                                        }
+                                    }
+                                    ModalState::AddFolderScanForm {
+                                        ref platform,
+                                        add_emulator_id,
+                                        selected_field,
+                                        ..
+                                    } => {
+                                        let dat = scan_folder_supports_dat(&platform.slug);
+                                        let emu_idx = scan_folder_add_emu_idx(dat);
+                                        let has_core = scan_folder_add_has_core(
+                                            &app.db,
+                                            platform.id,
+                                            *add_emulator_id,
+                                        );
+                                        let core_idx = scan_folder_add_core_idx(dat);
+                                        if *selected_field == emu_idx {
+                                            app.cycle_add_folder_emulator(true);
+                                        } else if has_core && *selected_field == core_idx {
+                                            app.cycle_add_folder_core(true);
                                         }
                                     }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
@@ -547,20 +564,34 @@ async fn main() -> Result<()> {
                                         app.update(Action::ToggleConfirmDeleteFolderOption).await;
                                     }
                                     ModalState::ScanFolderForm {
-                                        ref platform,
-                                        ref folders,
                                         focused_pane,
                                         selected_field,
                                         ..
                                     } => {
-                                        if *focused_pane == 0 && *selected_field == 0 {
-                                            let p = platform.clone();
-                                            app.cycle_active_selector_for(&p, false);
-                                        } else if *focused_pane == 0
-                                            && *selected_field >= 1
-                                            && *selected_field <= folders.len()
+                                        if *focused_pane == 0
+                                            && *selected_field < app.scan_folder_num_rows()
                                         {
                                             app.update(Action::CycleFolderEmulator(false)).await;
+                                        }
+                                    }
+                                    ModalState::AddFolderScanForm {
+                                        ref platform,
+                                        add_emulator_id,
+                                        selected_field,
+                                        ..
+                                    } => {
+                                        let dat = scan_folder_supports_dat(&platform.slug);
+                                        let emu_idx = scan_folder_add_emu_idx(dat);
+                                        let has_core = scan_folder_add_has_core(
+                                            &app.db,
+                                            platform.id,
+                                            *add_emulator_id,
+                                        );
+                                        let core_idx = scan_folder_add_core_idx(dat);
+                                        if *selected_field == emu_idx {
+                                            app.cycle_add_folder_emulator(false);
+                                        } else if has_core && *selected_field == core_idx {
+                                            app.cycle_add_folder_core(false);
                                         }
                                     }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
@@ -695,13 +726,21 @@ async fn main() -> Result<()> {
                                         // in/out of the multi-selection. Right
                                         // pane: toggles checkboxes or types a
                                         // space into text fields.
-                                        if focused_pane == 0 && selected_field >= 1 {
+                                        if focused_pane == 0 {
                                             app.update(Action::ToggleSelectFolder).await;
-                                        } else if focused_pane == 0 {
-                                            // Default emulator row: nothing to toggle.
                                         } else if selected_field == 2
                                             || selected_field == 3
                                         {
+                                            app.update(Action::ModalToggleCheckbox).await;
+                                        } else {
+                                            app.update(Action::ModalInputChar(' ')).await;
+                                        }
+                                    } else if let ModalState::AddFolderScanForm {
+                                        selected_field,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if selected_field == 2 || selected_field == 3 {
                                             app.update(Action::ModalToggleCheckbox).await;
                                         } else {
                                             app.update(Action::ModalInputChar(' ')).await;
@@ -1045,6 +1084,9 @@ async fn main() -> Result<()> {
                                     ModalState::ScanFolderForm { .. } => {
                                         app.handle_scan_form_enter().await;
                                     }
+                                    ModalState::AddFolderScanForm { .. } => {
+                                        app.handle_add_scan_form_enter().await;
+                                    }
                                     ModalState::ManageRunnersStep2Config {
                                         ref runner_info,
                                         ref exe_path_input,
@@ -1180,13 +1222,12 @@ async fn main() -> Result<()> {
                                         app.update(Action::DeleteInstalledWineRunner).await;
                                     } else if let ModalState::ScanFolderForm {
                                         focused_pane,
-                                        selected_field,
                                         ..
                                     } = app.modal_state
                                     {
                                         // Left pane: Delete opens the removal
                                         // confirmation for the selected rows.
-                                        if focused_pane == 0 && selected_field >= 1 {
+                                        if focused_pane == 0 {
                                             app.update(Action::OpenConfirmDeleteFolder).await;
                                         }
                                     }
@@ -1422,7 +1463,12 @@ async fn main() -> Result<()> {
                                         app.update(Action::OpenWineToolsMenu).await;
                                     }
                                     KeyCode::Char('e') => {
-                                        app.update(Action::OpenEditGameModal).await;
+                                        if app.focused_pane == FocusedPane::Platforms {
+                                            app.update(Action::OpenFolderManagerForPlatform)
+                                                .await;
+                                        } else {
+                                            app.update(Action::OpenEditGameModal).await;
+                                        }
                                     }
                                     KeyCode::Char('m') => {
                                         app.update(Action::OpenManageRunnersModal).await;
