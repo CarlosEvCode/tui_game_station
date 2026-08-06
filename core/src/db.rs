@@ -112,7 +112,8 @@ impl Database {
                 last_played_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                is_missing_base BOOLEAN DEFAULT 0
+                is_missing_base BOOLEAN DEFAULT 0,
+                emulator_override INTEGER REFERENCES runners(id)
             );
 
             CREATE TABLE IF NOT EXISTS game_components (
@@ -238,6 +239,21 @@ impl Database {
                     params![folder_id, platform_id, prefix],
                 )?;
             }
+        }
+
+        // Migrate pre-existing databases that lack the games.emulator_override column.
+        let has_emulator_override = self
+            .conn
+            .prepare("PRAGMA table_info(games)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "emulator_override");
+        if !has_emulator_override {
+            self.conn.execute(
+                "ALTER TABLE games ADD COLUMN emulator_override INTEGER REFERENCES runners(id)",
+                [],
+            )?;
         }
 
         // Clean up the stale "Nintendo DS" platform from the old `ds` slug. It
@@ -932,28 +948,42 @@ impl Database {
         Ok(runners.into_iter().next())
     }
 
-    /// Emulator resolution for a specific game. If the game belongs to a scan
-    /// folder that pins its own emulator (`assigned_emulator_id`), that
-    /// emulator wins as long as it is still configured; otherwise it falls back
-    /// to the platform resolution. Legacy games without a `folder_id` behave
-    /// exactly as `get_runner_for_platform`.
+    /// Emulator resolution for a specific game following the 4-level hierarchy:
+    /// 1. `game.emulator_override` (if set AND configured)
+    /// 2. `folder.assigned_emulator_id` (if set AND configured)
+    /// 3. `platform.active_emulator` (if configured)
+    /// 4. First configured runner -> catalog default -> first runner.
     pub fn get_runner_for_game(
         &self,
         platform_id: i64,
         folder_id: Option<i64>,
+        emulator_override: Option<i64>,
     ) -> Result<Option<Runner>> {
+        let runners = self.get_runners_for_platform(platform_id)?;
+
+        // Level 1: Game-level override (must be configured)
+        if let Some(override_id) = emulator_override {
+            if let Some(r) = runners.iter().find(|r| r.id == override_id) {
+                if r.executable_path.is_some() {
+                    return Ok(Some(r.clone()));
+                }
+            }
+        }
+
+        // Level 2: Folder-level assigned emulator (must be configured)
         if let Some(folder_id) = folder_id {
             if let Some(folder) = self.get_scanned_folder(folder_id)? {
                 if let Some(emulator_id) = folder.assigned_emulator_id {
-                    let runners = self.get_runners_for_platform(platform_id)?;
-                    if let Some(r) = runners.into_iter().find(|r| r.id == emulator_id) {
+                    if let Some(r) = runners.iter().find(|r| r.id == emulator_id) {
                         if r.executable_path.is_some() {
-                            return Ok(Some(r));
+                            return Ok(Some(r.clone()));
                         }
                     }
                 }
             }
         }
+
+        // Level 3 & 4: Platform resolution fallback
         self.get_runner_for_platform(platform_id)
     }
 
@@ -1051,7 +1081,7 @@ impl Database {
     // ----------------------------------------------------
     pub fn get_games_for_platform(&self, platform_id: i64) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id FROM games WHERE platform_id = ?1 ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id, emulator_override FROM games WHERE platform_id = ?1 ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map(params![platform_id], |row| {
@@ -1089,6 +1119,7 @@ impl Database {
                 updated_at: row.get(30)?,
                 is_missing_base: row.get(31)?,
                 folder_id: row.get(32)?,
+                emulator_override: row.get(33)?,
                 components: Vec::new(),
             })
         })?;
@@ -1103,7 +1134,7 @@ impl Database {
 
     pub fn get_all_games(&self) -> Result<Vec<Game>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id FROM games ORDER BY title ASC",
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial, release_year, developer, publisher, description, genre, rating, favorite, play_count, play_time_seconds, last_played_at, created_at, updated_at, is_missing_base, folder_id, emulator_override FROM games ORDER BY title ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -1141,6 +1172,7 @@ impl Database {
                 updated_at: row.get(30)?,
                 is_missing_base: row.get(31)?,
                 folder_id: row.get(32)?,
+                emulator_override: row.get(33)?,
                 components: Vec::new(),
             })
         })?;
@@ -1159,8 +1191,8 @@ impl Database {
                 platform_id, title, sort_title, game_type, file_path, working_dir,
                 custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid,
                 file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, file_hash_sha1, serial,
-                is_missing_base, folder_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+                is_missing_base, folder_id, emulator_override
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
             ON CONFLICT(file_path) DO UPDATE SET
                 title = excluded.title,
                 serial = excluded.serial,
@@ -1169,6 +1201,7 @@ impl Database {
                 file_size = excluded.file_size,
                 is_missing_base = excluded.is_missing_base,
                 folder_id = excluded.folder_id,
+                emulator_override = excluded.emulator_override,
                 updated_at = CURRENT_TIMESTAMP",
             params![
                 game.platform_id,
@@ -1191,6 +1224,7 @@ impl Database {
                 game.serial,
                 game.is_missing_base,
                 game.folder_id,
+                game.emulator_override,
             ],
         )?;
 
@@ -1322,8 +1356,9 @@ impl Database {
                 wine_prefix = ?5,
                 steam_appid = ?6,
                 env_vars = ?7,
+                emulator_override = ?8,
                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?8",
+             WHERE id = ?9",
             params![
                 game.title,
                 game.file_path,
@@ -1332,8 +1367,21 @@ impl Database {
                 game.wine_prefix,
                 game.steam_appid,
                 game.env_vars,
+                game.emulator_override,
                 game.id,
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_game_emulator_override(
+        &self,
+        game_id: i64,
+        emulator_override: Option<i64>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE games SET emulator_override = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            params![emulator_override, game_id],
         )?;
         Ok(())
     }
@@ -1569,11 +1617,11 @@ mod tests {
         let folders = db.get_scan_folders_for_platform(switch.id).unwrap();
         assert_eq!(folders.len(), 2);
 
-        // A game linked to folder A inherits the platform emulator by default.
         let game = crate::models::Game {
             id: 0,
             platform_id: switch.id,
             folder_id: Some(folder_a),
+            emulator_override: None,
             title: "Zelda".to_string(),
             sort_title: None,
             game_type: "rom".to_string(),
@@ -1620,17 +1668,17 @@ mod tests {
             .unwrap();
 
         // Without an override, the game resolves through the platform (Ryujinx).
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a)).unwrap().unwrap();
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
         assert_eq!(chosen.name, "Ryujinx");
 
         // Pin Citron to folder A -> the game now launches with Citron.
         db.set_folder_assigned_emulator(folder_a, Some(citron.id))
             .unwrap();
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a)).unwrap().unwrap();
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
         assert_eq!(chosen.name, "Citron");
 
         // Legacy games (no folder) are unaffected by the override.
-        let chosen = db.get_runner_for_game(switch.id, None).unwrap().unwrap();
+        let chosen = db.get_runner_for_game(switch.id, None, None).unwrap().unwrap();
         assert_eq!(chosen.name, "Ryujinx");
 
         // Unlink keeps the game (legacy), remove loses it.
@@ -1662,6 +1710,56 @@ mod tests {
                 .all(|g| g.title != "Mario"),
             "Mario removed from library after folder wipe"
         );
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_game_emulator_override_hierarchy_resolution() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_override_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+        let switch = db.get_platform_by_slug("switch").unwrap().unwrap();
+
+        // Register 3 emulators for Switch: Ryujinx (default), Citron, Eden
+        let runners = db.get_runners_for_platform(switch.id).unwrap();
+        let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap();
+        let citron = runners.iter().find(|r| r.name == "Citron").unwrap();
+        let eden_id = db.insert_runner(switch.id, "Eden", "emulator").unwrap();
+
+        // Configure Ryujinx, Citron, Eden
+        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true).unwrap();
+        db.update_runner_config(citron.id, "/fake/citron", true).unwrap();
+        db.update_runner_config(eden_id, "/fake/eden", true).unwrap();
+
+        // Create folder A pinned to Citron
+        let folder_a = db.save_scan_folder(switch.id, "/fake/switch/a", true).unwrap();
+        db.set_folder_assigned_emulator(folder_a, Some(citron.id)).unwrap();
+
+        // 1. Game without override inherits from folder (Citron)
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
+        assert_eq!(chosen.name, "Citron");
+
+        // 2. Game with override Eden wins over folder Citron and platform Ryujinx
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), Some(eden_id)).unwrap().unwrap();
+        assert_eq!(chosen.name, "Eden");
+
+        // 3. If override points to an unconfigured emulator, falls back to folder (Citron)
+        let unconfigured_id = db.insert_runner(switch.id, "UnconfiguredEmu", "emulator").unwrap();
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), Some(unconfigured_id)).unwrap().unwrap();
+        assert_eq!(chosen.name, "Citron");
+
+        // 4. If folder is also unconfigured or None, falls back to platform active/default (Ryujinx)
+        let chosen = db.get_runner_for_game(switch.id, None, Some(unconfigured_id)).unwrap().unwrap();
+        assert_eq!(chosen.name, "Ryujinx");
+
+        // 5. Reverting override to None falls back to normal resolution
+        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
+        assert_eq!(chosen.name, "Citron");
 
         drop(db);
         let _ = std::fs::remove_file(path);

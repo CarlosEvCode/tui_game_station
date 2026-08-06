@@ -875,6 +875,7 @@ mod tests {
             id: 0,
             platform_id: 0,
             folder_id: None,
+            emulator_override: None,
             title: "1943u".to_string(),
             sort_title: None,
             game_type: "emulator".to_string(),

@@ -307,6 +307,7 @@ pub enum ModalState {
         dxvk: bool,
         vkd3d: bool,
         cursor_pos: usize,
+        emulator_override: Option<i64>,
     },
     ConfigureApiKeyInput {
         input: String,
@@ -514,6 +515,7 @@ pub enum Action {
     RescanFolder,
     /// Re-assign the emulator pinned to a scan folder (◀ ▶ on its row).
     CycleFolderEmulator(bool),
+    CycleEditGameEmulator(bool),
     OpenConfirmDeleteFolder,
     ConfirmDeleteFolderExecution,
     ToggleConfirmDeleteFolderOption,
@@ -1122,6 +1124,30 @@ impl App {
             .into_iter()
             .filter(|r| r.executable_path.as_ref().is_some_and(|ex| !ex.trim().is_empty()))
             .collect()
+    }
+
+    pub fn cycle_edit_game_emulator(&mut self, backward: bool) {
+        if let ModalState::EditGameForm {
+            game_id,
+            game_type: PlatformType::Emulator,
+            ref mut emulator_override,
+            ..
+        } = self.modal_state
+        {
+            if let Some(pos) = self.games.iter().position(|g| g.id == game_id) {
+                let game = self.games[pos].clone();
+                let choices = crate::edit_game_details::EditGameFormHelper::get_emulator_choices(&self.db, &game);
+                let new_override = crate::edit_game_details::EditGameFormHelper::cycle_choice(&choices, *emulator_override, backward);
+                *emulator_override = new_override;
+                let _ = self.db.set_game_emulator_override(game_id, new_override);
+                if let Some(g) = self.games.get_mut(pos) {
+                    g.emulator_override = new_override;
+                }
+                let choice_idx = crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(&choices, new_override);
+                let choice_label = &choices[choice_idx].display_label;
+                self.status_msg = format!("Emulador asignado al juego: {}", choice_label);
+            }
+        }
     }
 
     /// Platform-parameterized version used both from the main navigation
@@ -2941,7 +2967,7 @@ impl App {
                 let game = self.games[self.selected_game_idx].clone();
                 let runner = self
                     .db
-                    .get_runner_for_game(game.platform_id, game.folder_id)
+                    .get_runner_for_game(game.platform_id, game.folder_id, game.emulator_override)
                     .ok()
                     .flatten();
 
@@ -4195,6 +4221,13 @@ impl App {
                         }
                     }
                 }
+                ModalState::EditGameForm {
+                    game_type: PlatformType::Emulator,
+                    selected_field: 2,
+                    ..
+                } => {
+                    self.cycle_edit_game_emulator(true);
+                }
                 _ => {}
             },
             Action::FormNavRight => match self.modal_state {
@@ -4211,6 +4244,13 @@ impl App {
                     ..
                 } => {
                     *cursor_pos = (*cursor_pos + 1).min(title.len());
+                }
+                ModalState::EditGameForm {
+                    game_type: PlatformType::Emulator,
+                    selected_field: 2,
+                    ..
+                } => {
+                    self.cycle_edit_game_emulator(false);
                 }
                 ModalState::EditCustomArgsInput {
                     ref mut cursor_pos,
@@ -4515,6 +4555,7 @@ impl App {
                         dxvk,
                         vkd3d,
                         cursor_pos: cpos,
+                        emulator_override: game.emulator_override,
                     };
                 }
             }
@@ -4534,6 +4575,7 @@ impl App {
                     fsync,
                     dxvk,
                     vkd3d,
+                    emulator_override,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -4600,6 +4642,8 @@ impl App {
                         } else {
                             Some(env_flags.join(" "))
                         };
+
+                        game.emulator_override = emulator_override;
 
                         let target_slug = match game.game_type.as_str() {
                             "wine" => Some("windows"),
@@ -5156,8 +5200,19 @@ impl App {
                     ref title,
                     ref mut cursor_pos,
                     ..
+                } => {
+                    let total_fields = match gtype {
+                        PlatformType::Emulator => 7,
+                        PlatformType::Native => 8,
+                        PlatformType::Wine => 14,
+                        PlatformType::Steam => 7,
+                    };
+                    *selected_field = (*selected_field + 1) % total_fields;
+                    if *selected_field == 0 {
+                        *cursor_pos = title.len();
+                    }
                 }
-                | ModalState::EditGameForm {
+                ModalState::EditGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
                     ref title,
@@ -5165,7 +5220,7 @@ impl App {
                     ..
                 } => {
                     let total_fields = match gtype {
-                        PlatformType::Emulator => 7,
+                        PlatformType::Emulator => 8,
                         PlatformType::Native => 8,
                         PlatformType::Wine => 14,
                         PlatformType::Steam => 7,
@@ -5225,8 +5280,23 @@ impl App {
                     ref title,
                     ref mut cursor_pos,
                     ..
+                } => {
+                    let total_fields = match gtype {
+                        PlatformType::Emulator => 7,
+                        PlatformType::Native => 8,
+                        PlatformType::Wine => 14,
+                        PlatformType::Steam => 7,
+                    };
+                    if *selected_field == 0 {
+                        *selected_field = total_fields - 1;
+                    } else {
+                        *selected_field -= 1;
+                    }
+                    if *selected_field == 0 {
+                        *cursor_pos = title.len();
+                    }
                 }
-                | ModalState::EditGameForm {
+                ModalState::EditGameForm {
                     game_type: ref gtype,
                     ref mut selected_field,
                     ref title,
@@ -5234,7 +5304,7 @@ impl App {
                     ..
                 } => {
                     let total_fields = match gtype {
-                        PlatformType::Emulator => 7,
+                        PlatformType::Emulator => 8,
                         PlatformType::Native => 8,
                         PlatformType::Wine => 14,
                         PlatformType::Steam => 7,
@@ -5284,6 +5354,7 @@ impl App {
                 _ => {}
             },
             Action::ModalInputChar(ch) => {
+                let is_edit = matches!(self.modal_state, ModalState::EditGameForm { .. });
                 if let ModalState::AddGameForm {
                     ref mut title,
                     ref mut cursor_pos,
@@ -5316,7 +5387,8 @@ impl App {
                     } else {
                         match gtype {
                             PlatformType::Emulator => match selected_field {
-                                2 => file_path.push(ch),
+                                1 if is_edit => file_path.push(ch),
+                                2 if !is_edit => file_path.push(ch),
                                 3 => custom_command.push(ch),
                                 _ => {}
                             },
@@ -5449,6 +5521,7 @@ impl App {
                 }
             }
             Action::ModalBackspace => {
+                let is_edit = matches!(self.modal_state, ModalState::EditGameForm { .. });
                 if let ModalState::AddGameForm {
                     ref mut title,
                     ref mut cursor_pos,
@@ -5483,7 +5556,10 @@ impl App {
                     } else {
                         match gtype {
                             PlatformType::Emulator => match selected_field {
-                                2 => {
+                                1 if is_edit => {
+                                    file_path.pop();
+                                }
+                                2 if !is_edit => {
                                     file_path.pop();
                                 }
                                 3 => {
@@ -5835,6 +5911,9 @@ impl App {
                     };
                     self.status_msg = format!("Carpeta {} → {}", folder_path, label);
                 }
+            }
+            Action::CycleEditGameEmulator(backward) => {
+                self.cycle_edit_game_emulator(backward);
             }
             Action::OpenConfirmDeleteFolder => {
                 if let ModalState::ScanFolderForm {
@@ -7061,6 +7140,7 @@ impl App {
                         id: 0,
                         platform_id,
                         folder_id: None,
+                        emulator_override: None,
                         title: title.clone(),
                         sort_title: None,
                         game_type: game_type.to_string(),
@@ -7811,7 +7891,7 @@ mod tests {
         assert_eq!(persisted.assigned_emulator_id, Some(assigned));
         assert_eq!(
             app.db
-                .get_runner_for_game(switch.id, Some(folders[0].id))
+                .get_runner_for_game(switch.id, Some(folders[0].id), None)
                 .unwrap()
                 .unwrap()
                 .id,

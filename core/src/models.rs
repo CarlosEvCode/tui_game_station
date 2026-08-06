@@ -96,6 +96,10 @@ pub struct Game {
     /// before, straight through the platform.
     #[serde(default)]
     pub folder_id: Option<i64>,
+    /// Emulator explicitly pinned to this game. `None` means "Inherited"
+    /// (falling back to folder -> platform -> catalog default).
+    #[serde(default)]
+    pub emulator_override: Option<i64>,
     pub title: String,
     pub sort_title: Option<String>,
     pub game_type: String,

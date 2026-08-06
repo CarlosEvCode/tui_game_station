@@ -9,6 +9,7 @@ mod single_instance;
 mod toast;
 mod ui;
 pub mod updater;
+pub mod edit_game_details;
 mod window_helper;
 
 use anyhow::Result;

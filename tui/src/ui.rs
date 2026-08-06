@@ -411,7 +411,8 @@ fn render_games_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 ""
             };
             let mark = if is_checked { "[x] " } else { "" };
-            let title = format!("{}{}{}", pointer, mark, g.title);
+            let override_tag = if g.emulator_override.is_some() { " ⚙" } else { "" };
+            let title = format!("{}{}{}{}", pointer, mark, g.title, override_tag);
             let ext = g.file_extension.clone().unwrap_or_else(|| "-".to_string());
             let size_mb = g
                 .file_size
@@ -531,7 +532,8 @@ fn render_games_grid(frame: &mut Frame, app: &mut App, area: Rect) {
                 .map(|id| format!(" (AppID: {})", id))
                 .unwrap_or_default();
             let gtype = get_game_type_badge(g, &app.platforms);
-            let content = format!("{}{}[{}] {}{}", pointer, mark, gtype, g.title, appid_info);
+            let override_tag = if g.emulator_override.is_some() { " ⚙" } else { "" };
+            let content = format!("{}{}[{}] {}{}{}", pointer, mark, gtype, g.title, override_tag, appid_info);
 
             ListItem::new(content).style(style)
         })
@@ -1311,9 +1313,10 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         // 2. CENTER STAGE: Featured Focused Game in CRISP HD (Centered Horizontally & Vertically)!
         let active_game = &app.games[sel_idx];
+        let override_tag = if active_game.emulator_override.is_some() { " ⚙" } else { "" };
         let center_block = Block::default()
             .title(Span::styled(
-                format!(" FEATURED: {} ", active_game.title),
+                format!(" FEATURED: {}{} ", active_game.title, override_tag),
                 Style::default()
                     .fg(Color::Black)
                     .bg(Color::Yellow)
@@ -4684,6 +4687,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(help, chunks[1]);
         }
         ModalState::EditGameForm {
+            game_id,
             ref game_type,
             selected_field,
             ref title,
@@ -4700,6 +4704,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             dxvk,
             vkd3d,
             cursor_pos,
+            emulator_override,
             ..
         } => {
             let gtype_name = match game_type {
@@ -4754,6 +4759,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             match game_type {
                 PlatformType::Emulator => {
+                    let emu_label = if let Some(game) = app.games.iter().find(|g| g.id == game_id) {
+                        let choices = crate::edit_game_details::EditGameFormHelper::get_emulator_choices(&app.db, game);
+                        let idx = crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(&choices, emulator_override);
+                        choices.get(idx).map(|c| c.display_label.clone()).unwrap_or_else(|| "Heredado".to_string())
+                    } else {
+                        "Heredado".to_string()
+                    };
+
                     lines.push(title_line);
                     lines.push(Line::from(vec![
                         Span::styled("2. ROM Path: ", field_style(1)),
@@ -4764,7 +4777,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         }),
                     ]));
                     lines.push(Line::from(vec![
-                        Span::styled("3. Custom Command / Args: ", field_style(2)),
+                        Span::styled("3. Emulador: ", field_style(2)),
+                        Span::styled(format!("◀ {} ▶", emu_label), field_style(2)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled("4. Custom Command / Args: ", field_style(3)),
                         Span::raw(if custom_command.is_empty() {
                             "< Optional >"
                         } else {
@@ -4772,13 +4789,13 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         }),
                     ]));
                     lines.push(Line::from(""));
-                    lines.push(mk_cb(gamemode, "GameMode", 3));
-                    lines.push(mk_cb(mangohud, "MangoHud OSD", 4));
-                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 5));
+                    lines.push(mk_cb(gamemode, "GameMode", 4));
+                    lines.push(mk_cb(mangohud, "MangoHud OSD", 5));
+                    lines.push(mk_cb(gamescope, "Gamescope (Micro-compositor)", 6));
                     lines.push(Line::from(""));
                     lines.push(Line::from(vec![Span::styled(
                         "[ SAVE CHANGES ]",
-                        field_style(6),
+                        field_style(7),
                     )]));
                 }
                 PlatformType::Native => {
