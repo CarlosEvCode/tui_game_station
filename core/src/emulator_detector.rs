@@ -17,6 +17,7 @@ pub enum InstallSource {
     Flatpak,
     Snap,
     DesktopFile,
+    DownloadedAppImage,
 }
 
 impl InstallSource {
@@ -29,6 +30,7 @@ impl InstallSource {
             InstallSource::Flatpak => "Flatpak",
             InstallSource::Snap => "Snap",
             InstallSource::DesktopFile => "Desktop File",
+            InstallSource::DownloadedAppImage => "Downloaded AppImage",
         }
     }
 }
@@ -228,6 +230,16 @@ impl EmulatorDetector {
             }
         }
 
+        // 4. Última opción: Detectar AppImage descargado en las rutas gestionadas por TUI Game Station
+        if let Some(appimage_path) = self.scan_downloaded_appimage(emulator_name) {
+            candidates.push(DetectedEmulator {
+                name: format!("{} (Downloaded AppImage: {})", emulator_name, appimage_path),
+                sources: vec![InstallSource::DownloadedAppImage],
+                exec_path: Some(appimage_path),
+                flatpak_app_id: None,
+            });
+        }
+
         candidates
     }
 
@@ -285,6 +297,48 @@ impl EmulatorDetector {
             }
         }
         found
+    }
+
+    fn scan_downloaded_appimage(&self, emulator_name: &str) -> Option<String> {
+        let home = dirs::home_dir()?;
+        let runners_dir = home.join(".local/share/tui_game_station/runners");
+        let key = canonical_key(emulator_name);
+
+        if key == "retroarch" {
+            let managed = runners_dir.join("emulators/retroarch-data");
+            if let Some(appimage) = crate::retroarch_manager::find_downloaded_appimage(&managed) {
+                if appimage.exists() {
+                    return Some(appimage.to_string_lossy().to_string());
+                }
+            }
+        } else {
+            let emu_dir = runners_dir.join("emulators");
+            if let Ok(entries) = std::fs::read_dir(&emu_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                        if fname.contains(&key) && (fname.ends_with(".appimage") || fname.contains(".appimage")) {
+                            return Some(path.to_string_lossy().to_string());
+                        }
+                    } else if path.is_dir() {
+                        if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                            for sub in sub_entries.flatten() {
+                                let sub_path = sub.path();
+                                let fname = sub_path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                                if (fname.contains(&key) || sub_path.to_string_lossy().to_lowercase().contains(&key))
+                                    && (fname.ends_with(".appimage") || fname.contains(".appimage"))
+                                {
+                                    return Some(sub_path.to_string_lossy().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 

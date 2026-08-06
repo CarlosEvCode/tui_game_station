@@ -1161,9 +1161,11 @@ async fn main() -> Result<()> {
                                         } else if *selected_row == options.len() + 1 {
                                             app.update(Action::OpenCustomArgsEditor).await;
                                         } else {
-                                            let has_executable = !exe_path_input.trim().is_empty()
-                                                && std::path::Path::new(exe_path_input.trim())
-                                                    .exists();
+                                            let exe_trimmed = exe_path_input.trim();
+                                            let has_executable = !exe_trimmed.is_empty()
+                                                && (exe_trimmed.contains(' ')
+                                                    || exe_trimmed.starts_with("flatpak run")
+                                                    || std::path::Path::new(exe_trimmed).exists());
                                             let mut actions = vec!["browse", "detect"];
                                             if runner_info.download_url.is_some() {
                                                 actions.push("download");

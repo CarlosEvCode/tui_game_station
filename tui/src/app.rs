@@ -3791,7 +3791,8 @@ impl App {
                         return;
                     }
 
-                    if !Path::new(trimmed_path).exists() {
+                    let is_command = trimmed_path.contains(' ') || trimmed_path.starts_with("flatpak run");
+                    if !is_command && !Path::new(trimmed_path).exists() {
                         self.status_msg = format!("Error: File does not exist on system: '{}'. Select a valid executable.", trimmed_path);
                         return;
                     }

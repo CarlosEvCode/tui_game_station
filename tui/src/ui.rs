@@ -4790,8 +4790,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(""));
 
             // Build action buttons list dynamically (based on the live form path)
-            let has_executable = !exe_path_input.trim().is_empty()
-                && std::path::Path::new(exe_path_input.trim()).exists();
+            let exe_trimmed = exe_path_input.trim();
+            let has_executable = !exe_trimmed.is_empty()
+                && (exe_trimmed.contains(' ')
+                    || exe_trimmed.starts_with("flatpak run")
+                    || std::path::Path::new(exe_trimmed).exists());
 
             struct ActionBtn {
                 label: &'static str,
