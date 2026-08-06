@@ -1501,7 +1501,7 @@ impl App {
                 }
                 let choice_idx = crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(&choices, new_override);
                 let choice_label = &choices[choice_idx].display_label;
-                self.status_msg = format!("Emulador asignado al juego: {}", choice_label);
+                self.status_msg = format!("Emulator assigned to game: {}", choice_label);
             }
         }
     }
@@ -1562,7 +1562,7 @@ impl App {
                     .find(|c| c.core_key == new_core)
                     .map(|c| c.display_label.clone())
                     .unwrap_or_else(|| "Default".to_string());
-                self.status_msg = format!("Núcleo asignado al juego: {}", choice_label);
+                self.status_msg = format!("Core assigned to game: {}", choice_label);
             }
         }
     }
@@ -1574,14 +1574,14 @@ impl App {
         let configured = self.configured_runners_for(platform.id);
         if configured.is_empty() {
             self.status_msg = format!(
-                "No hay emulador configurado para {}. Presiona [m] para configurar uno.",
+                "No emulator configured for {}. Press [m] to configure one.",
                 platform.name
             );
             return;
         }
         if configured.len() == 1 {
             self.status_msg = format!(
-                "{} solo tiene un emulador configurado: {}.",
+                "{} has only one configured emulator: {}.",
                 platform.name, configured[0].name
             );
             return;
@@ -1604,10 +1604,10 @@ impl App {
         match self.db.set_active_runner(platform.id, next.id) {
             Ok(_) => {
                 self.status_msg =
-                    format!("Emulador activo para {}: {}", platform.name, next.name);
+                    format!("Active emulator for {}: {}", platform.name, next.name);
             }
             Err(err) => {
-                self.status_msg = format!("Error al cambiar emulador activo: {}", err);
+                self.status_msg = format!("Error changing active emulator: {}", err);
             }
         }
     }
@@ -1650,7 +1650,7 @@ impl App {
         );
         let label = game_core::options::emulator_core_label_for_platform(&active.name, &platform.slug, &next)
             .unwrap_or_else(|| next.clone());
-        self.status_msg = format!("Núcleo de {}: {}", active.name, label);
+        self.status_msg = format!("Core for {}: {}", active.name, label);
     }
 
     /// Drive the ◀ ▶ selector for a given platform: core-based active emulators
@@ -2295,7 +2295,7 @@ impl App {
                         error_msg: None,
                     });
                     self.status_msg = format!(
-                        "[Identificando {}/{}] {}",
+                        "[Identifying {}/{}] {}",
                         evt.current, evt.total, evt.current_title
                     );
                 }
@@ -2305,7 +2305,7 @@ impl App {
             self.download_progress = None;
             self.scan_rx = None;
             self.status_msg = format!(
-                "[OK] Escaneo completado: {} ROMs importadas/actualizadas.",
+                "[OK] Scan completed: {} ROMs imported/updated.",
                 scan_added
             );
             self.load_platforms();
@@ -3258,7 +3258,7 @@ impl App {
         match action {
             Action::Quit => {
                 if self.running_game.is_some() {
-                    self.status_msg = "Un juego está en ejecución. Ciérralo o presiona [F] para forzar su cierre antes de salir.".to_string();
+                    self.status_msg = "A game is currently running. Close it or press [F] to force close before quitting.".to_string();
                     return;
                 }
                 if self.modal_state != ModalState::None {
@@ -3269,7 +3269,7 @@ impl App {
             }
             Action::ForceCloseGame => {
                 if self.running_game.is_none() {
-                    self.status_msg = "No hay un juego en ejecución para cerrar.".to_string();
+                    self.status_msg = "No game is currently running to close.".to_string();
                     return;
                 }
                 match GameRunner::force_close_current_game() {
