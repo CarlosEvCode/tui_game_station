@@ -2788,7 +2788,10 @@ impl App {
                 if self.modal_state != ModalState::None {
                     if matches!(
                         self.modal_state,
-                        ModalState::ScanFolderForm { .. } | ModalState::AddFolderScanForm { .. }
+                        ModalState::ScanFolderForm { .. }
+                            | ModalState::AddFolderScanForm { .. }
+                            | ModalState::AddGameForm { .. }
+                            | ModalState::EditGameForm { .. }
                     ) {
                         self.update(Action::ModalPrevField).await;
                     } else {
@@ -2808,7 +2811,10 @@ impl App {
                 if self.modal_state != ModalState::None {
                     if matches!(
                         self.modal_state,
-                        ModalState::ScanFolderForm { .. } | ModalState::AddFolderScanForm { .. }
+                        ModalState::ScanFolderForm { .. }
+                            | ModalState::AddFolderScanForm { .. }
+                            | ModalState::AddGameForm { .. }
+                            | ModalState::EditGameForm { .. }
                     ) {
                         self.update(Action::ModalNextField).await;
                     } else {

@@ -293,7 +293,9 @@ async fn main() -> Result<()> {
                                         };
                                     }
                                     ModalState::ScanFolderForm { .. }
-                                    | ModalState::AddFolderScanForm { .. } => {
+                                    | ModalState::AddFolderScanForm { .. }
+                                    | ModalState::AddGameForm { .. }
+                                    | ModalState::EditGameForm { .. } => {
                                         app.update(Action::ModalPrevField).await;
                                     }
                                     _ => {
@@ -348,7 +350,8 @@ async fn main() -> Result<()> {
                                     | ModalState::PlatformSelector { .. }
                                     | ModalState::DownloadCoreModal { .. }
                                     | ModalState::SelectDetectedEmulatorModal { .. }
-                                    | ModalState::WineToolsMenu { .. } => {
+                                    | ModalState::WineToolsMenu { .. }
+                                    | ModalState::WindowsGamesManager { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
                                     _ => {
