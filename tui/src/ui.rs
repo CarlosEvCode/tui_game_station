@@ -11,9 +11,9 @@ use ratatui::{
 use ratatui_image::{Resize, StatefulImage};
 
 use crate::app::{
-    add_scan_available_cores, scan_folder_add_action_index, scan_folder_add_core_idx,
+    add_scan_available_cores, build_scan_folder_items, folder_has_core, scan_folder_add_action_index, scan_folder_add_core_idx,
     scan_folder_add_emu_idx, scan_folder_add_has_core, scan_folder_add_scan_index,
-    scan_folder_supports_dat, App, BigPictureFocus, FocusedPane, ModalState, ViewMode,
+    scan_folder_supports_dat, App, BigPictureFocus, FocusedPane, ModalState, ScanFolderItem, ViewMode,
 };
 use game_core::models::PlatformType;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -2258,52 +2258,14 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         ModalState::ScanFolderForm {
             ref platform,
             ref folders,
-            ref selected,
-            ref folder_path,
-            ref extensions_input,
-            recursive,
-            use_dat_auto_id,
-            add_emulator_id,
-            ref add_core,
-            focused_pane,
-            selected_field,
-            selected_row,
+            selected_index,
         } => {
-            let pane_style = |pane: usize| {
-                if pane == focused_pane {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                }
-            };
-            let field_style = |pane: usize, idx: usize| {
-                if pane == focused_pane && idx == selected_field {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::White)
-                }
-            };
-
-            let supports_dat = scan_folder_supports_dat(&platform.slug);
-            let num_folders = folders.len();
-            let has_core = scan_folder_add_has_core(&app.db, platform.id, add_emulator_id);
-            let emu_idx = scan_folder_add_emu_idx(supports_dat);
-            let core_idx = scan_folder_add_core_idx(supports_dat);
-            let add_action_idx = scan_folder_add_action_index(supports_dat, has_core);
-            let add_scan_idx = scan_folder_add_scan_index(supports_dat, has_core);
-            let delete_idx = num_folders;
-
-            // Left pane: registered folders. Rows 0..N-1 ([Space] toggles the
-            // multi-selection, [Enter] re-scans, ◀/▶ re-assigns the folder's
-            // emulator) + the [DELETE SELECTED] button at row N.
+            let items = build_scan_folder_items(&app.db, platform.id, folders);
             let runners = app
                 .db
                 .get_runners_for_platform(platform.id)
                 .unwrap_or_default();
+
             let folder_emu_label = |assigned: Option<i64>| -> String {
                 match assigned {
                     Some(id) => runners
@@ -2315,9 +2277,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             };
 
+            let popup_area = centered_rect_fixed(72, (items.len() * 3 + 8).min(24) as u16, frame.area());
+            frame.render_widget(Clear, popup_area);
+
             let outer = Block::default()
                 .title(Span::styled(
-                    format!(" Folder Manager: {} ", platform.name),
+                    format!(" Administrar Carpetas — {} ", platform.name),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
@@ -2326,223 +2291,93 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 .border_style(Style::default().fg(Color::Yellow));
 
             let inner = outer.inner(popup_area);
-            let cols = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(4), Constraint::Length(1)])
                 .split(inner);
 
-            let mut left_lines = Vec::new();
-            if num_folders == 0 {
-                left_lines.push(Line::from(Span::styled(
-                    "No ROM folders registered for this platform.",
+            let mut lines = Vec::new();
+
+            if folders.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "No hay carpetas registradas para esta plataforma.",
                     Style::default().fg(Color::DarkGray),
                 )));
+                lines.push(Line::from(""));
             } else {
-                for (i, folder) in folders.iter().enumerate() {
+                for (f_idx, folder) in folders.iter().enumerate() {
                     let count = app.db.get_game_count_for_folder(folder.id).unwrap_or(0);
-                    let is_sel = selected.contains(&i);
-                    let is_focused = focused_pane == 0 && i == selected_field;
-                    let base = if is_focused {
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD)
-                    } else if is_sel {
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD)
-                    } else if i == selected_row {
-                        Style::default().fg(Color::Cyan)
+                    // Header row for folder: non-focusable metadata
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("📁 Carpeta {}: ", f_idx + 1), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(ellipsize_path_tail(&folder.path, 40), Style::default().fg(Color::White)),
+                        Span::styled(format!(" ({} juego{})", count, if count == 1 { "" } else { "s" }), Style::default().fg(Color::DarkGray)),
+                    ]));
+
+                    // Sub-row 1: Emulador
+                    let is_emu_focused = items.get(selected_index) == Some(&ScanFolderItem::FolderEmulator(f_idx));
+                    let emu_name = folder_emu_label(folder.assigned_emulator_id);
+                    let emu_style = if is_emu_focused {
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    let suffix = format!(
-                        "  ({} game{} · Emu: {})",
-                        count,
-                        if count == 1 { "" } else { "s" },
-                        folder_emu_label(folder.assigned_emulator_id)
-                    );
-                    let prefix_w = 2 + 4 + format!("{}. ", i + 1).width();
-                    let budget = path_budget(
-                        cols[0].width.saturating_sub(2) as usize,
-                        prefix_w + suffix.width(),
-                    );
-                    left_lines.push(Line::from(vec![
-                        Span::styled(if is_focused { "▶ " } else { "  " }, base),
-                        Span::styled(if is_sel { "[x] " } else { "[ ] " }, base),
-                        Span::styled(format!("{}. ", i + 1), base),
-                        Span::styled(ellipsize_path_tail(&folder.path, budget), base),
-                        Span::styled(suffix, Style::default().fg(Color::DarkGray)),
+                    lines.push(Line::from(vec![
+                        Span::styled(if is_emu_focused { " ▶ " } else { "   " }, emu_style),
+                        Span::styled("Emulador: ", emu_style),
+                        Span::styled(format!("◀ {} ▶", emu_name), emu_style),
                     ]));
+
+                    // Sub-row 2: Núcleo (if applicable)
+                    if folder_has_core(&app.db, platform.id, folder) {
+                        let is_core_focused = items.get(selected_index) == Some(&ScanFolderItem::FolderCore(f_idx));
+                        let available = add_scan_available_cores(&app.db, platform, folder.assigned_emulator_id);
+                        let core_name = if available.is_empty() {
+                            "Sin núcleos descargados".to_string()
+                        } else {
+                            folder.assigned_core
+                                .as_deref()
+                                .and_then(|k| available.iter().find(|(ck, _)| ck == k))
+                                .map(|(_, label)| label.clone())
+                                .unwrap_or_else(|| "Default".to_string())
+                        };
+                        let core_style = if is_core_focused {
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::White)
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(if is_core_focused { " ▶ " } else { "   " }, core_style),
+                            Span::styled("Núcleo: ", core_style),
+                            Span::styled(format!("◀ {} ▶", core_name), core_style),
+                        ]));
+                    }
+                    lines.push(Line::from(""));
                 }
             }
-            let delete_selected = focused_pane == 0 && selected_field == delete_idx;
-            left_lines.push(Line::from(Span::styled(
-                format!("{} [ DELETE SELECTED ]", if delete_selected { "▶" } else { " " }),
-                if delete_selected {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Red)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD)
-                },
+
+            // Bottom focusable item: [+ Agregar carpeta nueva]
+            let is_add_focused = items.get(selected_index) == Some(&ScanFolderItem::AddNewFolder);
+            let add_style = if is_add_focused {
+                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            };
+            lines.push(Line::from(Span::styled(
+                format!("{} [ + Agregar carpeta nueva ]", if is_add_focused { "▶" } else { " " }),
+                add_style,
             )));
 
-            let left_widget = Paragraph::new(left_lines).block(
-                Block::default()
-                    .title(Span::styled(" Registered Folders (Tab to switch) ", pane_style(0)))
-                    .borders(Borders::ALL)
-                    .border_style(pane_style(0)),
-            );
-
-            // Right pane: add-new-folder form.
-            let mut right_lines = Vec::new();
-            let path_selected = focused_pane == 1 && selected_field == 0;
-            let path_budget_r = path_budget(
-                cols[1].width.saturating_sub(2) as usize,
-                2 + 6 + 8,
-            );
-            right_lines.push(Line::from(vec![
-                Span::styled(if path_selected { "▶ " } else { "  " }, field_style(1, 0)),
-                Span::styled("Path: ", field_style(1, 0)),
-                Span::raw(if folder_path.is_empty() {
-                    "< [Enter] to pick a folder >".to_string()
-                } else {
-                    ellipsize_path_tail(&folder_path, path_budget_r)
-                }),
-                Span::styled(
-                    "  Browse",
-                    if path_selected {
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::Cyan)
-                    },
-                ),
-            ]));
-            let ext_selected = focused_pane == 1 && selected_field == 1;
-            right_lines.push(Line::from(vec![
-                Span::styled(if ext_selected { "▶ " } else { "  " }, field_style(1, 1)),
-                Span::styled("Extensions: ", field_style(1, 1)),
-                Span::raw(extensions_input),
-            ]));
-            let rec_selected = focused_pane == 1 && selected_field == 2;
-            let rec_check = if recursive { "[x] Yes" } else { "[ ] No" };
-            right_lines.push(Line::from(vec![
-                Span::styled(if rec_selected { "▶ " } else { "  " }, field_style(1, 2)),
-                Span::styled(
-                    "Scan subfolders recursively: ",
-                    field_style(1, 2),
-                ),
-                Span::styled(
-                    rec_check,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
-            if supports_dat {
-                let dat_selected = focused_pane == 1 && selected_field == 3;
-                let dat_check = if use_dat_auto_id {
-                    "[x] Yes (DAT / Serial Auto-ID)"
-                } else {
-                    "[ ] No (filename matching)"
-                };
-                right_lines.push(Line::from(vec![
-                    Span::styled(if dat_selected { "▶ " } else { "  " }, field_style(1, 3)),
-                    Span::styled(
-                        "Automatic DAT identification: ",
-                        field_style(1, 3),
-                    ),
-                    Span::styled(
-                        dat_check,
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-            }
-
-            // Emulator selection field for Add New Folder
-            let emu_selected = focused_pane == 1 && selected_field == emu_idx;
-            let emu_label =
-                crate::app::add_scan_emulator_label(&app.db, platform, add_emulator_id, &runners);
-            right_lines.push(Line::from(vec![
-                Span::styled(if emu_selected { "▶ " } else { "  " }, field_style(1, emu_idx)),
-                Span::styled("Emulador: ", field_style(1, emu_idx)),
-                Span::styled(format!("◀ {} ▶", emu_label), field_style(1, emu_idx)),
-            ]));
-
-            // Conditional Core field for RetroArch
-            if has_core {
-                let core_selected = focused_pane == 1 && selected_field == core_idx;
-                let available = add_scan_available_cores(&app.db, platform, add_emulator_id);
-                if available.is_empty() {
-                    right_lines.push(Line::from(vec![
-                        Span::styled(
-                            if core_selected { "▶ " } else { "  " },
-                            field_style(1, core_idx),
-                        ),
-                        Span::styled(
-                            "Core: No downloaded cores",
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ]));
-                } else {
-                    let core_name = add_core
-                        .as_deref()
-                        .and_then(|k| available.iter().find(|(ck, _)| ck == k))
-                        .map(|(_, label)| label.clone())
-                        .unwrap_or_else(|| "Default".to_string());
-                    right_lines.push(Line::from(vec![
-                        Span::styled(if core_selected { "▶ " } else { "  " }, field_style(1, core_idx)),
-                        Span::styled("Core: ", field_style(1, core_idx)),
-                        Span::styled(format!("◀ {} ▶", core_name), field_style(1, core_idx)),
-                    ]));
-                }
-
-                let dl_core_idx = crate::app::scan_folder_add_dl_core_idx(supports_dat);
-                let dl_selected = focused_pane == 1 && selected_field == dl_core_idx;
-                right_lines.push(Line::from(Span::styled(
-                    format!("{} [ Download Cores ]", if dl_selected { "▶" } else { " " }),
-                    Style::default()
-                        .fg(if dl_selected { Color::Black } else { Color::Yellow })
-                        .bg(if dl_selected { Color::Yellow } else { Color::Reset })
-                        .add_modifier(Modifier::BOLD),
-                )));
-            }
-
-            let add_selected = focused_pane == 1 && selected_field == add_action_idx;
-            right_lines.push(Line::from(Span::styled(
-                format!("{} [ ADD FOLDER ]", if add_selected { "▶" } else { " " }),
-                Style::default()
-                    .fg(if add_selected { Color::Black } else { Color::Green })
-                    .bg(if add_selected { Color::Green } else { Color::Reset })
-                    .add_modifier(Modifier::BOLD),
-            )));
-            let add_scan_selected = focused_pane == 1 && selected_field == add_scan_idx;
-            right_lines.push(Line::from(Span::styled(
-                format!("{} [ ADD & SCAN ALL ]", if add_scan_selected { "▶" } else { " " }),
-                Style::default()
-                    .fg(if add_scan_selected { Color::Black } else { Color::Cyan })
-                    .bg(if add_scan_selected { Color::Cyan } else { Color::Reset })
-                    .add_modifier(Modifier::BOLD),
-            )));
-
-            let right_widget = Paragraph::new(right_lines).block(
-                Block::default()
-                    .title(Span::styled(" Add New Folder ", pane_style(1)))
-                    .borders(Borders::ALL)
-                    .border_style(pane_style(1)),
-            );
-
+            let list_paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
             frame.render_widget(outer, popup_area);
-            frame.render_widget(left_widget, cols[0]);
-            frame.render_widget(right_widget, cols[1]);
+            frame.render_widget(list_paragraph, chunks[0]);
+
+            let footer = Paragraph::new(
+                " [↑↓] Mover foco  [←→] Cambiar valor  [Supr] Eliminar  [R] Reescanear  [Enter] Confirmar  [Esc] Volver"
+            )
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(footer, chunks[1]);
         }
         ModalState::AddFolderScanForm {
             ref platform,
