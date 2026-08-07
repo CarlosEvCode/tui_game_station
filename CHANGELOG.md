@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.11.0...v1.12.0) (2026-08-07)
+
+
+### Features
+
+* smart folder re-scan and Windows Games manager ([681a003](https://github.com/CarlosEvCode/tui_game_station/commit/681a00338369acfd435a663030344c897b350bf0))
+
+
+### Bug Fixes
+
+* flatpak launch, broken NDS core catalog, and folder-manager core downloads ([34c1b45](https://github.com/CarlosEvCode/tui_game_station/commit/34c1b45dae94d40f44e5afa49dd6eb6e7c4b94fb))
+* Up/Down navigation in game details forms and Windows Games manager ([640da17](https://github.com/CarlosEvCode/tui_game_station/commit/640da17aea15dd8e6d1bd8e2b070452570f0b85f))
+
 ## [1.11.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.10.0...v1.11.0) (2026-08-07)
 
 
