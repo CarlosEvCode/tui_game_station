@@ -691,6 +691,13 @@ async fn main() -> Result<()> {
                                 KeyCode::Char('r') => {
                                     if let ModalState::ProtonDownloader { .. } = app.modal_state {
                                         app.update(Action::ProtonDownloaderSelectNext).await;
+                                    } else if matches!(
+                                        app.modal_state,
+                                        ModalState::ScanFolderForm { .. }
+                                    ) {
+                                        // [R] in the folder manager forces a rescan of the
+                                        // selected folder even when it already has games.
+                                        app.update(Action::RescanFolder).await;
                                     } else {
                                         app.update(Action::ModalInputChar('r')).await;
                                     }
@@ -1080,6 +1087,9 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::ScanFolderForm { .. } => {
                                         app.handle_scan_form_enter().await;
+                                    }
+                                    ModalState::WindowsGamesManager { .. } => {
+                                        app.handle_windows_games_enter().await;
                                     }
                                     ModalState::AddFolderScanForm { .. } => {
                                         app.handle_add_scan_form_enter().await;

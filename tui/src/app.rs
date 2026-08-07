@@ -436,6 +436,15 @@ pub enum ModalState {
         folders: Vec<ScannedFolder>,
         selected_index: usize,
     },
+    /// Windows Games manager (reached with [E] on the Windows platform):
+    /// lists every manually-registered Windows game (title + working dir) and
+    /// offers [ + Add New Game ] which jumps straight into the Wine details
+    /// form. `selected_idx` indexes into `games`, with `games.len()` being the
+    /// [ + Add New Game ] button row.
+    WindowsGamesManager {
+        games: Vec<Game>,
+        selected_idx: usize,
+    },
     /// Simplified single-folder "Add Game" flow reached from [A] → Scan Folder.
     /// Registers one folder and scans it immediately with the chosen emulator
     /// and core (no folder manager, no multi-selection).
@@ -506,6 +515,7 @@ pub enum ModalState {
         cmd_cursor: usize,
         emulator_override: Option<i64>,
         core_override: Option<String>,
+        parent_modal: Option<Box<ModalState>>,
     },
     ConfigureApiKeyInput {
         input: String,
@@ -699,6 +709,8 @@ pub enum Action {
 
     // Add Game & Scan Modal Actions
     OpenAddGameModal,
+    /// Open the Wine "Add Game Details" form directly (Windows Games manager).
+    OpenAddGameWineForm,
     OpenEditGameModal,
     SaveEditGameModal,
     CloseModal,
@@ -1309,18 +1321,149 @@ impl App {
         }
     }
 
+    /// Opens the "Add Game Details" form for `gtype`. The current modal (if
+    /// any) becomes the parent so [Esc] returns to it.
+    fn open_add_game_form(&mut self, gtype: PlatformType) {
+        let parent_modal = if self.modal_state == ModalState::None {
+            None
+        } else {
+            Some(Box::new(self.modal_state.clone()))
+        };
+        self.modal_state = ModalState::AddGameForm {
+            game_type: gtype,
+            selected_field: 0,
+            parent_modal,
+            title: String::new(),
+            platform_idx: 0,
+            file_path: String::new(),
+            working_dir: String::new(),
+            wine_prefix: String::new(),
+            steam_appid: String::new(),
+            custom_command: String::new(),
+            gamemode: false,
+            mangohud: false,
+            gamescope: false,
+            esync: false,
+            fsync: false,
+            dxvk: false,
+            vkd3d: false,
+            cursor_pos: 0,
+            path_cursor: 0,
+            workdir_cursor: 0,
+            prefix_cursor: 0,
+            cmd_cursor: 0,
+        };
+    }
+
+    /// Opens the "Edit Game Details" form for `game`. The current modal (if
+    /// any) becomes the parent so [Esc] returns to it.
+    fn open_edit_game_form(&mut self, game: Game, gtype: PlatformType) {
+        let parent_modal = if self.modal_state == ModalState::None {
+            None
+        } else {
+            Some(Box::new(self.modal_state.clone()))
+        };
+        let title_str = game.title.clone();
+        let cpos = title_str.len();
+        let env_str = game.env_vars.as_deref().unwrap_or_default();
+        let gamemode = env_str.contains("GAMEMODE=1");
+        let mangohud = env_str.contains("MANGOHUD=1");
+        let gamescope = env_str.contains("GAMESCOPE=1");
+        let esync = env_str.contains("WINEESYNC=1");
+        let fsync = env_str.contains("WINEFSYNC=1");
+        let dxvk = env_str.contains("DXVK_ASYNC=1");
+        let vkd3d = env_str.contains("VKD3D_CONFIG=enable_async");
+        self.modal_state = ModalState::EditGameForm {
+            game_id: game.id,
+            game_type: gtype,
+            selected_field: 0,
+            title: title_str,
+            file_path: game.file_path.clone().unwrap_or_default(),
+            working_dir: game.working_dir.clone().unwrap_or_default(),
+            custom_command: game.custom_command.clone().unwrap_or_default(),
+            wine_prefix: game.wine_prefix.clone().unwrap_or_default(),
+            steam_appid: game
+                .steam_appid
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            gamemode,
+            mangohud,
+            gamescope,
+            esync,
+            fsync,
+            dxvk,
+            vkd3d,
+            cursor_pos: cpos,
+            path_cursor: game.file_path.clone().unwrap_or_default().len(),
+            workdir_cursor: game.working_dir.clone().unwrap_or_default().len(),
+            prefix_cursor: game.wine_prefix.clone().unwrap_or_default().len(),
+            cmd_cursor: game.custom_command.clone().unwrap_or_default().len(),
+            emulator_override: game.emulator_override,
+            core_override: game.core_override.clone(),
+            parent_modal,
+        };
+    }
+
+    /// Handles [Enter] on the Windows Games manager list: opens the edit form
+    /// for the selected game, or the Wine details form for [ + Add New Game ].
+    pub(crate) async fn handle_windows_games_enter(&mut self) {
+        if let ModalState::WindowsGamesManager { games, selected_idx } = &self.modal_state {
+            if *selected_idx == games.len() {
+                self.update(Action::OpenAddGameWineForm).await;
+            } else if let Some(game) = games.get(*selected_idx) {
+                let gtype = PlatformType::from(game.game_type.as_str());
+                self.open_edit_game_form(game.clone(), gtype);
+            }
+        }
+    }
+
     /// Helper for `Action::ModalConfirm`: handles [Enter] on `ScanFolderForm` items.
     pub(crate) async fn handle_scan_form_enter(&mut self) {
-        let (platform_id, items, selected_index) = match &self.modal_state {
+        let (items, selected_index) = match &self.modal_state {
             ModalState::ScanFolderForm { platform, folders, selected_index } => {
-                (platform.id, build_scan_folder_items(&self.db, platform.id, folders), *selected_index)
+                (build_scan_folder_items(&self.db, platform.id, folders), *selected_index)
             }
             _ => return,
         };
         let item = items.get(selected_index).cloned().unwrap_or(ScanFolderItem::AddNewFolder);
         match item {
-            ScanFolderItem::FolderEmulator(_) | ScanFolderItem::FolderCore(_) => {
-                // Enter on a folder item re-scans that folder
+            ScanFolderItem::FolderEmulator(i) | ScanFolderItem::FolderCore(i) => {
+                // Enter on a folder row applies the emulator/core selection
+                // (already persisted when cycling) and re-scans ONLY when the
+                // folder contains genuinely new game files. Already-imported
+                // games are never re-identified and the task slider is not
+                // spawned when there is nothing new; [R] forces a full rescan.
+                if let ModalState::ScanFolderForm {
+                    ref platform,
+                    ref folders,
+                    ..
+                } = self.modal_state
+                {
+                    if let Some(folder) = folders.get(i) {
+                        let count = self.db.get_game_count_for_folder(folder.id).unwrap_or(0);
+                        let path = PathBuf::from(&folder.path);
+                        let has_new = game_core::scanner::Scanner::folder_has_new_games(
+                            &self.db,
+                            platform,
+                            &path,
+                            folder.recursive,
+                            folder.id,
+                        )
+                        .unwrap_or(false);
+                        if has_new {
+                            self.status_msg =
+                                format!("Scanning '{}' for new games...", folder.path);
+                            self.update(Action::RescanFolder).await;
+                        } else {
+                            self.status_msg = format!(
+                                "Folder up to date ({} game{}). Press [R] to force a full rescan.",
+                                count,
+                                if count == 1 { "" } else { "s" }
+                            );
+                        }
+                        return;
+                    }
+                }
                 self.update(Action::RescanFolder).await;
             }
             ScanFolderItem::AddNewFolder => {
@@ -5157,6 +5300,11 @@ impl App {
                     selected_type_idx: 0,
                 };
             }
+            Action::OpenAddGameWineForm => {
+                // [ + Add New Game ] in the Windows Games manager: jump straight
+                // into the Wine details form, skipping the type selector.
+                self.open_add_game_form(PlatformType::Wine);
+            }
             Action::OpenEditGameModal => {
                 if self.modal_state == ModalState::None
                     && !self.games.is_empty()
@@ -5164,47 +5312,7 @@ impl App {
                 {
                     let game = &self.games[self.selected_game_idx];
                     let gtype = PlatformType::from(game.game_type.as_str());
-
-                    let title_str = game.title.clone();
-                    let cpos = title_str.len();
-
-                    let env_str = game.env_vars.as_deref().unwrap_or_default();
-                    let gamemode = env_str.contains("GAMEMODE=1");
-                    let mangohud = env_str.contains("MANGOHUD=1");
-                    let gamescope = env_str.contains("GAMESCOPE=1");
-                    let esync = env_str.contains("WINEESYNC=1");
-                    let fsync = env_str.contains("WINEFSYNC=1");
-                    let dxvk = env_str.contains("DXVK_ASYNC=1");
-                    let vkd3d = env_str.contains("VKD3D_CONFIG=enable_async");
-
-                    self.modal_state = ModalState::EditGameForm {
-                        game_id: game.id,
-                        game_type: gtype,
-                        selected_field: 0,
-                        title: title_str,
-                        file_path: game.file_path.clone().unwrap_or_default(),
-                        working_dir: game.working_dir.clone().unwrap_or_default(),
-                        custom_command: game.custom_command.clone().unwrap_or_default(),
-                        wine_prefix: game.wine_prefix.clone().unwrap_or_default(),
-                        steam_appid: game
-                            .steam_appid
-                            .map(|id| id.to_string())
-                            .unwrap_or_default(),
-                        gamemode,
-                        mangohud,
-                        gamescope,
-                        esync,
-                        fsync,
-                        dxvk,
-                        vkd3d,
-                        cursor_pos: cpos,
-                        path_cursor: game.file_path.clone().unwrap_or_default().len(),
-                        workdir_cursor: game.working_dir.clone().unwrap_or_default().len(),
-                        prefix_cursor: game.wine_prefix.clone().unwrap_or_default().len(),
-                        cmd_cursor: game.custom_command.clone().unwrap_or_default().len(),
-                        emulator_override: game.emulator_override,
-                        core_override: game.core_override.clone(),
-                    };
+                    self.open_edit_game_form(game.clone(), gtype);
                 }
             }
             Action::SaveEditGameModal => {
@@ -5225,6 +5333,7 @@ impl App {
                     vkd3d,
                     emulator_override,
                     ref core_override,
+                    ref parent_modal,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -5309,11 +5418,25 @@ impl App {
 
                         if self.db.update_game(&game).is_ok() {
                             self.status_msg = format!("[OK] Updated details for '{}'!", game.title);
-                            self.modal_state = ModalState::None;
-                            let sel = self.selected_game_idx;
-                            self.load_platforms();
-                            if sel < self.games.len() {
-                                self.selected_game_idx = sel;
+                            if let Some(ModalState::WindowsGamesManager { .. }) =
+                                parent_modal.as_deref()
+                            {
+                                let games = self
+                                    .db
+                                    .get_games_for_platform(game.platform_id)
+                                    .unwrap_or_default();
+                                self.games = games.clone();
+                                self.modal_state = ModalState::WindowsGamesManager {
+                                    games,
+                                    selected_idx: 0,
+                                };
+                            } else {
+                                self.modal_state = ModalState::None;
+                                let sel = self.selected_game_idx;
+                                self.load_platforms();
+                                if sel < self.games.len() {
+                                    self.selected_game_idx = sel;
+                                }
                             }
                         }
                     }
@@ -5342,6 +5465,9 @@ impl App {
                     self.modal_state = *parent;
                 }
                 ModalState::AddGameForm { parent_modal: Some(parent), .. } => {
+                    self.modal_state = *parent;
+                }
+                ModalState::EditGameForm { parent_modal: Some(parent), .. } => {
                     self.modal_state = *parent;
                 }
                 ModalState::ScanFolderStep1Platform { .. } => {
@@ -5456,6 +5582,13 @@ impl App {
                         ref mut selected_idx,
                     } if !self.platforms.is_empty() => {
                         *selected_idx = (*selected_idx + 1) % self.platforms.len();
+                    }
+                    ModalState::WindowsGamesManager {
+                        ref games,
+                        ref mut selected_idx,
+                    } => {
+                        let len = games.len() + 1;
+                        *selected_idx = (*selected_idx + 1) % len;
                     }
                     ModalState::DownloadCoreModal {
                         ref cores,
@@ -5634,6 +5767,17 @@ impl App {
                             *selected_idx -= 1;
                         }
                     }
+                    ModalState::WindowsGamesManager {
+                        ref games,
+                        ref mut selected_idx,
+                    } => {
+                        let len = games.len() + 1;
+                        if *selected_idx == 0 {
+                            *selected_idx = len - 1;
+                        } else {
+                            *selected_idx -= 1;
+                        }
+                    }
                     ModalState::DownloadCoreModal {
                         ref cores,
                         ref mut selected_idx,
@@ -5682,30 +5826,7 @@ impl App {
                             3 => PlatformType::Steam,
                             _ => PlatformType::Emulator,
                         };
-                        self.modal_state = ModalState::AddGameForm {
-                            game_type: gtype,
-                            selected_field: 0,
-                            parent_modal: Some(Box::new(self.modal_state.clone())),
-                            title: String::new(),
-                            platform_idx: 0,
-                            file_path: String::new(),
-                            working_dir: String::new(),
-                            wine_prefix: String::new(),
-                            steam_appid: String::new(),
-                            custom_command: String::new(),
-                            gamemode: false,
-                            mangohud: false,
-                            gamescope: false,
-                            esync: false,
-                            fsync: false,
-                            dxvk: false,
-                            vkd3d: false,
-                            cursor_pos: 0,
-                            path_cursor: 0,
-                            workdir_cursor: 0,
-                            prefix_cursor: 0,
-                            cmd_cursor: 0,
-                        };
+                        self.open_add_game_form(gtype);
                     }
                 }
             }
@@ -7180,7 +7301,27 @@ impl App {
                     && self.selected_platform_idx < self.platforms.len()
                 {
                     let platform = &self.platforms[self.selected_platform_idx];
-                    self.reload_scan_folder_modal(platform.id);
+                    match platform.slug.as_str() {
+                        // Steam games live in the Steam library, not in scan
+                        // folders: there is nothing to manage here.
+                        "steam" => {}
+                        // Windows games are registered manually via the Wine
+                        // details form; the manager is a browsable list of
+                        // installed titles (no scan folders involved).
+                        "windows" => {
+                            let games = self
+                                .db
+                                .get_games_for_platform(platform.id)
+                                .unwrap_or_default();
+                            self.games = games.clone();
+                            self.selected_game_idx = 0;
+                            self.modal_state = ModalState::WindowsGamesManager {
+                                games,
+                                selected_idx: 0,
+                            };
+                        }
+                        _ => self.reload_scan_folder_modal(platform.id),
+                    }
                 }
             }
             Action::ToggleSelectFolder => {}
@@ -8132,6 +8273,7 @@ impl App {
                     fsync,
                     dxvk,
                     vkd3d,
+                    ref parent_modal,
                     ..
                 } = self.modal_state.clone()
                 {
@@ -8262,13 +8404,29 @@ impl App {
                     match self.db.insert_game(&game) {
                         Ok(_) => {
                             self.status_msg = format!("Game '{}' saved successfully.", title);
-                            self.modal_state = ModalState::None;
-                            self.load_platforms();
-                            if let Some(pos) =
-                                self.platforms.iter().position(|p| p.id == platform_id)
+                            if let Some(ModalState::WindowsGamesManager { .. }) =
+                                parent_modal.as_deref()
                             {
-                                self.selected_platform_idx = pos;
-                                self.load_games_for_selected_platform();
+                                let games = self
+                                    .db
+                                    .get_games_for_platform(platform_id)
+                                    .unwrap_or_default();
+                                self.games = games.clone();
+                                self.modal_state = ModalState::WindowsGamesManager {
+                                    games,
+                                    selected_idx: 0,
+                                };
+                            } else {
+                                self.modal_state = ModalState::None;
+                                self.load_platforms();
+                                if let Some(pos) = self
+                                    .platforms
+                                    .iter()
+                                    .position(|p| p.id == platform_id)
+                                {
+                                    self.selected_platform_idx = pos;
+                                    self.load_games_for_selected_platform();
+                                }
                             }
                         }
                         Err(err) => {
@@ -9511,6 +9669,341 @@ mod tests {
         assert!(
             !switch_items.contains(&ScanFolderItem::DownloadCores),
             "Switch has no RetroArch runner, got {switch_items:?}"
+        );
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Folder manager Enter must NOT re-scan a folder whose games are already
+    /// imported and must not spawn the task slider (scan_rx / progress) when
+    /// there is nothing new. Enter only re-scans when the folder contains game
+    /// files that are not in the DB yet (never scanned, or new files added).
+    /// [R] (Action::RescanFolder) still forces a full rescan.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn folder_manager_enter_skips_already_scanned_folders_but_r_forces_rescan() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_folderscan_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+        let nds = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "nds")
+            .expect("nds platform")
+            .clone();
+
+        // Real on-disk folders so RescanFolder passes its path check.
+        let populated_dir = tmp.join("populated");
+        let new_games_dir = tmp.join("new_games");
+        std::fs::create_dir_all(&populated_dir).unwrap();
+        std::fs::create_dir_all(&new_games_dir).unwrap();
+        std::fs::write(populated_dir.join("rom.nds"), b"rom").unwrap();
+        std::fs::write(new_games_dir.join("brand_new.nds"), b"new").unwrap();
+
+        // Folder A: scanned before, one game already imported.
+        let folder_a = app
+            .db
+            .save_scan_folder(nds.id, populated_dir.to_str().unwrap(), true)
+            .unwrap();
+        app.db
+            .insert_game(&Game {
+                id: 0,
+                platform_id: nds.id,
+                folder_id: Some(folder_a),
+                emulator_override: None,
+                core_override: None,
+                title: "Already imported".to_string(),
+                sort_title: None,
+                game_type: "rom".to_string(),
+                file_path: Some(populated_dir.join("rom.nds").to_string_lossy().to_string()),
+                working_dir: None,
+                custom_command: None,
+                env_vars: None,
+                wine_prefix: None,
+                wine_runner_id: None,
+                steam_appid: None,
+                file_name: Some("rom.nds".to_string()),
+                file_extension: Some(".nds".to_string()),
+                file_size: None,
+                file_hash_crc32: None,
+                file_hash_md5: None,
+                file_hash_sha1: None,
+                serial: None,
+                release_year: None,
+                developer: None,
+                publisher: None,
+                description: None,
+                genre: None,
+                rating: None,
+                favorite: false,
+                play_count: 0,
+                play_time_seconds: 0,
+                last_played_at: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+                components: Vec::new(),
+                is_missing_base: false,
+            })
+            .unwrap();
+        assert_eq!(app.db.get_game_count_for_folder(folder_a).unwrap(), 1);
+
+        // Folder B: never scanned, but it already contains a new game file.
+        let folder_b = app
+            .db
+            .save_scan_folder(nds.id, new_games_dir.to_str().unwrap(), true)
+            .unwrap();
+        assert_eq!(app.db.get_game_count_for_folder(folder_b).unwrap(), 0);
+        assert!(
+            game_core::scanner::Scanner::folder_has_new_games(
+                &app.db,
+                &nds,
+                Path::new(new_games_dir.to_str().unwrap()),
+                true,
+                folder_b,
+            )
+            .unwrap()
+        );
+        assert!(
+            !game_core::scanner::Scanner::folder_has_new_games(
+                &app.db,
+                &nds,
+                Path::new(populated_dir.to_str().unwrap()),
+                true,
+                folder_a,
+            )
+            .unwrap()
+        );
+
+        let folders = app.db.get_scan_folders_for_platform(nds.id).unwrap();
+        let items = build_scan_folder_items(&app.db, nds.id, &folders);
+        assert_eq!(items[0], ScanFolderItem::FolderEmulator(0));
+        let folder_b_row = items
+            .iter()
+            .position(|i| matches!(i, ScanFolderItem::FolderEmulator(1)))
+            .expect("second folder row");
+
+        // --- Enter on the populated folder: no rescan, no task slider. ---
+        app.modal_state = ModalState::ScanFolderForm {
+            platform: nds.clone(),
+            folders: folders.clone(),
+            selected_index: 0,
+        };
+        app.handle_scan_form_enter().await;
+        assert!(
+            app.scan_rx.is_none(),
+            "Enter must not start a scan when all folder games are already imported"
+        );
+        assert!(
+            app.download_progress.is_none(),
+            "Enter must not spawn the task slider for an up-to-date folder"
+        );
+        assert!(
+            app.status_msg.contains("up to date"),
+            "expected an informational message, got: {}",
+            app.status_msg
+        );
+        assert_eq!(app.db.get_game_count_for_folder(folder_a).unwrap(), 1);
+
+        // --- Enter on a folder with new game files: scan runs normally. ---
+        app.modal_state = ModalState::ScanFolderForm {
+            platform: nds.clone(),
+            folders: folders.clone(),
+            selected_index: folder_b_row,
+        };
+        app.handle_scan_form_enter().await;
+        assert!(
+            app.scan_rx.is_some(),
+            "Enter must scan when the folder has new game files: {}",
+            app.status_msg
+        );
+        app.scan_rx = None;
+        app.download_progress = None;
+
+        // --- [R] forces a full rescan even for the populated folder. ---
+        app.modal_state = ModalState::ScanFolderForm {
+            platform: nds.clone(),
+            folders: folders.clone(),
+            selected_index: 0,
+        };
+        app.update(Action::RescanFolder).await;
+        assert!(
+            app.scan_rx.is_some(),
+            "[R] must force a rescan of an already-scanned folder"
+        );
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// [E] sobre la plataforma Windows abre el manager de juegos Windows (lista
+    /// de títulos con working dir), nunca el folder manager; sobre Steam no
+    /// abre nada. Enter en el manager abre el formulario Wine directamente.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn folder_manager_bypasses_steam_and_lists_windows_games_with_wine_form() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_wine_mgr_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+        app.modal_state = ModalState::None;
+        let windows = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "windows")
+            .expect("windows platform")
+            .clone();
+        let steam = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "steam")
+            .expect("steam platform")
+            .clone();
+
+        // --- Steam: [E] must not open the folder manager. ---
+        app.selected_platform_idx = app.platforms.iter().position(|p| p.id == steam.id).unwrap();
+        app.update(Action::OpenFolderManagerForPlatform).await;
+        assert_eq!(
+            app.modal_state,
+            ModalState::None,
+            "[E] must do nothing for the Steam platform"
+        );
+
+        // --- Windows: [E] opens the Windows Games manager (list, no folders). ---
+        app.selected_platform_idx = app
+            .platforms
+            .iter()
+            .position(|p| p.id == windows.id)
+            .unwrap();
+        app.db
+            .insert_game(&Game {
+                id: 0,
+                platform_id: windows.id,
+                folder_id: None,
+                emulator_override: None,
+                core_override: None,
+                title: "Fallout 3".to_string(),
+                sort_title: None,
+                game_type: "wine".to_string(),
+                file_path: Some("/games/windows/fallout3.exe".to_string()),
+                working_dir: Some("/games/windows/fallout3".to_string()),
+                custom_command: None,
+                env_vars: None,
+                wine_prefix: None,
+                wine_runner_id: None,
+                steam_appid: None,
+                file_name: None,
+                file_extension: None,
+                file_size: None,
+                file_hash_crc32: None,
+                file_hash_md5: None,
+                file_hash_sha1: None,
+                serial: None,
+                release_year: None,
+                developer: None,
+                publisher: None,
+                description: None,
+                genre: None,
+                rating: None,
+                favorite: false,
+                play_count: 0,
+                play_time_seconds: 0,
+                last_played_at: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+                components: Vec::new(),
+                is_missing_base: false,
+            })
+            .unwrap();
+        app.update(Action::OpenFolderManagerForPlatform).await;
+        assert!(
+            matches!(
+                app.modal_state,
+                ModalState::WindowsGamesManager { ref games, .. } if games.len() == 1
+            ),
+            "expected WindowsGamesManager with 1 game, got: {:?}",
+            app.modal_state
+        );
+
+        // --- Enter on a game row → edit form with the manager as parent. ---
+        app.handle_windows_games_enter().await;
+        assert!(
+            matches!(
+                app.modal_state,
+                ModalState::EditGameForm {
+                    game_type: PlatformType::Wine,
+                    ref parent_modal,
+                    ..
+                } if parent_modal.is_some()
+            ),
+            "Enter on a game row must open the edit form, got: {:?}",
+            app.modal_state
+        );
+
+        // [Esc] returns to the manager list.
+        app.update(Action::CloseModal).await;
+        assert!(
+            matches!(app.modal_state, ModalState::WindowsGamesManager { .. }),
+            "[Esc] must return to the manager"
+        );
+
+        // --- Focus [ + Add New Game ] and Enter → Wine details form directly. ---
+        if let ModalState::WindowsGamesManager { games, selected_idx } = &mut app.modal_state {
+            *selected_idx = games.len();
+        }
+        app.handle_windows_games_enter().await;
+        assert!(
+            matches!(
+                app.modal_state,
+                ModalState::AddGameForm {
+                    game_type: PlatformType::Wine,
+                    ref parent_modal,
+                    ..
+                } if parent_modal.is_some()
+            ),
+            "Enter on [+ Add New Game] must open the Wine form with a parent, got: {:?}",
+            app.modal_state
         );
 
         match old_data {

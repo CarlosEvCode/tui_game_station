@@ -93,7 +93,7 @@ pub struct ScannedFolder {
     pub assigned_core: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Game {
     pub id: i64,
     pub platform_id: i64,

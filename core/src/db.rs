@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::models::{Game, GameComponent, Platform, PlatformType, Runner, ScannedFolder};
@@ -880,6 +880,28 @@ impl Database {
             |r| r.get(0),
         )?;
         Ok(count as usize)
+    }
+
+    /// All file paths already imported for a folder: the games themselves plus
+    /// their Switch component files (updates/DLCs/archives). Used to decide
+    /// whether a folder contains genuinely new files worth re-scanning.
+    pub fn get_known_file_paths_for_folder(&self, folder_id: i64) -> Result<HashSet<String>> {
+        let mut known = HashSet::new();
+        {
+            let mut stmt = self.conn.prepare(
+                "SELECT file_path FROM games WHERE folder_id = ?1
+                 UNION
+                 SELECT gc.file_path
+                   FROM game_components gc
+                   JOIN games g ON gc.game_id = g.id
+                  WHERE g.folder_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![folder_id], |r| r.get::<_, String>(0))?;
+            for row in rows {
+                known.insert(row?);
+            }
+        }
+        Ok(known)
     }
 
     // ----------------------------------------------------

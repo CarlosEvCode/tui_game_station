@@ -2256,6 +2256,97 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
         }
+        ModalState::WindowsGamesManager { ref games, selected_idx } => {
+            let popup_area = centered_rect(80, 75, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let outer = Block::default()
+                .title(Span::styled(
+                    " Manage Windows Games ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+
+            let inner = outer.inner(popup_area);
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(4), Constraint::Length(1)])
+                .split(inner);
+
+            let mut lines = Vec::new();
+
+            if games.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "No Windows games registered yet. Use [ + Add New Game ] to register one.",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines.push(Line::from(""));
+            } else {
+                for (idx, game) in games.iter().enumerate() {
+                    let is_selected = idx == selected_idx;
+                    let style = if is_selected {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    let workdir = game.working_dir.as_deref().unwrap_or("?");
+                    let wd_budget = path_budget(
+                        popup_area.width.saturating_sub(6) as usize,
+                        16,
+                    );
+                    lines.push(Line::from(vec![
+                        Span::styled(if is_selected { " ▶ " } else { "   " }, style),
+                        Span::styled(&game.title, style),
+                        Span::styled(
+                            format!(
+                                "   ({})",
+                                ellipsize_path_tail(workdir, wd_budget)
+                            ),
+                            if is_selected {
+                                Style::default().fg(Color::Yellow)
+                            } else {
+                                Style::default().fg(Color::DarkGray)
+                            },
+                        ),
+                    ]));
+                }
+                lines.push(Line::from(""));
+            }
+
+            let is_add_focused = selected_idx == games.len();
+            let add_style = if is_add_focused {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            };
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{} [ + Add New Game ]",
+                    if is_add_focused { "▶" } else { " " }
+                ),
+                add_style,
+            )));
+
+            let list_paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+            frame.render_widget(outer, popup_area);
+            frame.render_widget(list_paragraph, chunks[0]);
+
+            let footer = Paragraph::new(
+                " [↑↓] Navigate  [Enter] Edit / Add New Game  [Esc] Back",
+            )
+            .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(footer, chunks[1]);
+        }
         ModalState::ScanFolderForm {
             ref platform,
             ref folders,
@@ -2394,7 +2485,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(list_paragraph, chunks[0]);
 
             let footer = Paragraph::new(
-                " [↑↓] Move focus  [←→] Change value  [Del] Delete  [R] Rescan  [Enter] Confirm  [Esc] Back"
+                " [↑↓] Move focus  [←→] Change value  [Del] Delete  [R] Force rescan  [Enter] Confirm  [Esc] Back"
             )
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));

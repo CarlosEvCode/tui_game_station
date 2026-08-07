@@ -65,21 +65,7 @@ impl Scanner {
         };
 
         let mut count = 0;
-        let mut walker = WalkDir::new(folder);
-        if !recursive {
-            walker = walker.max_depth(1);
-        }
-
-        let paths: Vec<PathBuf> = walker
-            .into_iter()
-            .filter_map(|entry| entry.ok().map(|entry| entry.into_path()))
-            .filter(|path| path.is_file() && has_supported_extension(path, platform))
-            .collect();
-        let paths = match platform.slug.as_str() {
-            "ps1" => select_ps1_images(paths),
-            "wii_u" => select_wii_u_images(paths),
-            _ => paths,
-        };
+        let paths = discover_game_files(folder, recursive, platform);
 
         // Nintendo Switch is grouped by Title ID (base + updates + DLCs become
         // one library entry), so it uses its own scan path.
@@ -424,6 +410,34 @@ impl Scanner {
         send_progress(progress_tx, total, total, "Scan Completed", count, true);
         Ok(count)
     }
+
+    /// Whether a folder contains game files that are not imported yet for that
+    /// `folder_id`. Lightweight: walks the folder applying the same filtering
+    /// as `scan_folder` and compares against the file paths already known in the
+    /// DB (games plus their Switch components). It does NOT hash or identify
+    /// anything, so it is safe to call on every folder-manager Enter.
+    pub fn folder_has_new_games(
+        db: &Database,
+        platform: &Platform,
+        folder_path: &Path,
+        recursive: bool,
+        folder_id: i64,
+    ) -> Result<bool> {
+        if !folder_path.exists() || !folder_path.is_dir() {
+            anyhow::bail!(
+                "Scan folder does not exist or is not a directory: {:?}",
+                folder_path
+            );
+        }
+        let paths = discover_game_files(folder_path, recursive, platform);
+        if paths.is_empty() {
+            return Ok(false);
+        }
+        let known = db.get_known_file_paths_for_folder(folder_id)?;
+        Ok(paths
+            .iter()
+            .any(|p| !known.contains(&p.to_string_lossy().to_string())))
+    }
 }
 
 fn send_progress(
@@ -722,6 +736,26 @@ fn game_from_reference(
         updated_at: String::new(),
         components,
         is_missing_base: missing_base,
+    }
+}
+
+/// The candidate game files the scanner would process for a folder, applying
+/// the same extension filter and platform-specific image selection used by
+/// `scan_folder` (PS1 CUE/BIN handling, Wii U game-dir grouping, ...).
+fn discover_game_files(folder: &Path, recursive: bool, platform: &Platform) -> Vec<PathBuf> {
+    let mut walker = WalkDir::new(folder);
+    if !recursive {
+        walker = walker.max_depth(1);
+    }
+    let paths: Vec<PathBuf> = walker
+        .into_iter()
+        .filter_map(|entry| entry.ok().map(|entry| entry.into_path()))
+        .filter(|path| path.is_file() && has_supported_extension(path, platform))
+        .collect();
+    match platform.slug.as_str() {
+        "ps1" => select_ps1_images(paths),
+        "wii_u" => select_wii_u_images(paths),
+        _ => paths,
     }
 }
 
@@ -1308,5 +1342,130 @@ game (
         assert_eq!(games[0].file_extension.as_deref(), Some(".xci"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn folder_has_new_games_only_when_unimported_files_exist() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let db_path = std::env::temp_dir().join(format!(
+            "tui_game_station_scanner_test_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&db_path);
+        let db = Database::open(&db_path).unwrap();
+
+        let nds = db
+            .get_platforms()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.slug == "nds")
+            .expect("nds platform seeded");
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_newgames_test_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let rom_a = root.join("game_a.nds");
+        let rom_b = root.join("game_b.nds");
+        fs::write(&rom_a, b"rom a").unwrap();
+        fs::write(&rom_b, b"rom b").unwrap();
+
+        let folder_id = db
+            .save_scan_folder(nds.id, root.to_str().unwrap(), true)
+            .unwrap();
+
+        // Nothing imported yet -> new games detected.
+        assert!(Scanner::folder_has_new_games(&db, &nds, &root, true, folder_id).unwrap());
+
+        // Import game_a -> only game_b remains "new".
+        db.insert_game(&crate::models::Game {
+            id: 0,
+            platform_id: nds.id,
+            folder_id: Some(folder_id),
+            emulator_override: None,
+            core_override: None,
+            title: "Game A".to_string(),
+            sort_title: None,
+            game_type: "rom".to_string(),
+            file_path: Some(rom_a.to_string_lossy().to_string()),
+            working_dir: None,
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: Some("game_a.nds".to_string()),
+            file_extension: Some(".nds".to_string()),
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        })
+        .unwrap();
+        assert!(Scanner::folder_has_new_games(&db, &nds, &root, true, folder_id).unwrap());
+
+        // Import game_b -> folder is fully up to date.
+        db.insert_game(&crate::models::Game {
+            id: 0,
+            platform_id: nds.id,
+            folder_id: Some(folder_id),
+            emulator_override: None,
+            core_override: None,
+            title: "Game B".to_string(),
+            sort_title: None,
+            game_type: "rom".to_string(),
+            file_path: Some(rom_b.to_string_lossy().to_string()),
+            working_dir: None,
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: Some("game_b.nds".to_string()),
+            file_extension: Some(".nds".to_string()),
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        })
+        .unwrap();
+        assert!(!Scanner::folder_has_new_games(&db, &nds, &root, true, folder_id).unwrap());
+
+        fs::remove_dir_all(root).unwrap();
+        let _ = fs::remove_file(&db_path);
     }
 }
