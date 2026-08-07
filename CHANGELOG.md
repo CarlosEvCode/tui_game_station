@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.11.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.10.0...v1.11.0) (2026-08-07)
+
+
+### Features
+
+* detect downloaded AppImages + allow flatpak/command executables in save ([4c05dc1](https://github.com/CarlosEvCode/tui_game_station/commit/4c05dc1d624a287877aaa5215312612d1d9df242))
+* **emulator:** active emulator selector in Scan Folder flow ([e368162](https://github.com/CarlosEvCode/tui_game_station/commit/e36816235dea6f7495ff140cb0eae3c391a7e10a))
+* **emulator:** add game-level emulator override with 4-level resolution hierarchy ([b8fa4d5](https://github.com/CarlosEvCode/tui_game_station/commit/b8fa4d5db3684489f5ec6130b00280032f317bc5))
+* **emulator:** multi-emulator per platform with active ◀ ▶ selector ([2432d9f](https://github.com/CarlosEvCode/tui_game_station/commit/2432d9f70917a74e718683a4967a446842ee7574))
+* redesign Folder Manager into 3 stacked modals UI with flat item sequence navigation ([0628ac9](https://github.com/CarlosEvCode/tui_game_station/commit/0628ac9e1a6653eada232ad5721f30502735d58b))
+* **retroarch:** Integrate full RetroArch platform & core catalog ([4e07422](https://github.com/CarlosEvCode/tui_game_station/commit/4e07422e8905d7055b864ccc7feaa0ec065b329a))
+* **retroarch:** integrate RetroArch emulator with 7z bundle support, catalog cores, and 4-level core resolution ([8618a1f](https://github.com/CarlosEvCode/tui_game_station/commit/8618a1f1608c2189cd87dc207ba574943ac068a2))
+* **scan:** multi-folder selection with side-by-side panes and ADD & SCAN ALL ([98a1713](https://github.com/CarlosEvCode/tui_game_station/commit/98a171320b6208664b8c653f051ecd111b97a617))
+* **scan:** two-section folder manager redesign with confirm folder delete ([91c7942](https://github.com/CarlosEvCode/tui_game_station/commit/91c79429cf8df0e6fa10b334838450828878d657))
+* **tui:** Formulario simplificado A→Escanear con selector de núcleo en disco y Folder Manager en [e] ([63fcf8e](https://github.com/CarlosEvCode/tui_game_station/commit/63fcf8eab0503fdbb108c3c9e3217e48c423cff3))
+* **tui:** implement multi-source emulator auto-detection system with Flatpak config & core support ([7191f40](https://github.com/CarlosEvCode/tui_game_station/commit/7191f40645a1d770479d3e617ea149b71cea949b))
+* **tui:** integrate N64 platform and add fast core download modal to RetroArch forms ([2a7ddba](https://github.com/CarlosEvCode/tui_game_station/commit/2a7ddba7e2e8f9b0e3fd94e275fa840d0decebad))
+* **tui:** Visual improvements — labels, UX, ellipsis, text cursor (rounds 1-3) ([773eb95](https://github.com/CarlosEvCode/tui_game_station/commit/773eb9517bec7bf17529d6a38fb326843996e3d6))
+
+
+### Bug Fixes
+
+* allow command executables (like flatpak run) when launching games and standalone emulators ([d3838ce](https://github.com/CarlosEvCode/tui_game_station/commit/d3838cedb98ac8d43c0256c396dc54e7c8d861b0))
+* dynamically resolve RetroArch flatpak cores dir and config path when using flatpak run ([1d28ab9](https://github.com/CarlosEvCode/tui_game_station/commit/1d28ab99890bbcf0d5da9d90d1e1aa5e8402cd54))
+* flatpak exec navigation, delete button, and not-configured launch check ([2a05f60](https://github.com/CarlosEvCode/tui_game_station/commit/2a05f6051c96e088c0391f77f71084c57c73b207))
+* resolve flatpak emulator config paths when patching emulator options ([dbbbf61](https://github.com/CarlosEvCode/tui_game_station/commit/dbbbf61e5a97535d4cebbae6a33d19a2320e568c))
+* **retroarch:** Elige un núcleo cargable para NDS y evita el 'exit code 1' al lanzar ([363747d](https://github.com/CarlosEvCode/tui_game_station/commit/363747d48b158ef08360403aebf67a38f5331edf))
+* **retroarch:** resolve 7z extraction flow, locate extracted AppImage, and set runner source ([7c1177b](https://github.com/CarlosEvCode/tui_game_station/commit/7c1177b1e00ba0b6ff1731676ac78eb7e40f50ec))
+* **runner:** Corrige rutas de AppImage/config/cores para RetroArch Downloaded ([055781b](https://github.com/CarlosEvCode/tui_game_station/commit/055781be2cb54fcf988d36a0070bb84a50b998f8))
+* strip quotes around executable_path in command templates when executable is a multi-word command like flatpak run ([9e81efd](https://github.com/CarlosEvCode/tui_game_station/commit/9e81efdb7b1d20c3e979cd52f61043c2915f89ca))
+* **tui:** Problema 1-2-3 post-extracción RetroArch ([5d66df2](https://github.com/CarlosEvCode/tui_game_station/commit/5d66df2e809adf35223592fee92601d4e7381d99))
+* **tui:** simplify no cores text to English, fix Down navigation in DownloadCoreModal and preserve parent modal navigation on Esc ([67bbea4](https://github.com/CarlosEvCode/tui_game_station/commit/67bbea40ce5a6f07f361249f91016f8de8c1688f))
+* **tui:** translate remaining status and notification messages to English ([db65751](https://github.com/CarlosEvCode/tui_game_station/commit/db65751f1c9baabd77f4ef8500f8be70d4f86330))
+* update runner source in db upon saving runner config ([becd21a](https://github.com/CarlosEvCode/tui_game_station/commit/becd21a5d082b687b4a3a492e4c97f3d9253650a))
+
 ## [1.10.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.9.0...v1.10.0) (2026-08-05)
 
 
