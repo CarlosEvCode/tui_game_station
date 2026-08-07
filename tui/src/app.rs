@@ -6578,7 +6578,7 @@ impl App {
                 {
                     if folders.is_empty() {
                         self.status_msg =
-                            "Error: no folders registered. Use [+ AGREGAR CARPETA NUEVA] first.".to_string();
+                            "Error: no folders registered. Use [ + Add New Folder ] first.".to_string();
                         return;
                     }
                     let use_dat_auto_id = scan_folder_supports_dat(&platform.slug);

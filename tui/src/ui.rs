@@ -2277,12 +2277,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             };
 
-            let popup_area = centered_rect_fixed(72, (items.len() * 3 + 8).min(24) as u16, frame.area());
+            let popup_area = centered_rect(75, 70, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let outer = Block::default()
                 .title(Span::styled(
-                    format!(" Administrar Carpetas — {} ", platform.name),
+                    format!(" Manage Folders — {} ", platform.name),
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
@@ -2300,21 +2300,25 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             if folders.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    "No hay carpetas registradas para esta plataforma.",
+                    "No scan folders registered for this platform.",
                     Style::default().fg(Color::DarkGray),
                 )));
                 lines.push(Line::from(""));
             } else {
                 for (f_idx, folder) in folders.iter().enumerate() {
                     let count = app.db.get_game_count_for_folder(folder.id).unwrap_or(0);
+                    let path_budget_f = path_budget(
+                        popup_area.width.saturating_sub(6) as usize,
+                        12 + count.to_string().len() + 10,
+                    );
                     // Header row for folder: non-focusable metadata
                     lines.push(Line::from(vec![
-                        Span::styled(format!("📁 Carpeta {}: ", f_idx + 1), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        Span::styled(ellipsize_path_tail(&folder.path, 40), Style::default().fg(Color::White)),
-                        Span::styled(format!(" ({} juego{})", count, if count == 1 { "" } else { "s" }), Style::default().fg(Color::DarkGray)),
+                        Span::styled(format!("Folder {}: ", f_idx + 1), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(ellipsize_path_tail(&folder.path, path_budget_f), Style::default().fg(Color::White)),
+                        Span::styled(format!(" ({} game{})", count, if count == 1 { "" } else { "s" }), Style::default().fg(Color::DarkGray)),
                     ]));
 
-                    // Sub-row 1: Emulador
+                    // Sub-row 1: Emulator
                     let is_emu_focused = items.get(selected_index) == Some(&ScanFolderItem::FolderEmulator(f_idx));
                     let emu_name = folder_emu_label(folder.assigned_emulator_id);
                     let emu_style = if is_emu_focused {
@@ -2324,16 +2328,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     };
                     lines.push(Line::from(vec![
                         Span::styled(if is_emu_focused { " ▶ " } else { "   " }, emu_style),
-                        Span::styled("Emulador: ", emu_style),
+                        Span::styled("Emulator: ", emu_style),
                         Span::styled(format!("◀ {} ▶", emu_name), emu_style),
                     ]));
 
-                    // Sub-row 2: Núcleo (if applicable)
+                    // Sub-row 2: Core (if applicable)
                     if folder_has_core(&app.db, platform.id, folder) {
                         let is_core_focused = items.get(selected_index) == Some(&ScanFolderItem::FolderCore(f_idx));
                         let available = add_scan_available_cores(&app.db, platform, folder.assigned_emulator_id);
                         let core_name = if available.is_empty() {
-                            "Sin núcleos descargados".to_string()
+                            "No downloaded cores".to_string()
                         } else {
                             folder.assigned_core
                                 .as_deref()
@@ -2348,7 +2352,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         };
                         lines.push(Line::from(vec![
                             Span::styled(if is_core_focused { " ▶ " } else { "   " }, core_style),
-                            Span::styled("Núcleo: ", core_style),
+                            Span::styled("Core: ", core_style),
                             Span::styled(format!("◀ {} ▶", core_name), core_style),
                         ]));
                     }
@@ -2356,7 +2360,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             }
 
-            // Bottom focusable item: [+ Agregar carpeta nueva]
+            // Bottom focusable item: [ + Add New Folder ]
             let is_add_focused = items.get(selected_index) == Some(&ScanFolderItem::AddNewFolder);
             let add_style = if is_add_focused {
                 Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
@@ -2364,7 +2368,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             };
             lines.push(Line::from(Span::styled(
-                format!("{} [ + Agregar carpeta nueva ]", if is_add_focused { "▶" } else { " " }),
+                format!("{} [ + Add New Folder ]", if is_add_focused { "▶" } else { " " }),
                 add_style,
             )));
 
@@ -2373,7 +2377,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(list_paragraph, chunks[0]);
 
             let footer = Paragraph::new(
-                " [↑↓] Mover foco  [←→] Cambiar valor  [Supr] Eliminar  [R] Reescanear  [Enter] Confirmar  [Esc] Volver"
+                " [↑↓] Move focus  [←→] Change value  [Del] Delete  [R] Rescan  [Enter] Confirm  [Esc] Back"
             )
             .alignment(Alignment::Center)
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
@@ -2482,7 +2486,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 crate::app::add_scan_emulator_label(&app.db, platform, add_emulator_id, &runners);
             lines.push(Line::from(vec![
                 Span::styled(if emu_selected { "▶ " } else { "  " }, field_style(emu_idx)),
-                Span::styled("Emulador: ", field_style(emu_idx)),
+                Span::styled("Emulator: ", field_style(emu_idx)),
                 Span::styled(format!("◀ {} ▶", emu_label), field_style(emu_idx)),
             ]));
 
