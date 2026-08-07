@@ -119,7 +119,8 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                 let rel_x = x.saturating_sub(popup_area.x + 2);
                 let w = popup_area.width.saturating_sub(4);
                 let has_executable = !exe_path_input.trim().is_empty()
-                    && std::path::Path::new(exe_path_input.trim()).exists();
+                    && (runner::is_executable_command(exe_path_input.trim())
+                        || std::path::Path::new(exe_path_input.trim()).exists());
                 let mut actions = vec!["browse"];
                 if runner_info.download_url.is_some() {
                     actions.push("download");

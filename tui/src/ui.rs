@@ -13,7 +13,8 @@ use ratatui_image::{Resize, StatefulImage};
 use crate::app::{
     add_scan_available_cores, build_scan_folder_items, folder_has_core, scan_folder_add_action_index, scan_folder_add_core_idx,
     scan_folder_add_emu_idx, scan_folder_add_has_core, scan_folder_add_scan_index,
-    scan_folder_supports_dat, App, BigPictureFocus, FocusedPane, ModalState, ScanFolderItem, ViewMode,
+    scan_folder_platform_has_retroarch, scan_folder_supports_dat, App, BigPictureFocus, FocusedPane,
+    ModalState, ScanFolderItem, ViewMode,
 };
 use game_core::models::PlatformType;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -2371,6 +2372,22 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 format!("{} [ + Add New Folder ]", if is_add_focused { "▶" } else { " " }),
                 add_style,
             )));
+
+            // Bottom focusable item: [ Download Cores ] (only for core-based emulators)
+            let platform_has_core = scan_folder_platform_has_retroarch(&app.db, platform.id);
+            if platform_has_core {
+                let is_dl_core_focused =
+                    items.get(selected_index) == Some(&ScanFolderItem::DownloadCores);
+                let dl_style = if is_dl_core_focused {
+                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("{} [ Download Cores ]", if is_dl_core_focused { "▶" } else { " " }),
+                    dl_style,
+                )));
+            }
 
             let list_paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
             frame.render_widget(outer, popup_area);

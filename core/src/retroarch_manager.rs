@@ -404,15 +404,15 @@ mod tests {
     fn test_available_cores_filters_by_disk() {
         let tmp = std::env::temp_dir().join(format!("ra_cores_test_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        // Catalog order for nds is [melonds, desmume, noods, melondsds].
+        // Catalog order for nds is [desmume, noods, melondsds].
+        std::fs::write(tmp.join("desmume_libretro.so"), b"").unwrap();
         std::fs::write(tmp.join("melondsds_libretro.so"), b"").unwrap();
-        std::fs::write(tmp.join("melonds_libretro.so"), b"").unwrap();
-        // desmume_libretro.so intentionally NOT written to disk.
+        // noods_libretro.so intentionally NOT written to disk.
 
         let available = super::available_cores_in(&tmp, "nds");
         assert_eq!(available.len(), 2);
-        assert_eq!(available[0].key, "melonds");
-        assert_eq!(available[0].so_file, "melonds_libretro.so");
+        assert_eq!(available[0].key, "desmume");
+        assert_eq!(available[0].so_file, "desmume_libretro.so");
         assert_eq!(available[1].key, "melondsds");
 
         // Empty / missing cores dir -> no cores at all.
@@ -472,9 +472,9 @@ mod tests {
     fn test_first_loadable_core_skips_execstack_and_missing() {
         let tmp = std::env::temp_dir().join(format!("ra_firstload_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
-        // melondsds = RW (loadable); melonds = RWE (skipped); desmume missing.
+        // melondsds = RW (loadable); desmume = RWE (skipped); noods missing.
         std::fs::write(tmp.join("melondsds_libretro.so"), fake_elf64_so(false)).unwrap();
-        std::fs::write(tmp.join("melonds_libretro.so"), fake_elf64_so(true)).unwrap();
+        std::fs::write(tmp.join("desmume_libretro.so"), fake_elf64_so(true)).unwrap();
 
         let dirs = [tmp.as_path()];
         let core = first_loadable_core_in(&dirs, "nds").expect("fallback core");

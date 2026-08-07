@@ -303,19 +303,24 @@ impl GameRunner {
                 }
 
                 // Use the dynamically resolved AppImage path (handles the sub-folder
-                // layout that the .7z extraction creates).
-                let exe = game_core::retroarch_manager::resolve_retroarch_executable(r)
+                // layout that the .7z extraction creates). A flatpak/system
+                // install stores a full command string here ("flatpak run
+                // org.libretro.RetroArch"): split it so `Command::new` receives
+                // the program ("flatpak") and the prefix args ("run", app id) are
+                // prepended to the argv, otherwise spawn fails with
+                // "Failed to spawn game process: flatpak run org.libretro.RetroArch".
+                let exe_cmd = game_core::retroarch_manager::resolve_retroarch_executable(r)
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|| "retroarch".to_string());
+                let (exe, mut retroarch_args) = split_command_prefix(&exe_cmd);
 
                 tracing::info!(
-                    "[retroarch] launching: appimage={:?}  core={:?}  config={:?}",
+                    "[retroarch] launching: executable={:?}  core={:?}  config={:?}",
                     exe,
                     core_so_path,
                     config_path
                 );
 
-                let mut retroarch_args = Vec::new();
                 retroarch_args.push("-L".to_string());
                 retroarch_args.push(core_so_path.to_string_lossy().to_string());
                 retroarch_args.push("-c".to_string());
@@ -332,7 +337,13 @@ impl GameRunner {
                 pe.extend(local_envs);
 
                 if !option_flags.is_empty() {
-                    a.splice(0..0, option_flags);
+                    // For a plain binary the flags go right after the program.
+                    // For a `flatpak run <appid>` invocation they must come AFTER
+                    // the app id, otherwise `flatpak` itself chokes on the
+                    // emulator's flags (e.g. `flatpak -f run ...`) and exits
+                    // with code 1 before the emulator ever starts.
+                    let at = flag_insert_index(&e, &a);
+                    a.splice(at..at, option_flags);
                 }
                 (e, a, pe)
             }
@@ -603,6 +614,44 @@ impl GameRunner {
 
 fn is_appimage(exe: &str) -> bool {
     exe.to_lowercase().contains(".appimage")
+}
+
+/// A command string (e.g. `flatpak run org.libretro.RetroArch`) is not a plain
+/// file path and must not be validated with `Path::exists()`. The TUI uses this
+/// to decide whether an emulator's executable is "present" before launching.
+pub fn is_executable_command(exe: &str) -> bool {
+    let trimmed = exe.trim();
+    trimmed.contains(' ') || trimmed.contains('\t')
+}
+
+/// Split a command string (e.g. `flatpak run org.libretro.RetroArch`) into its
+/// program name and leading args. Plain executable paths/binary names pass
+/// through unchanged (empty prefix). Used so `Command::new` never receives a
+/// multi-word command string as the program name.
+fn split_command_prefix(exe: &str) -> (String, Vec<String>) {
+    let parts = shlex_split(exe.trim());
+    if parts.is_empty() {
+        return (String::new(), Vec::new());
+    }
+    (parts[0].clone(), parts[1..].to_vec())
+}
+
+/// Index where emulator option flags belong in the final argv.
+///
+/// Plain binaries put the flags right after the program (index 0). A
+/// `flatpak run <appid>` invocation needs them after the app id (index 2):
+/// `flatpak run <appid> <emulator flags> <rom>` — anything before that is
+/// parsed as a `flatpak` option and rejected with exit code 1.
+fn flag_insert_index(exe: &str, args: &[String]) -> usize {
+    let is_flatpak =
+        exe.eq_ignore_ascii_case("flatpak") || exe.eq_ignore_ascii_case("flatpak-spawn");
+    if is_flatpak
+        && args.first().map(|a| a == "run").unwrap_or(false)
+        && args.get(1).is_some_and(|a| !a.starts_with('-'))
+    {
+        return 2;
+    }
+    0
 }
 
 fn proc_cmdline(pid: u32) -> Option<String> {
@@ -962,6 +1011,10 @@ fn shlex_split(cmd: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// Serializes tests that redirect XDG/HOME and open the default DB in
+    /// parallel, so they never stomp each other's environment/DB file.
+    static DB_MUTEX: Mutex<()> = Mutex::new(());
+
     #[test]
     fn is_appimage_detects_appimage_paths() {
         assert!(is_appimage("/home/x/.local/bin/eden.AppImage"));
@@ -1127,6 +1180,191 @@ mod tests {
         runtime.block_on(wait_until_pid_gone(u32::MAX));
     }
 
+    #[test]
+    fn split_command_prefix_handles_plain_and_flatpak() {
+        let (prog, args) = split_command_prefix("flatpak run org.libretro.RetroArch");
+        assert_eq!(prog, "flatpak");
+        assert_eq!(args, vec!["run".to_string(), "org.libretro.RetroArch".to_string()]);
+
+        let (prog, args) = split_command_prefix("/opt/emulator.AppImage");
+        assert_eq!(prog, "/opt/emulator.AppImage");
+        assert!(args.is_empty());
+
+        let (prog, args) = split_command_prefix("retroarch");
+        assert_eq!(prog, "retroarch");
+        assert!(args.is_empty());
+
+        let (prog, args) = split_command_prefix("  ");
+        assert!(prog.is_empty());
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn flag_insert_index_skips_flatpak_prefix() {
+        // Plain binary -> flags at index 0.
+        assert_eq!(flag_insert_index("/opt/mame", &["-rompath".into()]), 0);
+        // flatpak run <appid> -> flags after the app id.
+        let args = ["run".to_string(), "org.mamedev.MAME".to_string()];
+        assert_eq!(flag_insert_index("flatpak", &args), 2);
+        // flatpak run --flag ... (no app id yet) -> fall back to 0.
+        assert_eq!(
+            flag_insert_index("flatpak", &["run".to_string(), "--user".to_string()]),
+            0
+        );
+        // Not flatpak -> 0 even with a space in the program name.
+        assert_eq!(flag_insert_index("my wrapper", &["a".to_string()]), 0);
+    }
+
+    #[test]
+    fn flatpak_launch_places_option_flags_after_app_id() {
+        let tmp = std::env::temp_dir().join(format!("mame_flatpak_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // Options like `-filter` always emit a flag (MAME dual-token toggles).
+        let game = game_core::models::Game {
+            id: 0,
+            platform_id: 0,
+            folder_id: None,
+            emulator_override: None,
+            core_override: None,
+            title: "1943u".to_string(),
+            sort_title: None,
+            game_type: "emulator".to_string(),
+            file_path: Some("/roms/arcade/1943u.zip".to_string()),
+            working_dir: Some("/roms/arcade".to_string()),
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: None,
+            file_extension: None,
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        };
+        let runner = game_core::models::Runner {
+            id: 0,
+            platform_id: None,
+            name: "MAME".to_string(),
+            runner_type: "appimage".to_string(),
+            executable_path: Some("flatpak run org.mamedev.MAME".to_string()),
+            command_template:
+                "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\"".to_string(),
+            default_env: None,
+            download_url: None,
+            download_filename: None,
+            is_default: false,
+            is_active: false,
+            env_vars: Some(r#"{"emulator_options":{"video":"bgfx","filter":"0"}}"#.to_string()),
+            source: None,
+        };
+
+        let (exe, args, _envs) = GameRunner::build_command_line(&game, Some(&runner)).unwrap();
+        assert_eq!(exe, "flatpak");
+        // [flatpak] run <appid> <flags...> <template args>
+        assert_eq!(args[0], "run");
+        assert_eq!(args[1], "org.mamedev.MAME");
+        let joined = args.join(" ");
+        assert!(
+            joined.contains("org.mamedev.MAME -nofilter") && joined.contains("-video bgfx"),
+            "flags must land after the app id, got: {joined}"
+        );
+        assert_eq!(args[args.len() - 1], "/roms/arcade/1943u.zip");
+        assert!(
+            joined.contains("-rompath /roms/arcade /roms/arcade/1943u.zip"),
+            "template args must follow the flags, got: {joined}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn flatpak_retroarch_launch_splits_the_command_string() {
+        let _guard = DB_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let old_home = std::env::var_os("HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "runner_ra_flatpak_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+        std::env::set_var("HOME", tmp.join("home"));
+
+        // Fake flatpak RetroArch: config + cores live in ~/.var/app/... so the
+        // resolver must point at them and launch the split "flatpak run" argv.
+        let flatpak_cfg = tmp.join("home/.var/app/org.libretro.RetroArch/config/retroarch");
+        std::fs::create_dir_all(flatpak_cfg.join("cores")).unwrap();
+        std::fs::write(flatpak_cfg.join("retroarch.cfg"), "").unwrap();
+        std::fs::write(flatpak_cfg.join("cores/melondsds_libretro.so"), b"").unwrap();
+
+        let db = game_core::db::Database::open_default().unwrap();
+        let nds = db.get_platform_by_slug("nds").unwrap().expect("nds");
+        let rid = db
+            .insert_runner(nds.id, "RetroArch", "retroarch")
+            .expect("runner");
+        db.update_runner_config_with_source(
+            rid,
+            "flatpak run org.libretro.RetroArch",
+            Some("flatpak"),
+        )
+        .unwrap();
+        db.set_active_runner(nds.id, rid).unwrap();
+        db.update_runner_env_by_name("RetroArch", Some(r#"{"active_core":"melondsds"}"#))
+            .unwrap();
+
+        let runner = db
+            .get_active_runner_for_platform(nds.id)
+            .unwrap()
+            .expect("active runner");
+        let game = fake_game(nds.id);
+        let (exe, args, _envs) = GameRunner::build_command_line(&game, Some(&runner)).unwrap();
+        assert_eq!(exe, "flatpak", "the program must be 'flatpak', not the whole string");
+        assert_eq!(args[0], "run");
+        assert_eq!(args[1], "org.libretro.RetroArch");
+        let joined = args.join(" ");
+        assert!(
+            joined.contains("run org.libretro.RetroArch -L "),
+            "core arg must come after the flatpak prefix, got: {joined}"
+        );
+        assert!(joined.contains("melondsds_libretro.so"));
+        assert!(joined.ends_with("/roms/nds/Yoshi.nds"));
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        match old_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     fn fake_elf64_so(execstack: bool) -> Vec<u8> {
         let mut b = vec![0u8; 64 + 56];
         b[0..4].copy_from_slice(b"\x7fELF");
@@ -1188,15 +1426,18 @@ mod tests {
         }
     }
 
-    /// Regression: NDS + RetroArch Downloaded with `active_core=melonds` used
-    /// to launch `melonds_libretro.so`, whose ELF header requires an executable
-    /// stack (GNU_STACK RWE). Hardened kernels refuse to grant it, so `dlopen`
-    /// fails and RetroArch exits with code 1. `build_command_line` must fall
-    /// back to the first loadable catalog core (`melondsds`).
+    /// Regression: NDS + RetroArch Downloaded with `active_core=desmume` (the
+    /// catalog default) used to launch `desmume_libretro.so` whose ELF header
+    /// requires an executable stack (GNU_STACK RWE). Hardened kernels refuse to
+    /// grant it, so `dlopen` fails and RetroArch exits with code 1.
+    /// `build_command_line` must fall back to the first loadable catalog core
+    /// (here `melondsds`).
     #[test]
     fn retroarch_launch_falls_back_from_execstack_core_to_loadable_core() {
+        let _guard = DB_MUTEX.lock().unwrap();
         let old_data = std::env::var_os("XDG_DATA_HOME");
         let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let old_config = std::env::var_os("XDG_CONFIG_HOME");
         let tmp = std::env::temp_dir().join(format!(
             "runner_ra_fallback_{}_{}",
             std::process::id(),
@@ -1207,6 +1448,7 @@ mod tests {
         ));
         std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
         std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+        std::env::set_var("XDG_CONFIG_HOME", tmp.join("config"));
 
         // Fake Downloaded RetroArch tree (managed dir resolves from XDG).
         let managed = tmp
@@ -1224,11 +1466,11 @@ mod tests {
             .join("retroarch")
             .join("cores");
         std::fs::create_dir_all(&cores_dir).unwrap();
-        // melonds requires execstack (broken on hardened kernels); melondsds is RW.
-        std::fs::write(cores_dir.join("melonds_libretro.so"), fake_elf64_so(true)).unwrap();
+        // desmume requires execstack (broken on hardened kernels); melondsds is RW.
+        std::fs::write(cores_dir.join("desmume_libretro.so"), fake_elf64_so(true)).unwrap();
         std::fs::write(cores_dir.join("melondsds_libretro.so"), fake_elf64_so(false)).unwrap();
 
-        // DB: NDS with active Downloaded RetroArch whose env pins core=melonds.
+        // DB: NDS with active Downloaded RetroArch whose env pins core=desmume.
         let db = game_core::db::Database::open_default().unwrap();
         let nds = db.get_platform_by_slug("nds").unwrap().expect("nds");
         let rid = db
@@ -1237,7 +1479,7 @@ mod tests {
         db.update_runner_config_with_source(rid, &appimage.to_string_lossy(), Some("Downloaded"))
             .unwrap();
         db.set_active_runner(nds.id, rid).unwrap();
-        db.update_runner_env_by_name("RetroArch", Some(r#"{"active_core":"melonds"}"#))
+        db.update_runner_env_by_name("RetroArch", Some(r#"{"active_core":"desmume"}"#))
             .unwrap();
 
         let runner = db
@@ -1252,7 +1494,7 @@ mod tests {
             "expected fallback to melondsds, args: {args_str}"
         );
         assert!(
-            !args_str.contains("melonds_libretro.so"),
+            !args_str.contains("desmume_libretro.so"),
             "must not use the execstack core, args: {args_str}"
         );
 
@@ -1263,6 +1505,10 @@ mod tests {
         match old_cache {
             Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
             None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        match old_config {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
     }

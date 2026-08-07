@@ -86,6 +86,7 @@ pub enum ScanFolderItem {
     FolderEmulator(usize),
     FolderCore(usize),
     AddNewFolder,
+    DownloadCores,
 }
 
 pub(crate) fn is_retroarch_runner(runner: &Runner) -> bool {
@@ -117,7 +118,22 @@ pub fn build_scan_folder_items(db: &Database, platform_id: i64, folders: &[Scann
         }
     }
     items.push(ScanFolderItem::AddNewFolder);
+    if scan_folder_platform_has_retroarch(db, platform_id) {
+        items.push(ScanFolderItem::DownloadCores);
+    }
     items
+}
+
+/// Whether the platform has a RetroArch runner configured (active or not).
+///
+/// The folder manager offers `[ Download Cores ]` whenever RetroArch is a
+/// possible emulator for the platform — e.g. NDS with melonDS active but
+/// RetroArch configured — not only when RetroArch is the active runner.
+pub(crate) fn scan_folder_platform_has_retroarch(db: &Database, platform_id: i64) -> bool {
+    db.get_runners_for_platform(platform_id)
+        .unwrap_or_default()
+        .iter()
+        .any(is_retroarch_runner)
 }
 
 pub(crate) fn scan_folder_supports_dat(slug: &str) -> bool {
@@ -1311,6 +1327,9 @@ impl App {
                 // Enter on [+ Agregar carpeta nueva] opens Modal 2 (AddFolderScanForm)
                 self.update(Action::OpenAddFolderModal).await;
             }
+            ScanFolderItem::DownloadCores => {
+                self.update(Action::OpenDownloadCoreModal).await;
+            }
         }
     }
 
@@ -1740,18 +1759,22 @@ impl App {
             let Ok(Some(active)) = self.db.get_active_runner_for_platform(platform.id) else {
                 continue;
             };
-            let active_ok = active
-                .executable_path
-                .as_ref()
-                .is_some_and(|ex| !ex.trim().is_empty() && Path::new(ex).exists());
+            let active_ok = active.executable_path.as_ref().is_some_and(|ex| {
+                let ex = ex.trim();
+                !ex.is_empty() && (runner::is_executable_command(ex) || Path::new(ex).exists())
+            });
             if active_ok {
                 continue;
             }
             let configured = self.configured_runners_for(platform.id);
-            if let Some(candidate) = configured
-                .iter()
-                .find(|r| r.id != active.id && r.executable_path.as_ref().is_some_and(|ex| Path::new(ex).exists()))
-            {
+            if let Some(candidate) = configured.iter().find(|r| {
+                r.id != active.id
+                    && r.executable_path.as_ref().is_some_and(|ex| {
+                        let ex = ex.trim();
+                        !ex.is_empty()
+                            && (runner::is_executable_command(ex) || Path::new(ex).exists())
+                    })
+            }) {
                 let _ = self.db.set_active_runner(platform.id, candidate.id);
             }
         }
@@ -3045,7 +3068,8 @@ impl App {
                         }
                     } else {
                         let has_executable = !exe_path_input.trim().is_empty()
-                            && std::path::Path::new(exe_path_input.trim()).exists();
+                            && (runner::is_executable_command(exe_path_input.trim())
+                                || std::path::Path::new(exe_path_input.trim()).exists());
                         let download_url = runner_info.download_url.is_some();
                         let mut total_btns = 2;
                         if download_url {
@@ -3094,7 +3118,8 @@ impl App {
                     return;
                 };
                 let has_executable = !exe_path_input.trim().is_empty()
-                    && std::path::Path::new(exe_path_input.trim()).exists();
+                    && (runner::is_executable_command(exe_path_input.trim())
+                        || std::path::Path::new(exe_path_input.trim()).exists());
 
                 if selected_row == 0 {
                     if exe_path_input.trim().is_empty() {
@@ -3950,7 +3975,7 @@ impl App {
                         );
                         return;
                     }
-                    if !Path::new(exe).exists() {
+                    if !Path::new(exe).exists() && !runner::is_executable_command(exe) {
                         self.status_msg = format!(
                             "Executable/AppImage for '{}' does not exist on disk ({}).",
                             runner_info.name, exe
@@ -7000,7 +7025,20 @@ impl App {
                 let runners = self.db.get_runners_for_platform(platform.id).unwrap_or_default();
                 let runner = match runner_id {
                     Some(id) => runners.into_iter().find(|r| r.id == id),
-                    None => runners.into_iter().find(|r| r.is_active),
+                    None => {
+                        // From the folder manager there is no emulator override:
+                        // prefer the active runner, but fall back to a configured
+                        // RetroArch one when the active emulator is not RetroArch
+                        // (e.g. NDS active=melonDS but RetroArch is configured).
+                        let active = runners.iter().find(|r| r.is_active);
+                        match active {
+                            Some(r) if is_retroarch_runner(r) => Some(r.clone()),
+                            _ => runners
+                                .iter()
+                                .find(|r| is_retroarch_runner(r))
+                                .cloned(),
+                        }
+                    }
                 };
                 if let Some(r) = runner {
                     let cores = game_core::core_catalog::cores_for_platform(&platform.slug);
@@ -9188,7 +9226,7 @@ mod tests {
     /// TAREA 3 + Objetivos 1/2: el flujo A → "Escanear carpeta" abre el
     /// formulario simplificado (`AddFolderScanForm`) y su selector de núcleo
     /// se alimenta de los `.so` realmente presentes en disco (NDS + RetroArch
-    /// Downloaded → `melonds`), no del catálogo a ciegas. El override de
+    /// Downloaded → `desmume`), no del catálogo a ciegas. El override de
     /// emulador/núcleo se persiste en la carpeta, el escaneo sigue
     /// funcionando y el folder manager ([e]) lo muestra después.
     #[tokio::test]
@@ -9227,7 +9265,6 @@ mod tests {
             .join("cores");
         std::fs::create_dir_all(&cores_dir).expect("mkdir cores");
         std::fs::write(cores_dir.join("melondsds_libretro.so"), "").expect("write melondsds");
-        std::fs::write(cores_dir.join("melonds_libretro.so"), "").expect("write melonds");
         std::fs::write(cores_dir.join("desmume_libretro.so"), "").expect("write desmume");
 
         let fake_dir = tmp.join("roms");
@@ -9263,7 +9300,7 @@ mod tests {
         // El selector de núcleo filtra por `.so` reales en disco (no el catálogo).
         let disk_cores = add_scan_available_cores(&app.db, &nds, None);
         let disk_keys: Vec<&str> = disk_cores.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(disk_keys, vec!["melonds", "desmume", "melondsds"]);
+        assert_eq!(disk_keys, vec!["desmume", "melondsds"]);
 
         // Flujo A → Scan Folder → confirmar plataforma → AddFolderScanForm.
         app.update(Action::OpenAddGameModal).await;
@@ -9294,7 +9331,7 @@ mod tests {
         assert_eq!(add_emulator_id, &None, "no explicit emulator override yet");
         assert_eq!(
             add_core.as_deref(),
-            Some("melonds"),
+            Some("desmume"),
             "seeded from .so on disk (catalog default)"
         );
 
@@ -9312,7 +9349,7 @@ mod tests {
             panic!("modal closed");
         };
         assert_eq!(add_emulator_id, &Some(rid));
-        assert_eq!(add_core.as_deref(), Some("melonds"));
+        assert_eq!(add_core.as_deref(), Some("desmume"));
         *folder_path = fake_path.clone();
         *extensions_input = "nds".to_string();
         app.update(Action::StartAddAndScan).await;
@@ -9321,7 +9358,7 @@ mod tests {
         let folders = app.db.get_scan_folders_for_platform(nds.id).expect("folders");
         let folder = folders.first().expect("saved folder");
         assert_eq!(folder.assigned_emulator_id, Some(rid));
-        assert_eq!(folder.assigned_core.as_deref(), Some("melonds"));
+        assert_eq!(folder.assigned_core.as_deref(), Some("desmume"));
 
         // Esperar a que termine el escaneo asíncrono real.
         let mut waited = 0;
@@ -9353,7 +9390,128 @@ mod tests {
             .iter()
             .find(|f| f.assigned_emulator_id == Some(rid))
             .expect("folder with override");
-        assert_eq!(f.assigned_core.as_deref(), Some("melonds"));
+        assert_eq!(f.assigned_core.as_deref(), Some("desmume"));
+
+        match old_data {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// `[ Download Cores ]` in the folder manager must appear whenever a
+    /// RetroArch runner is configured for the platform — even when RetroArch is
+    /// NOT the active emulator (e.g. NDS active=melonDS). Platforms without a
+    /// RetroArch runner (e.g. Switch) must not show it. The download modal must
+    /// target the configured RetroArch runner in that case, not the active one.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn folder_manager_download_cores_visible_for_any_configured_retroarch() {
+        let _xdg_guard = XDG_MUTEX.lock().unwrap();
+        let old_data = std::env::var_os("XDG_DATA_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        let tmp = std::env::temp_dir().join(format!(
+            "tui_game_station_folder_dlc_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
+        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
+
+        let mut app = App::new().expect("App::new with isolated dirs");
+        app.show_all_platforms = true;
+        app.load_platforms();
+
+        // NDS: catalog seeds melonDS + RetroArch; melonDS is the active runner.
+        let nds = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "nds")
+            .expect("nds platform")
+            .clone();
+        let nds_runners = app.db.get_runners_for_platform(nds.id).expect("nds runners");
+        let melonds = nds_runners
+            .iter()
+            .find(|r| r.name == "melonDS")
+            .expect("melonDS seeded");
+        let retroarch = nds_runners
+            .iter()
+            .find(|r| r.name == "RetroArch")
+            .expect("RetroArch seeded");
+        assert!(melonds.is_active, "melonDS must be the active NDS runner");
+        assert!(!retroarch.is_active);
+
+        // Folder manager still offers core downloads: RetroArch is configured.
+        assert!(scan_folder_platform_has_retroarch(&app.db, nds.id));
+        let items = build_scan_folder_items(&app.db, nds.id, &[]);
+        assert!(
+            items.contains(&ScanFolderItem::DownloadCores),
+            "NDS with RetroArch configured must show DownloadCores, got {items:?}"
+        );
+
+        // Rendering: the folder manager row is visible for NDS.
+        app.modal_state = ModalState::ScanFolderForm {
+            platform: nds.clone(),
+            folders: Vec::new(),
+            selected_index: items.len().saturating_sub(1),
+        };
+        let backend = ratatui::backend::TestBackend::new(100, 40);
+        let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+        terminal
+            .draw(|f| crate::ui::render_ui(f, &mut app))
+            .expect("draw");
+        let text = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(
+            text.contains("Download Cores"),
+            "folder manager must render Download Cores for NDS, got: {text}"
+        );
+
+        // The download modal targets the configured RetroArch runner, not the
+        // active melonDS.
+        app.update(Action::OpenDownloadCoreModal).await;
+        let ModalState::DownloadCoreModal {
+            platform,
+            runner,
+            cores,
+            ..
+        } = &app.modal_state
+        else {
+            panic!("expected DownloadCoreModal, got {:?}", app.modal_state);
+        };
+        assert_eq!(platform.id, nds.id);
+        assert_eq!(runner.name, "RetroArch");
+        assert!(
+            cores.iter().any(|c| c.so_file == "melondsds_libretro.so"),
+            "NDS cores listed: {:?}",
+            cores.iter().map(|c| c.so_file.clone()).collect::<Vec<_>>()
+        );
+
+        // Switch: no RetroArch seeded -> no Download Cores anywhere.
+        let switch = app
+            .platforms
+            .iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch platform")
+            .clone();
+        assert!(!scan_folder_platform_has_retroarch(&app.db, switch.id));
+        let switch_items = build_scan_folder_items(&app.db, switch.id, &[]);
+        assert!(
+            !switch_items.contains(&ScanFolderItem::DownloadCores),
+            "Switch has no RetroArch runner, got {switch_items:?}"
+        );
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

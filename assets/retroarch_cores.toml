@@ -83,13 +83,9 @@ download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/vbam_l
 
 
 [platform.nds]
-# `melonds` core note: on some hardened kernels melonds_libretro.so has GNU_STACK RWX flags, so melondsds is listed as alternative/default.
-[[platform.nds.cores]]
-key = "melonds"
-name = "melonDS"
-so_file = "melonds_libretro.so"
-download_url = "https://buildbot.libretro.com/nightly/linux/x86_64/latest/melonds_libretro.so.zip"
-
+# `melonds` is intentionally absent from the catalog: its .so ships with
+# GNU_STACK RWE flags, which hardened kernels refuse to dlopen (exit code 1).
+# melondsds is the default core for NDS.
 [[platform.nds.cores]]
 key = "desmume"
 name = "DeSmuME"
