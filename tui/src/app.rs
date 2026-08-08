@@ -1924,6 +1924,9 @@ impl App {
     }
 
     pub fn load_games_for_selected_platform(&mut self) {
+        self.media_protocols.clear();
+        self.pending_cover_requests.clear();
+
         if self.platforms.is_empty() {
             self.games.clear();
             self.selected_game_idx = 0;
@@ -1952,44 +1955,61 @@ impl App {
         let tx = self.cover_tx.clone();
         let manager = self.cover_manager.clone();
 
-        for game in &self.games {
-            let game_id = game.id;
-            let local_cover = vec![
-                media_dir.join(format!("{}.jpg", game_id)),
-                media_dir.join(format!("{}.png", game_id)),
-                media_dir.join(format!("{}.webp", game_id)),
-            ]
-            .into_iter()
-            .find(|p| p.exists());
+        let games = self.games.clone();
+        tokio::spawn(async move {
+            let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+            for game in games {
+                let game_id = game.id;
+                let local_cover = vec![
+                    media_dir.join(format!("{}.jpg", game_id)),
+                    media_dir.join(format!("{}.png", game_id)),
+                    media_dir.join(format!("{}.webp", game_id)),
+                ]
+                .into_iter()
+                .find(|p| p.exists());
 
-            if let Some(path) = local_cover {
-                let tx_c = tx.clone();
-                let manager_c = manager.clone();
-                let path_c = path.clone();
-                tokio::spawn(async move {
-                    if let Some(protocol) = manager_c.load_protocol_from_file(&path_c) {
+                if let Some(path) = local_cover {
+                    let tx_c = tx.clone();
+                    let manager_c = manager.clone();
+                    let sem_c = semaphore.clone();
+                    tokio::spawn(async move {
+                        let _permit = sem_c.acquire().await;
+                        let path_c = path.clone();
+                        let manager_hb = manager_c.clone();
+                        let protocol = tokio::task::spawn_blocking(move || {
+                            manager_c.load_protocol_from_file(&path_c)
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+
                         let _ = tx_c
                             .send(LoadedCoverEvent {
                                 game_id,
                                 media_type: "cover".to_string(),
-                                protocol: Some(protocol),
+                                protocol,
                             })
                             .await;
-                    }
 
-                    if let Some(protocol_hb) = manager_c.load_halfblocks_protocol_from_file(&path_c)
-                    {
+                        let path_hb = path.clone();
+                        let protocol_hb = tokio::task::spawn_blocking(move || {
+                            manager_hb.load_halfblocks_protocol_from_file(&path_hb)
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+
                         let _ = tx_c
                             .send(LoadedCoverEvent {
                                 game_id,
                                 media_type: "cover_hb".to_string(),
-                                protocol: Some(protocol_hb),
+                                protocol: protocol_hb,
                             })
                             .await;
-                    }
-                });
+                    });
+                }
             }
-        }
+        });
     }
 
     pub fn trigger_auto_bulk_media_fetch(&mut self) {

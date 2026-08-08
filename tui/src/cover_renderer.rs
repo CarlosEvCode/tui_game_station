@@ -6,7 +6,8 @@ use ratatui_image::protocol::StatefulProtocol;
 use std::path::Path;
 
 const MIN_SOURCE_DIM: u32 = 256;
-const BANNER_SOURCE_WIDTH: u32 = 1600;
+const MAX_DECODE_DIM: u32 = 640;
+const BANNER_SOURCE_WIDTH: u32 = 1200;
 
 #[derive(Clone)]
 pub struct CoverManager {
@@ -69,7 +70,20 @@ impl CoverManager {
             .ok()?
             .decode()
             .ok()?;
-        Some(Self::ensure_min_resolution(dyn_img))
+        let img = Self::ensure_min_resolution(dyn_img);
+        Some(Self::clamp_max_resolution(img, MAX_DECODE_DIM))
+    }
+
+    fn clamp_max_resolution(img: DynamicImage, max_allowed: u32) -> DynamicImage {
+        let (w, h) = (img.width(), img.height());
+        let max_dim = w.max(h);
+        if max_dim <= max_allowed {
+            return img;
+        }
+        let scale = max_allowed as f32 / max_dim as f32;
+        let new_w = (w as f32 * scale).round().max(1.0) as u32;
+        let new_h = (h as f32 * scale).round().max(1.0) as u32;
+        image::imageops::resize(&img, new_w, new_h, FilterType::Triangle).into()
     }
 
     fn ensure_min_resolution(img: DynamicImage) -> DynamicImage {
@@ -81,7 +95,7 @@ impl CoverManager {
         let scale = MIN_SOURCE_DIM as f32 / max_dim as f32;
         let new_w = (w as f32 * scale).round().max(1.0) as u32;
         let new_h = (h as f32 * scale).round().max(1.0) as u32;
-        image::imageops::resize(&img, new_w, new_h, FilterType::CatmullRom).into()
+        image::imageops::resize(&img, new_w, new_h, FilterType::Triangle).into()
     }
 
     fn ensure_min_width(img: DynamicImage, target_width: u32) -> DynamicImage {
