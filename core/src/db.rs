@@ -1605,6 +1605,94 @@ impl Database {
         }
         Ok(deleted)
     }
+
+    /// Toggle the `favorite` flag for a game and return the new value.
+    pub fn toggle_favorite(&self, game_id: i64) -> Result<bool> {
+        self.conn.execute(
+            "UPDATE games SET favorite = NOT favorite, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            rusqlite::params![game_id],
+        )?;
+        let new_val: bool = self.conn.query_row(
+            "SELECT favorite FROM games WHERE id = ?1",
+            rusqlite::params![game_id],
+            |row| row.get(0),
+        )?;
+        Ok(new_val)
+    }
+
+    /// Return all games marked as favorites across all platforms, ordered by title.
+    pub fn get_favorite_games(&self) -> Result<Vec<Game>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, platform_id, title, sort_title, game_type, file_path, working_dir, \
+             custom_command, env_vars, wine_prefix, wine_runner_id, steam_appid, \
+             file_name, file_extension, file_size, file_hash_crc32, file_hash_md5, \
+             file_hash_sha1, serial, release_year, developer, publisher, description, \
+             genre, rating, favorite, play_count, play_time_seconds, last_played_at, \
+             created_at, updated_at, is_missing_base, folder_id, emulator_override, core_override \
+             FROM games WHERE favorite = 1 ORDER BY LOWER(title)",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Game {
+                id: row.get(0)?,
+                platform_id: row.get(1)?,
+                title: row.get(2)?,
+                sort_title: row.get(3)?,
+                game_type: row.get(4)?,
+                file_path: row.get(5)?,
+                working_dir: row.get(6)?,
+                custom_command: row.get(7)?,
+                env_vars: row.get(8)?,
+                wine_prefix: row.get(9)?,
+                wine_runner_id: row.get(10)?,
+                steam_appid: row.get(11)?,
+                file_name: row.get(12)?,
+                file_extension: row.get(13)?,
+                file_size: row.get(14)?,
+                file_hash_crc32: row.get(15)?,
+                file_hash_md5: row.get(16)?,
+                file_hash_sha1: row.get(17)?,
+                serial: row.get(18)?,
+                release_year: row.get(19)?,
+                developer: row.get(20)?,
+                publisher: row.get(21)?,
+                description: row.get(22)?,
+                genre: row.get(23)?,
+                rating: row.get(24)?,
+                favorite: row.get(25)?,
+                play_count: row.get(26)?,
+                play_time_seconds: row.get(27)?,
+                last_played_at: row.get(28)?,
+                created_at: row.get(29)?,
+                updated_at: row.get(30)?,
+                is_missing_base: row.get(31)?,
+                folder_id: row.get(32)?,
+                emulator_override: row.get(33)?,
+                core_override: row.get(34)?,
+                components: Vec::new(),
+            })
+        })?;
+        let mut games = Vec::new();
+        for g in rows {
+            games.push(g?);
+        }
+        self.attach_components(&mut games, None)?;
+        Ok(games)
+    }
+
+    /// Record a completed play session: increments play_count by 1, accumulates
+    /// `elapsed_seconds` into play_time_seconds, and sets last_played_at to now.
+    pub fn record_play_session(&self, game_id: i64, elapsed_seconds: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE games
+             SET play_count        = play_count + 1,
+                 play_time_seconds = play_time_seconds + ?1,
+                 last_played_at    = CURRENT_TIMESTAMP,
+                 updated_at        = CURRENT_TIMESTAMP
+             WHERE id = ?2",
+            rusqlite::params![elapsed_seconds, game_id],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

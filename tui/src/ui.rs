@@ -5183,7 +5183,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(form_p, chunks[0]);
 
-            let help = Paragraph::new(" [Up/Down] Navigate Fields | [Enter] Toggle / Select | [Space] Toggle Checkbox | [Esc] Cancel")
+            let help = Paragraph::new(" [Up/Down] Navigate | [Enter] Select | [Space] Toggle | [m] Local Media | [Esc] Cancel")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, chunks[1]);
         }
@@ -5595,6 +5595,110 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .border_style(Style::default().fg(Color::Green)),
             );
 
+            frame.render_widget(p, popup_area);
+        }
+        ModalState::FavoritesModal {
+            ref games,
+            selected_idx,
+        } => {
+            let needed_w = 64u16.min(frame.area().width.saturating_sub(4));
+            let needed_h = (games.len() as u16 + 6).clamp(8, 20).min(frame.area().height.saturating_sub(2));
+            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let mut list_items = Vec::new();
+            if games.is_empty() {
+                list_items.push(ListItem::new(Span::styled(
+                    "  No favorites added yet. Press [f] on any game or detail view!",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            } else {
+                for (idx, game) in games.iter().enumerate() {
+                    let is_sel = idx == selected_idx;
+                    let style = if is_sel {
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    let prefix = if is_sel { " ➔ " } else { "   " };
+                    let title_text = format!("{}⭐ {}", prefix, game.title);
+                    list_items.push(ListItem::new(Span::styled(title_text, style)));
+                }
+            }
+
+            let list = List::new(list_items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " ⭐ FAVORITES LIBRARY ⭐ ",
+                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        " [Up/Down] Navigate | [Enter] Go to game | [Esc] Close ",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+            frame.render_widget(list, popup_area);
+        }
+        ModalState::LocalMediaPicker {
+            game_id,
+            ref media_type,
+            selected_option,
+            ref path_input,
+            cursor_pos,
+            ..
+        } => {
+            let needed_w = 64u16.min(frame.area().width.saturating_sub(4));
+            let needed_h = 11u16;
+            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let opts = ["Cover", "Banner", "Icon"];
+            let mut type_spans = Vec::new();
+            for (idx, name) in opts.iter().enumerate() {
+                if idx == selected_option {
+                    type_spans.push(Span::styled(
+                        format!(" [{}] ", name),
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    type_spans.push(Span::styled(
+                        format!("  {}  ", name),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+            }
+
+            let (before, after) = path_input.split_at(cursor_pos.min(path_input.len()));
+            let lines = vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" Type: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                ].into_iter().chain(type_spans).collect::<Vec<_>>()),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(" File Path: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::raw(before),
+                    Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(after),
+                ]),
+                Line::from(""),
+            ];
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        " 🖼️ LOCAL MEDIA SELECTOR 🖼️ ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        " [Enter] Confirm & Copy | [Esc] Cancel ",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
             frame.render_widget(p, popup_area);
         }
         ModalState::None => {}

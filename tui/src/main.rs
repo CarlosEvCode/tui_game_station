@@ -1088,7 +1088,44 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                     }
-                                    ModalState::ScanFolderForm { .. } => {
+                                     ModalState::FavoritesModal { ref games, selected_idx } => {
+                                         if let Some(g) = games.get(selected_idx) {
+                                             let gid = g.id;
+                                             app.modal_state = ModalState::None;
+                                             if let Some(pos) = app.games.iter().position(|x| x.id == gid) {
+                                                 app.selected_game_idx = pos;
+                                                 if app.is_big_picture {
+                                                     app.update(Action::OpenGameDetail).await;
+                                                 }
+                                             }
+                                         }
+                                     }
+                                     ModalState::LocalMediaPicker {
+                                         game_id,
+                                         ref media_type,
+                                         selected_option,
+                                         ref path_input,
+                                         parent_modal: ref parent,
+                                         ..
+                                     } => {
+                                         let path = path_input.trim().to_string();
+                                         let mtype = match selected_option {
+                                             1 => "banner",
+                                             2 => "icon",
+                                             _ => "cover",
+                                         }.to_string();
+                                         let gid = game_id;
+                                         let parent_state = parent.clone();
+                                         if !path.is_empty() {
+                                             app.update(Action::LocalMediaPickerConfirm {
+                                                 game_id: gid,
+                                                 media_type: mtype,
+                                                 path,
+                                             }).await;
+                                         }
+                                         app.modal_state = *parent_state;
+                                     }
+                                     ModalState::ScanFolderForm { .. } => {
                                         app.handle_scan_form_enter().await;
                                     }
                                     ModalState::WindowsGamesManager { .. } => {
@@ -1201,6 +1238,16 @@ async fn main() -> Result<()> {
                                     {
                                         if *cursor_pos > 0 && !sgdb_api_key.is_empty() {
                                             sgdb_api_key.remove(*cursor_pos - 1);
+                                            *cursor_pos -= 1;
+                                        }
+                                    } else if let ModalState::LocalMediaPicker {
+                                        ref mut path_input,
+                                        ref mut cursor_pos,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if *cursor_pos > 0 && !path_input.is_empty() {
+                                            path_input.remove(*cursor_pos - 1);
                                             *cursor_pos -= 1;
                                         }
                                     } else if let ModalState::FuzzySearchModal {
@@ -1323,6 +1370,16 @@ async fn main() -> Result<()> {
                                         app.update(Action::ModalInputChar('p')).await;
                                     }
                                 },
+                                KeyCode::Char('m') => {
+                                    if let ModalState::EditGameForm { game_id, .. } = app.modal_state {
+                                        app.update(Action::OpenLocalMediaPicker {
+                                            game_id,
+                                            media_type: "cover".to_string(),
+                                        }).await;
+                                    } else {
+                                        app.update(Action::ModalInputChar('m')).await;
+                                    }
+                                },
                                 KeyCode::Char('t') => {
                                     if let ModalState::ProtonDownloader { .. } = app.modal_state {
                                         app.update(Action::ProtonDownloaderSelectNext).await;
@@ -1362,6 +1419,14 @@ async fn main() -> Result<()> {
                                     {
                                         sgdb_api_key.insert(*cursor_pos, c);
                                         *cursor_pos += 1;
+                                    } else if let ModalState::LocalMediaPicker {
+                                        ref mut path_input,
+                                        ref mut cursor_pos,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        path_input.insert(*cursor_pos, c);
+                                        *cursor_pos += 1;
                                     } else if let ModalState::FuzzySearchModal {
                                         ref mut query,
                                         ref mut cursor_pos,
@@ -1381,16 +1446,22 @@ async fn main() -> Result<()> {
                             // Game Detail View: dedicated controls
                             match key.code {
                                 KeyCode::Enter => {
-                                    if app.detail_action_idx == 0 {
-                                        app.update(Action::LaunchGame).await;
-                                    } else {
-                                        app.show_toast(
-                                            "This action will be available soon.",
-                                            crate::toast::ToastKind::Info,
-                                        );
+                                    match app.detail_action_idx {
+                                        0 => {
+                                            app.update(Action::LaunchGame).await;
+                                            terminal.clear()?;
+                                            terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                                        }
+                                        1 => { app.update(Action::ToggleFavorite).await; }
+                                        2 => {
+                                            app.show_toast(
+                                                "Options: coming soon",
+                                                crate::toast::ToastKind::Info,
+                                            );
+                                        }
+                                        3 => { app.update(Action::DeleteDetailGame).await; }
+                                        _ => {}
                                     }
-                                    terminal.clear()?;
-                                    terminal.draw(|f| ui::render_ui(f, &mut app))?;
                                 }
                                 KeyCode::Esc => {
                                     app.update(Action::CloseGameDetail).await;
@@ -1400,6 +1471,13 @@ async fn main() -> Result<()> {
                                 }
                                 KeyCode::Right => {
                                     app.update(Action::DetailNextAction).await;
+                                }
+                                // Shortcuts for quick access without navigating buttons.
+                                KeyCode::Char('f') => {
+                                    app.update(Action::ToggleFavorite).await;
+                                }
+                                KeyCode::Delete | KeyCode::Char('d') => {
+                                    app.update(Action::DeleteDetailGame).await;
                                 }
                                 _ => {}
                             }
@@ -1494,6 +1572,9 @@ async fn main() -> Result<()> {
                                     }
                                     KeyCode::Char('w') => {
                                         app.update(Action::OpenVisualMediaModal).await;
+                                    }
+                                    KeyCode::Char('F') => {
+                                        app.update(Action::OpenFavoritesModal).await;
                                     }
                                     KeyCode::Tab => {
                                         if app.is_big_picture {

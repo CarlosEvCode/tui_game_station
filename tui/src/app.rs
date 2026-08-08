@@ -41,6 +41,9 @@ pub struct RunningGame {
     pub title: String,
     pub runner_name: Option<String>,
     pub started_at: Instant,
+    /// DB id of the launched game — used to record play stats on exit. None
+    /// for standalone emulator launches that are not tied to a specific game.
+    pub game_id: Option<i64>,
 }
 
 /// Result of a background game launch, sent back to the TUI when it exits.
@@ -632,6 +635,24 @@ pub enum ModalState {
         download_url: String,
         release_notes: String,
     },
+    /// Modal that lists all games marked as favorites (icon + title list).
+    FavoritesModal {
+        games: Vec<game_core::models::Game>,
+        selected_idx: usize,
+    },
+    /// Tiny sub-modal from EditGameForm to pick a local image file for
+    /// cover / banner / icon without going to SteamGridDB.
+    LocalMediaPicker {
+        game_id: i64,
+        /// "cover" | "banner" | "icon"
+        media_type: String,
+        /// The three choosable options the user sees.
+        selected_option: usize, // 0=cover 1=banner 2=icon
+        /// Text input for a custom file path.
+        path_input: String,
+        cursor_pos: usize,
+        parent_modal: Box<ModalState>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -798,6 +819,17 @@ pub enum Action {
     /// Kill the currently running game (real process + tree + FUSE mount) from
     /// the "Juego en ejecución" indicator. Available whenever a game runs.
     ForceCloseGame,
+
+    /// Toggle the `favorite` flag of the currently selected/displayed game.
+    ToggleFavorite,
+    /// Open the Favorites modal listing all favorited games with icons.
+    OpenFavoritesModal,
+    /// Open the local-file media picker sub-modal from EditGameForm.
+    OpenLocalMediaPicker { game_id: i64, media_type: String },
+    /// User confirmed a local file path in the media picker.
+    LocalMediaPickerConfirm { game_id: i64, media_type: String, path: String },
+    /// Delete the currently displayed game from the Big Picture detail view.
+    DeleteDetailGame,
 
     Quit,
     SetStatus(String),
@@ -2558,8 +2590,27 @@ impl App {
         let Ok(result) = rx.try_recv() else {
             return;
         };
+
+        // Capture data we need before clearing running_game.
+        let (game_id, elapsed_secs) = if let Some(ref rg) = self.running_game {
+            let secs = rg.started_at.elapsed().as_secs() as i64;
+            (rg.game_id, secs)
+        } else {
+            (None, 0)
+        };
+
         self.game_exit_rx = None;
         self.running_game = None;
+
+        // Record play session statistics (best-effort — ignore DB errors).
+        if let Some(id) = game_id {
+            let _ = self.db.record_play_session(id, elapsed_secs);
+            // Refresh in-memory game entry so favorite flag / counts stay in sync.
+            if let Some(g) = self.games.iter_mut().find(|g| g.id == id) {
+                g.play_count += 1;
+                g.play_time_seconds += elapsed_secs;
+            }
+        }
 
         crate::window_helper::restore_active_window();
         self.resume_input_after_game();
@@ -2587,6 +2638,7 @@ impl App {
             title: game.title.clone(),
             runner_name: runner.as_ref().map(|r| r.name.clone()),
             started_at: Instant::now(),
+            game_id: Some(game.id),
         });
         let (tx, rx) = mpsc::channel::<GameExitResult>(1);
         self.game_exit_rx = Some(rx);
@@ -2604,6 +2656,7 @@ impl App {
             runner_name: Some(runner.name.clone()),
             title: title.clone(),
             started_at: Instant::now(),
+            game_id: None,
         });
         let (tx, rx) = mpsc::channel::<GameExitResult>(1);
         self.game_exit_rx = Some(rx);
@@ -2779,13 +2832,14 @@ impl App {
         if self.big_picture_in_detail {
             match action {
                 crate::gamepad::GamepadAction::Confirm => {
-                    if self.detail_action_idx == 0 {
-                        self.update(Action::LaunchGame).await;
-                    } else {
-                        self.show_toast(
-                            "This action will be available soon.",
-                            crate::toast::ToastKind::Info,
-                        );
+                    match self.detail_action_idx {
+                        0 => { self.update(Action::LaunchGame).await; }
+                        1 => { self.update(Action::ToggleFavorite).await; }
+                        2 => {
+                            self.show_toast("Options: coming soon", crate::toast::ToastKind::Info);
+                        }
+                        3 => { self.update(Action::DeleteDetailGame).await; }
+                        _ => {}
                     }
                 }
                 crate::gamepad::GamepadAction::Back => {
@@ -3044,13 +3098,15 @@ impl App {
                                     }
                                 }
                             } else if selected_field == 1 {
-                                self.update(Action::ResetRunnerConfig).await;
+                                // Bug fix: was ResetRunnerConfig (no-op here); should open wizard.
+                                self.update(Action::OpenWelcomeWizardModal).await;
                             } else if selected_field == 2 {
                                 self.modal_state = ModalState::About;
                             } else if selected_field == 3 {
                                 self.update(Action::CheckForUpdates { silent: false }).await;
                             } else if selected_field == 4 {
-                                self.modal_state = ModalState::None;
+                                // Bug fix: was ModalState::None (lost changes); must save first.
+                                self.update(Action::SaveAppSettings).await;
                             }
                         }
                         ModalState::ConfirmDeleteGame { .. } => {
@@ -7490,8 +7546,33 @@ impl App {
                 } = self.modal_state.clone()
                 {
                     if selected_option == 1 {
+                        // Delete media files (cover / banner / icon) from disk
+                        // before removing from DB, so orphaned files don't linger.
+                        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                        for &gid in &game_ids {
+                            for (sub, types) in [
+                                ("covers",  vec!["jpg", "png", "webp"]),
+                                ("banners", vec!["jpg", "png", "webp"]),
+                                ("icons",   vec!["png", "jpg", "webp"]),
+                            ] {
+                                for ext in types {
+                                    let _ = std::fs::remove_file(
+                                        media_dir.join(sub).join(format!("{}.{}", gid, ext)),
+                                    );
+                                }
+                            }
+                            // Also evict from in-memory protocol cache.
+                            for key in ["cover", "cover_hb", "banner_hb", "icon_hb"] {
+                                self.media_protocols.remove(&(gid, key.to_string()));
+                            }
+                        }
+
                         let count = self.db.delete_games(&game_ids).unwrap_or(0);
                         self.selected_game_ids.clear();
+
+                        // If we were in the Big Picture detail view, exit it.
+                        self.big_picture_in_detail = false;
+
                         self.status_msg = format!(
                             "[OK] Removed {} ('{}') from library.",
                             if game_ids.len() > 1 {
@@ -8471,6 +8552,129 @@ impl App {
             Action::SetStatus(msg) => {
                 self.status_msg = msg;
             }
+
+            // ─────────────────────────────────────────────────────────────
+            // Favorites
+            // ─────────────────────────────────────────────────────────────
+            Action::ToggleFavorite => {
+                let game_id = if self.big_picture_in_detail {
+                    self.games.get(self.selected_game_idx).map(|g| g.id)
+                } else {
+                    self.games.get(self.selected_game_idx).map(|g| g.id)
+                };
+                if let Some(id) = game_id {
+                    match self.db.toggle_favorite(id) {
+                        Ok(is_fav) => {
+                            // Keep the in-memory game list up to date.
+                            if let Some(g) = self.games.iter_mut().find(|g| g.id == id) {
+                                g.favorite = is_fav;
+                            }
+                            self.status_msg = if is_fav {
+                                "⭐ Added to Favorites".to_string()
+                            } else {
+                                "Removed from Favorites".to_string()
+                            };
+                        }
+                        Err(e) => {
+                            self.status_msg = format!("[Error] toggle_favorite: {}", e);
+                        }
+                    }
+                }
+            }
+
+            Action::OpenFavoritesModal => {
+                let games = self.db.get_favorite_games().unwrap_or_default();
+                self.modal_state = ModalState::FavoritesModal {
+                    games,
+                    selected_idx: 0,
+                };
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // Local Media Picker (EditGameForm → pick own image)
+            // ─────────────────────────────────────────────────────────────
+            Action::OpenLocalMediaPicker { game_id, media_type } => {
+                let parent = Box::new(self.modal_state.clone());
+                // Which option is pre-selected based on media_type passed in.
+                let selected_option = match media_type.as_str() {
+                    "banner" => 1,
+                    "icon" => 2,
+                    _ => 0,
+                };
+                self.modal_state = ModalState::LocalMediaPicker {
+                    game_id,
+                    media_type,
+                    selected_option,
+                    path_input: String::new(),
+                    cursor_pos: 0,
+                    parent_modal: parent,
+                };
+            }
+
+            Action::LocalMediaPickerConfirm { game_id, media_type, path } => {
+                use std::path::Path;
+                let src = Path::new(&path);
+                if !src.exists() {
+                    self.show_toast("File not found", crate::toast::ToastKind::Error);
+                } else {
+                    // Determine target extension and destination directory.
+                    let ext = src.extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("jpg")
+                        .to_ascii_lowercase();
+                    let sub_dir = match media_type.as_str() {
+                        "banner" => "banners",
+                        "icon"   => "icons",
+                        _        => "covers",
+                    };
+                    let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                    let target_dir = media_dir.join(sub_dir);
+                    if std::fs::create_dir_all(&target_dir).is_ok() {
+                        // Remove any existing file for this game+type before copying.
+                        for old_ext in ["jpg", "png", "webp"] {
+                            let _ = std::fs::remove_file(target_dir.join(format!("{}.{}", game_id, old_ext)));
+                        }
+                        let dest = target_dir.join(format!("{}.{}", game_id, ext));
+                        match std::fs::copy(src, &dest) {
+                            Ok(_) => {
+                                // Remove cached protocol so it gets re-decoded with the new file.
+                                self.media_protocols.remove(&(game_id, media_type.clone()));
+                                self.media_protocols.remove(&(game_id, format!("{}_hb", media_type)));
+                                let _ = self.db.record_media_status(game_id, &media_type, "local", None, None);
+                                self.show_toast(
+                                    &format!("{} updated from local file", media_type),
+                                    crate::toast::ToastKind::Success,
+                                );
+                            }
+                            Err(e) => {
+                                self.show_toast(
+                                    &format!("Copy failed: {}", e),
+                                    crate::toast::ToastKind::Error,
+                                );
+                            }
+                        }
+                    }
+                    // Restore parent modal (EditGameForm).
+                    // We do NOT close — user may want to pick another type.
+                }
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // Delete from Big Picture detail view
+            // ─────────────────────────────────────────────────────────────
+            Action::DeleteDetailGame => {
+                if let Some(game) = self.games.get(self.selected_game_idx) {
+                    let game_id = game.id;
+                    let title = game.title.clone();
+                    self.modal_state = ModalState::ConfirmDeleteGame {
+                        game_ids: vec![game_id],
+                        display_title: title,
+                        selected_option: 0,
+                    };
+                    // The existing ConfirmDeleteGameExecution handler already
+                    // deals with the DB removal and calls load_platforms().
+                }
+            }
         }
     }
 
@@ -8655,6 +8859,7 @@ mod tests {
             title: "Hot-plug test".to_string(),
             runner_name: None,
             started_at: std::time::Instant::now(),
+            game_id: None,
         });
 
         app.update(Action::ToggleViewMode).await;
