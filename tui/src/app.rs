@@ -640,17 +640,12 @@ pub enum ModalState {
         games: Vec<game_core::models::Game>,
         selected_idx: usize,
     },
-    /// Tiny sub-modal from EditGameForm to pick a local image file for
-    /// cover / banner / icon without going to SteamGridDB.
+    /// Sub-modal from EditGameForm to select custom local files for
+    /// cover, banner, or icon by choosing a row and launching file picker.
     LocalMediaPicker {
         game_id: i64,
-        /// "cover" | "banner" | "icon"
-        media_type: String,
-        /// The three choosable options the user sees.
-        selected_option: usize, // 0=cover 1=banner 2=icon
-        /// Text input for a custom file path.
-        path_input: String,
-        cursor_pos: usize,
+        /// Currently selected row (0=Cover, 1=Banner, 2=Icon).
+        selected_row: usize,
         parent_modal: Box<ModalState>,
     },
 }
@@ -726,6 +721,7 @@ pub enum Action {
 
     // File / Folder Picker Actions
     OpenFilePicker,
+    OpenLocalMediaFilePicker { game_id: i64, media_type: String },
     OpenFolderPicker,
 
     // Add Game & Scan Modal Actions
@@ -2851,6 +2847,9 @@ impl App {
                 crate::gamepad::GamepadAction::Right => {
                     self.update(Action::DetailNextAction).await;
                 }
+                crate::gamepad::GamepadAction::ToggleSelectGame => {
+                    self.update(Action::ToggleFavorite).await;
+                }
                 _ => {}
             }
             return;
@@ -3174,8 +3173,8 @@ impl App {
                 }
             }
             crate::gamepad::GamepadAction::ToggleSelectGame => {
-                if self.modal_state == ModalState::None && !self.is_big_picture {
-                    self.update(Action::ToggleSelectGame).await;
+                if self.modal_state == ModalState::None {
+                    self.update(Action::ToggleFavorite).await;
                 } else if matches!(self.modal_state, ModalState::ScanFolderForm { .. }) {
                     self.update(Action::ToggleSelectFolder).await;
                 }
@@ -3955,6 +3954,47 @@ impl App {
                             _ => {}
                         },
                         _ => {}
+                    }
+                }
+            }
+
+            Action::OpenLocalMediaFilePicker { game_id, media_type } => {
+                if let Some(picked) = rfd::FileDialog::new()
+                    .add_filter("Images", &["jpg", "jpeg", "png", "webp"])
+                    .pick_file()
+                {
+                    use std::path::Path;
+                    let path_str = picked.to_string_lossy().to_string();
+                    let src = Path::new(&path_str);
+                    if src.exists() {
+                        let ext = src.extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("jpg")
+                            .to_ascii_lowercase();
+                        let sub_dir = match media_type.as_str() {
+                            "banner" => "banners",
+                            "icon"   => "icons",
+                            _        => "covers",
+                        };
+                        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                        let target_dir = media_dir.join(sub_dir);
+                        if std::fs::create_dir_all(&target_dir).is_ok() {
+                            for old_ext in ["jpg", "png", "webp"] {
+                                let _ = std::fs::remove_file(target_dir.join(format!("{}.{}", game_id, old_ext)));
+                            }
+                            let dest = target_dir.join(format!("{}.{}", game_id, ext));
+                            if std::fs::copy(src, &dest).is_ok() {
+                                self.media_protocols.remove(&(game_id, media_type.clone()));
+                                self.media_protocols.remove(&(game_id, format!("{}_hb", media_type)));
+                                let _ = self.db.record_media_status(game_id, &media_type, "local", None, None);
+                                self.show_toast(
+                                    &format!("{} updated from local file", media_type),
+                                    crate::toast::ToastKind::Success,
+                                );
+                            } else {
+                                self.show_toast("Failed to copy media file", crate::toast::ToastKind::Error);
+                            }
+                        }
                     }
                 }
             }
@@ -8569,11 +8609,14 @@ impl App {
                             if let Some(g) = self.games.iter_mut().find(|g| g.id == id) {
                                 g.favorite = is_fav;
                             }
-                            self.status_msg = if is_fav {
-                                "⭐ Added to Favorites".to_string()
+                            let title = self.games.iter().find(|g| g.id == id).map(|g| g.title.as_str()).unwrap_or("Game");
+                            let msg = if is_fav {
+                                format!("Added to Favorites: {}", title)
                             } else {
-                                "Removed from Favorites".to_string()
+                                format!("Removed from Favorites: {}", title)
                             };
+                            self.show_toast(&msg, crate::toast::ToastKind::Success);
+                            self.status_msg = msg;
                         }
                         Err(e) => {
                             self.status_msg = format!("[Error] toggle_favorite: {}", e);
@@ -8595,18 +8638,14 @@ impl App {
             // ─────────────────────────────────────────────────────────────
             Action::OpenLocalMediaPicker { game_id, media_type } => {
                 let parent = Box::new(self.modal_state.clone());
-                // Which option is pre-selected based on media_type passed in.
-                let selected_option = match media_type.as_str() {
+                let selected_row = match media_type.as_str() {
                     "banner" => 1,
                     "icon" => 2,
                     _ => 0,
                 };
                 self.modal_state = ModalState::LocalMediaPicker {
                     game_id,
-                    media_type,
-                    selected_option,
-                    path_input: String::new(),
-                    cursor_pos: 0,
+                    selected_row,
                     parent_modal: parent,
                 };
             }

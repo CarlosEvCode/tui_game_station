@@ -277,7 +277,9 @@ async fn main() -> Result<()> {
                                     | ModalState::PlatformSelector { .. }
                                     | ModalState::DownloadCoreModal { .. }
                                     | ModalState::SelectDetectedEmulatorModal { .. }
-                                    | ModalState::WineToolsMenu { .. } => {
+                                    | ModalState::WineToolsMenu { .. }
+                                    | ModalState::FavoritesModal { .. }
+                                    | ModalState::LocalMediaPicker { .. } => {
                                         app.update(Action::ModalSelectPrev).await;
                                     }
                                     ModalState::ManageRunnersStep2Config {
@@ -351,6 +353,8 @@ async fn main() -> Result<()> {
                                     | ModalState::DownloadCoreModal { .. }
                                     | ModalState::SelectDetectedEmulatorModal { .. }
                                     | ModalState::WineToolsMenu { .. }
+                                    | ModalState::FavoritesModal { .. }
+                                    | ModalState::LocalMediaPicker { .. }
                                     | ModalState::WindowsGamesManager { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
@@ -1100,31 +1104,25 @@ async fn main() -> Result<()> {
                                              }
                                          }
                                      }
-                                     ModalState::LocalMediaPicker {
-                                         game_id,
-                                         ref media_type,
-                                         selected_option,
-                                         ref path_input,
-                                         parent_modal: ref parent,
-                                         ..
-                                     } => {
-                                         let path = path_input.trim().to_string();
-                                         let mtype = match selected_option {
-                                             1 => "banner",
-                                             2 => "icon",
-                                             _ => "cover",
-                                         }.to_string();
-                                         let gid = game_id;
-                                         let parent_state = parent.clone();
-                                         if !path.is_empty() {
-                                             app.update(Action::LocalMediaPickerConfirm {
-                                                 game_id: gid,
-                                                 media_type: mtype,
-                                                 path,
-                                             }).await;
-                                         }
-                                         app.modal_state = *parent_state;
-                                     }
+                                      ModalState::LocalMediaPicker {
+                                          game_id,
+                                          selected_row,
+                                          parent_modal: ref parent,
+                                      } => {
+                                          let mtype = match selected_row {
+                                              1 => "banner",
+                                              2 => "icon",
+                                              _ => "cover",
+                                          }.to_string();
+                                          let gid = game_id;
+                                          let parent_state = parent.clone();
+                                          // Set modal_state back to parent so when FilePicker returns, parent is restored.
+                                          app.modal_state = *parent_state;
+                                          app.update(Action::OpenLocalMediaFilePicker {
+                                              game_id: gid,
+                                              media_type: mtype,
+                                          }).await;
+                                      }
                                      ModalState::ScanFolderForm { .. } => {
                                         app.handle_scan_form_enter().await;
                                     }
@@ -1238,16 +1236,6 @@ async fn main() -> Result<()> {
                                     {
                                         if *cursor_pos > 0 && !sgdb_api_key.is_empty() {
                                             sgdb_api_key.remove(*cursor_pos - 1);
-                                            *cursor_pos -= 1;
-                                        }
-                                    } else if let ModalState::LocalMediaPicker {
-                                        ref mut path_input,
-                                        ref mut cursor_pos,
-                                        ..
-                                    } = app.modal_state
-                                    {
-                                        if *cursor_pos > 0 && !path_input.is_empty() {
-                                            path_input.remove(*cursor_pos - 1);
                                             *cursor_pos -= 1;
                                         }
                                     } else if let ModalState::FuzzySearchModal {
@@ -1419,14 +1407,6 @@ async fn main() -> Result<()> {
                                     {
                                         sgdb_api_key.insert(*cursor_pos, c);
                                         *cursor_pos += 1;
-                                    } else if let ModalState::LocalMediaPicker {
-                                        ref mut path_input,
-                                        ref mut cursor_pos,
-                                        ..
-                                    } = app.modal_state
-                                    {
-                                        path_input.insert(*cursor_pos, c);
-                                        *cursor_pos += 1;
                                     } else if let ModalState::FuzzySearchModal {
                                         ref mut query,
                                         ref mut cursor_pos,
@@ -1573,6 +1553,9 @@ async fn main() -> Result<()> {
                                     KeyCode::Char('w') => {
                                         app.update(Action::OpenVisualMediaModal).await;
                                     }
+                                    KeyCode::Char('f') => {
+                                        app.update(Action::ToggleFavorite).await;
+                                    }
                                     KeyCode::Char('F') => {
                                         app.update(Action::OpenFavoritesModal).await;
                                     }
@@ -1687,7 +1670,7 @@ async fn main() -> Result<()> {
                                     KeyCode::Char('g') => {
                                         app.update(Action::FetchGameMedia).await;
                                     }
-                                    KeyCode::Char('f') => {
+                                    KeyCode::Char('k') => {
                                         app.update(Action::ForceCloseGame).await;
                                     }
                                     KeyCode::Char(' ') => {

@@ -1725,49 +1725,23 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
             ),
             Span::styled(badge, Style::default().fg(Color::Magenta)),
         ]),
-        Line::from(Span::styled(
-            "YEAR",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled(
-            "DEVELOPER",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled(
-            "PUBLISHER",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled("", Style::default().fg(Color::DarkGray))),
-        Line::from(Span::styled(
-            "DESCRIPTION",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            "No description available.",
-            Style::default().fg(Color::DarkGray),
-        )),
     ];
 
     let info_p = Paragraph::new(info_lines).wrap(Wrap { trim: true });
     frame.render_widget(info_p, info_chunks[1]);
 
-    // 3. ACTIONS: integrated inside the info panel, one horizontal row at its
-    //    bottom (as before the two-column experiment).
+    // 3. ACTIONS: integrated inside the info panel, one horizontal row at its bottom.
+    let is_fav = game.favorite;
     let mut action_spans = Vec::new();
-    for (i, label) in DETAIL_ACTIONS.iter().enumerate() {
+    for (i, raw_label) in DETAIL_ACTIONS.iter().enumerate() {
         if i > 0 {
             action_spans.push(Span::raw("     "));
         }
+        let label = if i == 1 {
+            if is_fav { "Unfavorite" } else { "Favorite" }
+        } else {
+            *raw_label
+        };
         let is_focused = app.detail_action_idx == i;
         let text = if i == 0 || is_focused {
             format!("▶ {} ◀", label)
@@ -5609,7 +5583,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let mut list_items = Vec::new();
             if games.is_empty() {
                 list_items.push(ListItem::new(Span::styled(
-                    "  No favorites added yet. Press [f] on any game or detail view!",
+                    "  No favorites added yet. Press [f] on any game or detail view.",
                     Style::default().fg(Color::DarkGray),
                 )));
             } else {
@@ -5620,8 +5594,8 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     } else {
                         Style::default().fg(Color::White)
                     };
-                    let prefix = if is_sel { " ➔ " } else { "   " };
-                    let title_text = format!("{}⭐ {}", prefix, game.title);
+                    let prefix = if is_sel { " ▶ " } else { "   " };
+                    let title_text = format!("{}* {}", prefix, game.title);
                     list_items.push(ListItem::new(Span::styled(title_text, style)));
                 }
             }
@@ -5629,7 +5603,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let list = List::new(list_items).block(
                 Block::default()
                     .title(Span::styled(
-                        " ⭐ FAVORITES LIBRARY ⭐ ",
+                        " FAVORITES LIBRARY ",
                         Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ))
                     .title_bottom(Span::styled(
@@ -5642,64 +5616,41 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             frame.render_widget(list, popup_area);
         }
         ModalState::LocalMediaPicker {
-            game_id,
-            ref media_type,
-            selected_option,
-            ref path_input,
-            cursor_pos,
+            selected_row,
             ..
         } => {
-            let needed_w = 64u16.min(frame.area().width.saturating_sub(4));
-            let needed_h = 11u16;
+            let needed_w = 56u16.min(frame.area().width.saturating_sub(4));
+            let needed_h = 9u16;
             let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
             frame.render_widget(Clear, popup_area);
 
-            let opts = ["Cover", "Banner", "Icon"];
-            let mut type_spans = Vec::new();
-            for (idx, name) in opts.iter().enumerate() {
-                if idx == selected_option {
-                    type_spans.push(Span::styled(
-                        format!(" [{}] ", name),
-                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
-                    ));
+            let rows = ["Cover Image Path", "Banner Image Path", "Icon Image Path"];
+            let mut list_items = Vec::new();
+            for (idx, name) in rows.iter().enumerate() {
+                let is_sel = idx == selected_row;
+                let style = if is_sel {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
                 } else {
-                    type_spans.push(Span::styled(
-                        format!("  {}  ", name),
-                        Style::default().fg(Color::DarkGray),
-                    ));
-                }
+                    Style::default().fg(Color::White)
+                };
+                let prefix = if is_sel { " ▶ " } else { "   " };
+                list_items.push(ListItem::new(Span::styled(format!("{}{}", prefix, name), style)));
             }
 
-            let (before, after) = path_input.split_at(cursor_pos.min(path_input.len()));
-            let lines = vec![
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled(" Type: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                ].into_iter().chain(type_spans).collect::<Vec<_>>()),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled(" File Path: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                    Span::raw(before),
-                    Span::styled("█", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw(after),
-                ]),
-                Line::from(""),
-            ];
-
-            let p = Paragraph::new(lines).block(
+            let list = List::new(list_items).block(
                 Block::default()
                     .title(Span::styled(
-                        " 🖼️ LOCAL MEDIA SELECTOR 🖼️ ",
+                        " LOCAL MEDIA SELECTOR ",
                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .title_bottom(Span::styled(
-                        " [Enter] Confirm & Copy | [Esc] Cancel ",
+                        " [Up/Down] Navigate | [Enter] Browse File | [Esc] Back ",
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
             );
-            frame.render_widget(p, popup_area);
+            frame.render_widget(list, popup_area);
         }
         ModalState::None => {}
     }
