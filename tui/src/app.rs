@@ -821,6 +821,7 @@ pub struct App {
     pub preview_tx: mpsc::Sender<LoadedPreviewEvent>,
     pub preview_rx: mpsc::Receiver<LoadedPreviewEvent>,
     pub cover_manager: CoverManager,
+    pub cover_tasks: tokio::task::JoinSet<()>,
     pub pending_cover_requests: HashSet<i64>,
     pub media_protocols: HashMap<(i64, String), StatefulProtocol>,
     pub visual_preview_protocol: Option<StatefulProtocol>,
@@ -895,6 +896,7 @@ impl App {
             preview_tx,
             preview_rx,
             cover_manager,
+            cover_tasks: tokio::task::JoinSet::new(),
             pending_cover_requests: HashSet::new(),
             media_protocols: HashMap::new(),
             visual_preview_protocol: None,
@@ -1924,6 +1926,9 @@ impl App {
     }
 
     pub fn load_games_for_selected_platform(&mut self) {
+        self.cover_tasks.abort_all();
+        self.cover_tasks = tokio::task::JoinSet::new();
+
         self.media_protocols.clear();
         self.pending_cover_requests.clear();
 
@@ -1956,7 +1961,7 @@ impl App {
         let manager = self.cover_manager.clone();
 
         let games = self.games.clone();
-        tokio::spawn(async move {
+        self.cover_tasks.spawn(async move {
             let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
             for game in games {
                 let game_id = game.id;
@@ -2200,7 +2205,7 @@ impl App {
         let media_type_str = media_type.to_string();
         let sub_dir_str = media_sub_dir.to_string();
 
-        tokio::spawn(async move {
+        self.cover_tasks.spawn(async move {
             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
             let target_dir = media_dir.join(&sub_dir_str);
             let local_cover = vec![
@@ -2268,7 +2273,7 @@ impl App {
             let tx = self.cover_tx.clone();
             let manager = self.cover_manager.clone();
             let id = game_id;
-            tokio::spawn(async move {
+            self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                 let target_dir = media_dir.join("covers");
                 let local = ["jpg", "png", "webp"]
@@ -2318,7 +2323,7 @@ impl App {
             let title_c = title.clone();
             let key = media_key;
 
-            tokio::spawn(async move {
+            self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                 let target_dir = media_dir.join(&sub_dir_s);
                 let local = exts
@@ -2397,7 +2402,7 @@ impl App {
             let manager = self.cover_manager.clone();
             let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
 
-            tokio::spawn(async move {
+            self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                 let target_dir = media_dir.join("covers");
                 let local_cover = vec![
