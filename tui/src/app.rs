@@ -854,6 +854,7 @@ pub struct App {
     pub log_next_input: bool,
     pub running_game: Option<RunningGame>,
     pub game_exit_rx: Option<mpsc::Receiver<GameExitResult>>,
+    pub last_game_click: Option<(i64, std::time::Instant)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -927,6 +928,7 @@ impl App {
             log_next_input: false,
             running_game: None,
             game_exit_rx: None,
+            last_game_click: None,
         };
 
         if let Some(app_dir) = dirs::data_dir() {

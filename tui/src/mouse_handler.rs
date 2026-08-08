@@ -291,8 +291,25 @@ async fn handle_library_click(app: &mut App, x: u16, y: u16, area: Rect) {
         if y >= content_y {
             let clicked_idx = (y - content_y) as usize;
             if clicked_idx < app.games.len() {
+                let clicked_game_id = app.games[clicked_idx].id;
+                let now = std::time::Instant::now();
+                let is_double_click = match app.last_game_click {
+                    Some((prev_id, prev_time)) => {
+                        prev_id == clicked_game_id
+                            && now.duration_since(prev_time) < std::time::Duration::from_millis(500)
+                    }
+                    None => false,
+                };
+
                 app.selected_game_idx = clicked_idx;
                 app.trigger_async_cover_fetch();
+
+                if is_double_click {
+                    app.last_game_click = None;
+                    app.update(Action::LaunchGame).await;
+                } else {
+                    app.last_game_click = Some((clicked_game_id, now));
+                }
             }
         }
     }

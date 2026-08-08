@@ -1466,6 +1466,9 @@ async fn main() -> Result<()> {
                                         app.search_query.clear();
                                         app.filter_games_by_search();
                                     }
+                                    KeyCode::Esc if app.is_big_picture => {
+                                        app.update(Action::ToggleBigPictureMode).await;
+                                    }
                                     KeyCode::Char('?') => {
                                         app.update(Action::OpenCheatsheetModal).await;
                                     }
