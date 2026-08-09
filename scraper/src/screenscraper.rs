@@ -295,7 +295,26 @@ impl ScraperProvider for ScreenScraperClient {
         }
 
         let body = resp.text().await?;
-        let (results, quota) = self.parse_xml_response(&body)?;
+        let (mut results, quota) = self.parse_xml_response(&body)?;
+
+        if results.is_empty() && endpoint == "jeuInfos.php" {
+            let mut fallback_url = format!(
+                "{}/jeuRecherche.php?devid={}&devpassword={}&softname={}&output=xml&recherche={}",
+                API_BASE_URL, DEV_ID, DEV_PASSWORD, encode(SOFT_NAME), encode(&query)
+            );
+            if let Some(sys_id) = self.get_system_id(&params.platform_slug) {
+                fallback_url.push_str(&format!("&systemeid={}", sys_id));
+            }
+            if let Ok(fb_resp) = self.client.get(&fallback_url).send().await {
+                if fb_resp.status().is_success() {
+                    if let Ok(fb_body) = fb_resp.text().await {
+                        if let Ok((fb_results, _)) = self.parse_xml_response(&fb_body) {
+                            results = fb_results;
+                        }
+                    }
+                }
+            }
+        }
 
         debug!(
             "ScreenScraper response parsed: {} results, quota remaining today: {}/{}",

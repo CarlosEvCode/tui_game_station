@@ -9004,7 +9004,7 @@ impl App {
                                             None,
                                         );
 
-                                        // Download cover image if available
+                                        let mut downloaded_cover = false;
                                         if let Some(ref img_url) = res.cover_url {
                                             if let Ok(resp) = reqwest::get(img_url).await {
                                                 if let Ok(bytes) = resp.bytes().await {
@@ -9013,6 +9013,7 @@ impl App {
                                                     let _ = std::fs::create_dir_all(&media_dir);
                                                     let target_file = media_dir.join(format!("{}.{}", game.id, ext));
                                                     if std::fs::write(&target_file, &bytes).is_ok() {
+                                                        downloaded_cover = true;
                                                         if let Ok(db) = game_core::db::Database::open(&db_path) {
                                                             let _ = db.record_media_status(
                                                                 game.id,
@@ -9034,8 +9035,36 @@ impl App {
                                                 }
                                             }
                                         }
+
+                                        if !downloaded_cover {
+                                            if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                                let _ = db.record_media_status(
+                                                    game.id,
+                                                    "cover",
+                                                    "not_found",
+                                                    None,
+                                                    None,
+                                                );
+                                            }
+                                        }
                                     }
+                                } else if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                    let _ = db.record_media_status(
+                                        game.id,
+                                        "cover",
+                                        "not_found",
+                                        None,
+                                        None,
+                                    );
                                 }
+                            } else if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                let _ = db.record_media_status(
+                                    game.id,
+                                    "cover",
+                                    "not_found",
+                                    None,
+                                    None,
+                                );
                             }
 
                             completed += 1;
