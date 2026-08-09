@@ -46,3 +46,55 @@ pub trait ScraperProvider: Send + Sync {
     /// Search for game candidates or exact match given agnostic parameters
     async fn search(&self, params: &ScraperSearchParams) -> anyhow::Result<Vec<ScraperSearchResult>>;
 }
+
+/// Selectable scraper source matching ES-DE architecture
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScraperSource {
+    ScreenScraper,
+    TheGamesDB,
+}
+
+impl ScraperSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScraperSource::ScreenScraper => "screenscraper",
+            ScraperSource::TheGamesDB => "thegamesdb",
+        }
+    }
+}
+
+impl Default for ScraperSource {
+    fn default() -> Self {
+        ScraperSource::ScreenScraper
+    }
+}
+
+pub struct ScraperPipelineManager {
+    screenscraper: crate::screenscraper::ScreenScraperClient,
+    thegamesdb: crate::thegamesdb::TheGamesDBClient,
+}
+
+impl ScraperPipelineManager {
+    pub fn new(
+        ss_user_id: Option<String>,
+        ss_user_password: Option<String>,
+        tgdb_api_key: String,
+    ) -> Self {
+        Self {
+            screenscraper: crate::screenscraper::ScreenScraperClient::new(ss_user_id, ss_user_password),
+            thegamesdb: crate::thegamesdb::TheGamesDBClient::new(tgdb_api_key),
+        }
+    }
+
+    /// Dispatch search request to the chosen scraper source (screenscraper or thegamesdb)
+    pub async fn search(
+        &self,
+        source: ScraperSource,
+        params: &ScraperSearchParams,
+    ) -> anyhow::Result<Vec<ScraperSearchResult>> {
+        match source {
+            ScraperSource::ScreenScraper => self.screenscraper.search(params).await,
+            ScraperSource::TheGamesDB => self.thegamesdb.search(params).await,
+        }
+    }
+}
