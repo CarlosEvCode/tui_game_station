@@ -23,6 +23,71 @@ pub struct ScanProgressEvent {
 
 pub struct Scanner;
 
+/// Size cap (in MiB) for hash-based identification, mirroring ES-DE's
+/// `ScraperSearchFileHashMaxSize`. Files up to this size are hashed for exact
+/// matching; larger (disc-image) files skip hashing and are identified by
+/// serial/name instead, which is far faster and just as reliable for them.
+pub const HASH_MAX_SIZE_MB_DEFAULT: u64 = 384;
+pub const HASH_MAX_SIZE_MB_MIN: u64 = 32;
+pub const HASH_MAX_SIZE_MB_MAX: u64 = 800;
+pub const HASH_MAX_SIZE_SETTING_KEY: &str = "hash_max_size_mb";
+
+/// Parse + clamp the `hash_max_size_mb` setting, falling back to the default.
+pub fn hash_max_size_mb_from_setting(value: Option<&str>) -> u64 {
+    let parsed = value.and_then(|v| v.trim().parse::<u64>().ok());
+    match parsed {
+        Some(v) => v.clamp(HASH_MAX_SIZE_MB_MIN, HASH_MAX_SIZE_MB_MAX),
+        None => HASH_MAX_SIZE_MB_DEFAULT,
+    }
+}
+
+/// Resolve a stored hash (or compute one) for `path`, subject to the size cap.
+/// Returns `(crc32, md5, sha1, size)`:
+/// - `calculate_hashes` off → only the file size.
+/// - File over `hash_max_size_bytes` → size only (never hashed).
+/// - Stored hashes whose recorded size matches the current file → reused, so
+///   rescans don't re-read every ROM.
+fn compute_or_reuse_hashes(
+    db: &Database,
+    path: &Path,
+    calculate_hashes: bool,
+    hash_max_size_bytes: u64,
+) -> (Option<String>, Option<String>, Option<String>, Option<i64>) {
+    let size = std::fs::metadata(path).map(|m| m.len() as i64).ok();
+    if !calculate_hashes {
+        return (None, None, None, size);
+    }
+
+    // Reuse stored hashes when the file is unchanged (same size). Paths are
+    // stable because `insert_game` upserts on file_path.
+    if let Some(sz) = size {
+        if let Ok(Some((stored_crc, stored_md5, stored_sha1, stored_size))) =
+            db.get_stored_hashes(&path.to_string_lossy())
+        {
+            if stored_md5.is_some() && stored_size == sz {
+                return (stored_crc, stored_md5, stored_sha1, size);
+            }
+        }
+    }
+
+    // ES-DE-inspired cap: only hash files small enough for a reliable exact
+    // match. Files at the cap are still hashed.
+    if size.is_some() && size.unwrap() > hash_max_size_bytes as i64 {
+        return (None, None, None, size);
+    }
+
+    if let Ok(hashes) = HashCalculator::calculate_hashes(path) {
+        (
+            Some(hashes.crc32),
+            Some(hashes.md5),
+            Some(hashes.sha1),
+            Some(hashes.file_size as i64),
+        )
+    } else {
+        (None, None, None, size)
+    }
+}
+
 impl Scanner {
     /// Scan a folder for a given platform, calculating hashes and inserting games into the DB.
     /// `folder_id` links every inserted game to its `scan_folders` row so
@@ -35,6 +100,7 @@ impl Scanner {
         folder_path: P,
         recursive: bool,
         calculate_hashes: bool,
+        hash_max_size_bytes: u64,
         use_dat_auto_id: bool,
         folder_id: Option<i64>,
         progress_tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
@@ -76,6 +142,7 @@ impl Scanner {
                 folder,
                 recursive,
                 calculate_hashes,
+                hash_max_size_bytes,
                 folder_id,
                 progress_tx,
             );
@@ -105,21 +172,8 @@ impl Scanner {
                 continue;
             }
 
-            let (crc32, md5, sha1, size) = if calculate_hashes {
-                if let Ok(hashes) = HashCalculator::calculate_hashes(&path) {
-                    (
-                        Some(hashes.crc32),
-                        Some(hashes.md5),
-                        Some(hashes.sha1),
-                        Some(hashes.file_size as i64),
-                    )
-                } else {
-                    (None, None, None, None)
-                }
-            } else {
-                let size = std::fs::metadata(&path).map(|m| m.len() as i64).ok();
-                (None, None, None, size)
-            };
+            let (crc32, md5, sha1, size) =
+                compute_or_reuse_hashes(db, &path, calculate_hashes, hash_max_size_bytes);
 
             let extracted_serial =
                 crate::serial_extractor::SerialExtractor::extract_serial(&path, &platform.slug);
@@ -221,12 +275,14 @@ impl Scanner {
     /// single library entry. The Base file of the group is the reference
     /// (name + launch), while Updates/DLCs (and discarded duplicates) are
     /// stored as associated components — not as separate games.
+    #[allow(clippy::too_many_arguments)]
     fn scan_switch_folder(
         db: &Database,
         platform: &Platform,
         folder: &Path,
         recursive: bool,
         calculate_hashes: bool,
+        hash_max_size_bytes: u64,
         folder_id: Option<i64>,
         progress_tx: Option<&std::sync::mpsc::Sender<ScanProgressEvent>>,
     ) -> Result<usize> {
@@ -288,12 +344,14 @@ impl Scanner {
         // Files without a detectable Title ID keep the plain per-file flow.
         for entry in &fallback {
             let game = game_from_reference(
+                db,
                 platform,
                 entry,
                 clean_game_title(&entry.stem),
                 false,
                 Vec::new(),
                 calculate_hashes,
+                hash_max_size_bytes,
                 folder_id,
             );
             let title = game.title.clone();
@@ -389,7 +447,14 @@ impl Scanner {
                 })
                 .map(|e| clean_game_title(&e.stem))
                 .unwrap_or_default();
-            let game = match build_switch_group_game(platform, group, calculate_hashes, folder_id) {
+            let game = match build_switch_group_game(
+                db,
+                platform,
+                group,
+                calculate_hashes,
+                hash_max_size_bytes,
+                folder_id,
+            ) {
                 Some(game) => game,
                 None => continue,
             };
@@ -528,29 +593,19 @@ struct FileMeta {
     sha1: Option<String>,
 }
 
-fn file_meta(path: &Path, calculate_hashes: bool) -> FileMeta {
-    if calculate_hashes {
-        if let Ok(hashes) = HashCalculator::calculate_hashes(path) {
-            return FileMeta {
-                size: Some(hashes.file_size as i64),
-                crc32: Some(hashes.crc32),
-                md5: Some(hashes.md5),
-                sha1: Some(hashes.sha1),
-            };
-        }
-        return FileMeta {
-            size: None,
-            crc32: None,
-            md5: None,
-            sha1: None,
-        };
-    }
-    let size = std::fs::metadata(path).map(|m| m.len() as i64).ok();
+fn file_meta(
+    db: &Database,
+    path: &Path,
+    calculate_hashes: bool,
+    hash_max_size_bytes: u64,
+) -> FileMeta {
+    let (crc32, md5, sha1, size) =
+        compute_or_reuse_hashes(db, path, calculate_hashes, hash_max_size_bytes);
     FileMeta {
         size,
-        crc32: None,
-        md5: None,
-        sha1: None,
+        crc32,
+        md5,
+        sha1,
     }
 }
 
@@ -558,9 +613,11 @@ fn file_meta(path: &Path, calculate_hashes: bool) -> FileMeta {
 /// `None` can't happen for a real group (there is always >= 1 file), but is
 /// kept as a safe return so callers don't have to unwrap.
 fn build_switch_group_game(
+    db: &Database,
     platform: &Platform,
     entries: Vec<SwitchEntry>,
     calculate_hashes: bool,
+    hash_max_size_bytes: u64,
     folder_id: Option<i64>,
 ) -> Option<Game> {
     let mut bases: Vec<&SwitchEntry> = Vec::new();
@@ -625,12 +682,14 @@ fn build_switch_group_game(
     }
 
     Some(game_from_reference(
+        db,
         platform,
         reference,
         clean_game_title(&reference.stem),
         missing_base,
         components,
         calculate_hashes,
+        hash_max_size_bytes,
         folder_id,
     ))
 }
@@ -686,16 +745,24 @@ fn compare_files(a: &SwitchEntry, b: &SwitchEntry, is_base: bool) -> Ordering {
 
 /// Build a `Game` row using `reference` as the main file. `title` is the
 /// cleaned name; `components` and `missing_base` are Switch-specific.
+#[allow(clippy::too_many_arguments)]
 fn game_from_reference(
+    db: &Database,
     platform: &Platform,
     reference: &SwitchEntry,
     title: String,
     missing_base: bool,
     components: Vec<GameComponent>,
     calculate_hashes: bool,
+    hash_max_size_bytes: u64,
     folder_id: Option<i64>,
 ) -> Game {
-    let meta = file_meta(&reference.path, calculate_hashes);
+    let meta = file_meta(
+        db,
+        &reference.path,
+        calculate_hashes,
+        hash_max_size_bytes,
+    );
     Game {
         id: 0,
         platform_id: platform.id,
@@ -1154,7 +1221,7 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None, None).unwrap();
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
         assert_eq!(added, 5, "one library entry per Title ID family");
 
         let games = db.get_games_for_platform(platform.id).unwrap();
@@ -1270,7 +1337,7 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None, None).unwrap();
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
         assert_eq!(
             added, 1,
             "base + update + both DLCs collapse into one entry"
@@ -1332,7 +1399,7 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, false, None, None).unwrap();
+        let added = Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
         assert_eq!(added, 1, "only the .xci is a valid Switch file");
 
         let games = db.get_games_for_platform(platform.id).unwrap();
@@ -1467,5 +1534,199 @@ game (
 
         fs::remove_dir_all(root).unwrap();
         let _ = fs::remove_file(&db_path);
+    }
+
+    fn nds_platform(db: &crate::db::Database) -> crate::models::Platform {
+        db.get_platforms()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.slug == "nds")
+            .expect("nds platform seeded")
+    }
+
+    #[test]
+    fn scan_hashes_files_at_or_under_the_size_cap() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_hash_under_cap_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let rom = root.join("game_a.nds");
+        fs::write(&rom, vec![0u8; 64]).unwrap();
+
+        let db = Database::open(":memory:").unwrap();
+        let nds = nds_platform(&db);
+
+        let added = Scanner::scan_folder(
+            &db,
+            &nds,
+            &root,
+            true,
+            true,
+            384 * 1024 * 1024,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(added, 1);
+
+        let g = &db.get_games_for_platform(nds.id).unwrap()[0];
+        assert!(g.file_hash_md5.is_some(), "MD5 should be stored");
+        assert!(g.file_hash_crc32.is_some(), "CRC32 should be stored");
+        assert!(g.file_hash_sha1.is_some(), "SHA1 should be stored");
+        assert_eq!(g.file_size, Some(64));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scan_skips_hashing_files_larger_than_the_size_cap() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_hash_over_cap_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let rom = root.join("game_a.nds");
+        fs::write(&rom, vec![0u8; 64]).unwrap();
+
+        let db = Database::open(":memory:").unwrap();
+        let nds = nds_platform(&db);
+
+        let added = Scanner::scan_folder(&db, &nds, &root, true, true, 32, false, None, None).unwrap();
+        assert_eq!(added, 1);
+
+        let g = &db.get_games_for_platform(nds.id).unwrap()[0];
+        assert!(g.file_hash_md5.is_none(), "over-cap file must not be hashed");
+        assert!(g.file_hash_crc32.is_none());
+        assert!(g.file_hash_sha1.is_none());
+        assert_eq!(g.file_size, Some(64), "size is still recorded");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scan_hashes_file_exactly_at_the_size_cap() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_hash_at_cap_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let rom = root.join("game_a.nds");
+        fs::write(&rom, vec![0u8; 64]).unwrap();
+
+        let db = Database::open(":memory:").unwrap();
+        let nds = nds_platform(&db);
+
+        let added = Scanner::scan_folder(&db, &nds, &root, true, true, 64, false, None, None).unwrap();
+        assert_eq!(added, 1);
+
+        let g = &db.get_games_for_platform(nds.id).unwrap()[0];
+        assert!(g.file_hash_md5.is_some(), "file exactly at the cap must be hashed");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rescan_reuses_stored_hashes_when_file_is_unchanged_in_size() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_hash_reuse_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let rom = root.join("game_a.nds");
+        fs::write(&rom, vec![0u8; 64]).unwrap();
+
+        let db = Database::open(":memory:").unwrap();
+        let nds = nds_platform(&db);
+
+        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
+        let first = db.get_games_for_platform(nds.id).unwrap()[0].file_hash_md5.clone();
+
+        // Same size, different content: the stored hash must be reused (proving
+        // no re-hash happens, which would be far too slow on a full rescan).
+        fs::write(&rom, vec![1u8; 64]).unwrap();
+        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
+
+        let second = &db.get_games_for_platform(nds.id).unwrap()[0];
+        assert!(first.is_some());
+        assert_eq!(second.file_hash_md5, first, "unchanged-size rescan must reuse the stored hash");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rescan_rehashes_when_file_size_changed() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_hash_resize_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let rom = root.join("game_a.nds");
+        fs::write(&rom, vec![0u8; 64]).unwrap();
+
+        let db = Database::open(":memory:").unwrap();
+        let nds = nds_platform(&db);
+
+        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
+        let first = db.get_games_for_platform(nds.id).unwrap()[0].file_hash_md5.clone();
+
+        fs::write(&rom, vec![0u8; 128]).unwrap();
+        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
+
+        let second = &db.get_games_for_platform(nds.id).unwrap()[0];
+        assert!(first.is_some());
+        assert_ne!(second.file_hash_md5, first, "size change must trigger a re-hash");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn switch_scan_respects_hash_size_cap() {
+        use super::Scanner;
+        use crate::db::Database;
+
+        let root = std::env::temp_dir().join(format!(
+            "tui_game_station_switch_hash_cap_test_{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("Super Mario Odyssey [01006710031A0000][v0].xci"),
+            vec![0u8; 16],
+        )
+        .unwrap();
+
+        let db = Database::open(":memory:").unwrap();
+        let switch = db
+            .get_platforms()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.slug == "switch")
+            .expect("switch platform seeded");
+
+        // Cap of 8 bytes < 16-byte reference file → the Switch reference must
+        // not be hashed.
+        Scanner::scan_folder(&db, &switch, &root, true, true, 8, false, None, None).unwrap();
+
+        let g = &db.get_games_for_platform(switch.id).unwrap()[0];
+        assert!(g.file_hash_md5.is_none(), "over-cap Switch reference must not be hashed");
+
+        fs::remove_dir_all(root).unwrap();
     }
 }

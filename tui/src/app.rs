@@ -1163,6 +1163,17 @@ impl App {
             .join("tui_game_station")
             .join("game_station.db");
 
+        // Hash-based identification, capped at the ES-DE-inspired size limit:
+        // cartridge-size files are hashed, large disc images are not.
+        let hash_max_size_mb = game_core::scanner::hash_max_size_mb_from_setting(
+            self.db
+                .get_setting(game_core::scanner::HASH_MAX_SIZE_SETTING_KEY)
+                .ok()
+                .flatten()
+                .as_deref(),
+        );
+        let hash_max_size_bytes = hash_max_size_mb * 1024 * 1024;
+
         tokio::spawn(async move {
             if use_dat_auto_id {
                 let slug = platform.slug.clone();
@@ -1180,7 +1191,8 @@ impl App {
                         &platform,
                         &path,
                         recursive,
-                        false,
+                        true,
+                        hash_max_size_bytes,
                         use_dat_auto_id,
                         folder_id,
                         Some(&sync_tx),
@@ -1227,6 +1239,15 @@ impl App {
             .join("tui_game_station")
             .join("game_station.db");
 
+        let hash_max_size_mb = game_core::scanner::hash_max_size_mb_from_setting(
+            self.db
+                .get_setting(game_core::scanner::HASH_MAX_SIZE_SETTING_KEY)
+                .ok()
+                .flatten()
+                .as_deref(),
+        );
+        let hash_max_size_bytes = hash_max_size_mb * 1024 * 1024;
+
         tokio::spawn(async move {
             if jobs.iter().any(|j| j.3) {
                 let slug = jobs[0].0.slug.clone();
@@ -1267,7 +1288,8 @@ impl App {
                             &platform,
                             &path,
                             recursive,
-                            false,
+                            true,
+                            hash_max_size_bytes,
                             use_dat,
                             folder_id,
                             Some(&sync_tx),
@@ -3820,6 +3842,15 @@ impl App {
                         .join("tui_game_station")
                         .join("game_station.db");
 
+                    let hash_max_size_mb = game_core::scanner::hash_max_size_mb_from_setting(
+                        self.db
+                            .get_setting(game_core::scanner::HASH_MAX_SIZE_SETTING_KEY)
+                            .ok()
+                            .flatten()
+                            .as_deref(),
+                    );
+                    let hash_max_size_bytes = hash_max_size_mb * 1024 * 1024;
+
                     tokio::spawn(async move {
                         let slug = platform.slug.clone();
                         let _ =
@@ -3836,7 +3867,8 @@ impl App {
                                     &platform,
                                     &default_dir,
                                     true,
-                                    false,
+                                    true,
+                                    hash_max_size_bytes,
                                     true,
                                     None,
                                     Some(&sync_tx),
@@ -7554,6 +7586,18 @@ impl App {
                                 .join("tui_game_station")
                                 .join("game_station.db");
 
+                            let hash_max_size_mb =
+                                game_core::scanner::hash_max_size_mb_from_setting(
+                                    self.db
+                                        .get_setting(
+                                            game_core::scanner::HASH_MAX_SIZE_SETTING_KEY,
+                                        )
+                                        .ok()
+                                        .flatten()
+                                        .as_deref(),
+                                );
+                            let hash_max_size_bytes = hash_max_size_mb * 1024 * 1024;
+
                             tokio::spawn(async move {
                                 let slug = platform.slug.clone();
                                 let supports_dat = game_core::dat_downloader::DatDownloader::supports_dat_identification(&slug);
@@ -7571,7 +7615,8 @@ impl App {
                                             &platform,
                                             &path,
                                             true,
-                                            false,
+                                            true,
+                                            hash_max_size_bytes,
                                             supports_dat,
                                             folder_id,
                                             Some(&sync_tx),

@@ -1398,6 +1398,32 @@ impl Database {
         }
     }
 
+    /// Return `(crc32, md5, sha1, file_size)` for the game owning `file_path`.
+    /// `None` when the path is not indexed yet. Lets the scanner reuse a
+    /// previously computed hash instead of re-reading the whole ROM file.
+    pub fn get_stored_hashes(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<(Option<String>, Option<String>, Option<String>, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT file_hash_crc32, file_hash_md5, file_hash_sha1, file_size \
+                 FROM games WHERE file_path = ?1",
+            )?;
+        let mut rows = stmt.query(params![file_path])?;
+        if let Some(row) = rows.next()? {
+            let size: Option<i64> = row.get(3)?;
+            if let Some(size) = size {
+                Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, size)))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn insert_game_component(&self, game_id: i64, comp: &GameComponent) -> Result<()> {
         self.conn.execute(
             "INSERT INTO game_components
