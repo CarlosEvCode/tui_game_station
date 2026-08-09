@@ -770,10 +770,11 @@ fn render_cover_placeholder(
         "icon" => "Icon",
         _ => "Cover",
     };
-    let msg = if cover_status.as_deref() == Some("not_found") {
-        format!("  [ No {} Found ]", label)
-    } else {
-        format!("  [ Fetching {}... ]", label)
+    let is_fetching = app.download_progress.is_some();
+    let msg = match (cover_status.as_deref(), is_fetching) {
+        (Some("not_found"), _) => format!("  [ No {} Found ]", label),
+        (_, true) => format!("  [ Fetching {}... ]", label),
+        _ => format!("  [ No {} Found ]", label),
     };
     let placeholder = Paragraph::new(vec![
         Line::from(""),
