@@ -8845,7 +8845,11 @@ impl App {
                 } = self.modal_state
                 {
                     let parent = Box::new(self.modal_state.clone());
-                    let platforms = self.platforms.clone();
+                    let platforms: Vec<game_core::models::Platform> = self.platforms
+                        .iter()
+                        .filter(|p| p.slug != "steam")
+                        .cloned()
+                        .collect();
                     self.modal_state = ModalState::ScraperSystemSelector {
                         platforms,
                         enabled_platform_ids: enabled_platform_ids.clone(),
@@ -8860,7 +8864,7 @@ impl App {
                     ref platforms,
                     ref mut enabled_platform_ids,
                     selected_idx,
-                    ..
+                    ref mut parent_modal,
                 } = self.modal_state
                 {
                     if let Some(p) = platforms.get(selected_idx) {
@@ -8868,6 +8872,15 @@ impl App {
                             enabled_platform_ids.remove(&p.id);
                         } else {
                             enabled_platform_ids.insert(p.id);
+                        }
+
+                        // Also sync back to parent ScraperMenu state so returning keeps choices
+                        if let ModalState::ScraperMenu {
+                            enabled_platform_ids: ref mut parent_ids,
+                            ..
+                        } = parent_modal.as_mut()
+                        {
+                            *parent_ids = enabled_platform_ids.clone();
                         }
                     }
                 }
@@ -8888,6 +8901,12 @@ impl App {
                     let all_games = self.db.get_all_games().unwrap_or_default();
 
                     for game in all_games {
+                        // Exclude Steam games from scraping
+                        let is_steam = self.platforms.iter().any(|p| p.id == game.platform_id && p.slug == "steam");
+                        if is_steam {
+                            continue;
+                        }
+
                         // Check platform filter (empty = all enabled)
                         if !enabled_platform_ids.is_empty() && !enabled_platform_ids.contains(&game.platform_id) {
                             continue;
@@ -8929,6 +8948,8 @@ impl App {
 
                     let (progress_tx, progress_rx) = mpsc::channel::<DownloadEvent>(100);
                     self.download_rx = Some(progress_rx);
+                    let cover_tx = self.cover_tx.clone();
+                    let cover_manager = self.cover_manager.clone();
 
                     self.download_progress = Some(DownloadProgressState {
                         runner_id: 0,
@@ -8991,7 +9012,25 @@ impl App {
                                                     let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join("covers");
                                                     let _ = std::fs::create_dir_all(&media_dir);
                                                     let target_file = media_dir.join(format!("{}.{}", game.id, ext));
-                                                    let _ = std::fs::write(target_file, bytes);
+                                                    if std::fs::write(&target_file, &bytes).is_ok() {
+                                                        if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                                            let _ = db.record_media_status(
+                                                                game.id,
+                                                                "cover",
+                                                                "downloaded",
+                                                                Some(&target_file.to_string_lossy()),
+                                                                Some(img_url),
+                                                            );
+                                                        }
+
+                                                        if let Some(protocol) = cover_manager.load_protocol_from_file(&target_file) {
+                                                            let _ = cover_tx.send(LoadedCoverEvent {
+                                                                game_id: game.id,
+                                                                media_type: "cover".to_string(),
+                                                                protocol: Some(protocol),
+                                                            }).await;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
