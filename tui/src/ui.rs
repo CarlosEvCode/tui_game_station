@@ -5714,13 +5714,29 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             selected_source,
             filter_idx,
             ref enabled_platform_ids,
+            region_idx,
+            cover_pref_idx,
+            banner_pref_idx,
+            icon_pref_idx,
             selected_field,
         } => {
-            let popup_area = centered_rect(65, 55, frame.area());
+            let popup_area = centered_rect(70, 75, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let filter_labels = ["All Games", "Favorite Games", "No Metadata", "No Game Image"];
             let filter_name = filter_labels.get(filter_idx).unwrap_or(&"All Games");
+
+            let region_labels = ["USA / North America (us)", "World (wor)", "Europe (eu)", "Japan (jp)"];
+            let region_name = region_labels.get(region_idx).unwrap_or(&"USA / North America (us)");
+
+            let cover_labels = ["2D Boxart", "3D Boxart", "2D Cartridge/Disk", "3D Cartridge/Disk", "Recalbox Mix V1", "Recalbox Mix V2"];
+            let cover_name = cover_labels.get(cover_pref_idx).unwrap_or(&"2D Boxart");
+
+            let banner_labels = ["Fanart Background", "ScreenMarquee", "Gameplay Screenshot", "Title Screen", "Wheel Logo"];
+            let banner_name = banner_labels.get(banner_pref_idx).unwrap_or(&"Fanart Background");
+
+            let icon_labels = ["Wheel Logo", "Steel Wheel", "Carbon Wheel", "2D Cartridge/Disk", "3D Cartridge/Disk"];
+            let icon_name = icon_labels.get(icon_pref_idx).unwrap_or(&"Wheel Logo");
 
             let systems_summary = if enabled_platform_ids.is_empty() {
                 "ALL SYSTEMS".to_string()
@@ -5766,19 +5782,67 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 style_2,
             )));
 
+            // Field 3: PREFERRED REGION
+            let style_3 = if selected_field == 3 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_3 = if selected_field == 3 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}PREFERRED REGION: ◄ {} ►", prefix_3, region_name),
+                style_3,
+            )));
+
+            // Field 4: COVER MEDIA PREFERENCE
+            let style_4 = if selected_field == 4 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_4 = if selected_field == 4 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}COVER MEDIA TYPE: ◄ {} ►", prefix_4, cover_name),
+                style_4,
+            )));
+
+            // Field 5: BANNER MEDIA PREFERENCE
+            let style_5 = if selected_field == 5 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_5 = if selected_field == 5 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}BANNER MEDIA TYPE: ◄ {} ►", prefix_5, banner_name),
+                style_5,
+            )));
+
+            // Field 6: ICON MEDIA PREFERENCE
+            let style_6 = if selected_field == 6 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_6 = if selected_field == 6 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}ICON MEDIA TYPE: ◄ {} ►", prefix_6, icon_name),
+                style_6,
+            )));
+
             // Blank separator line
             list_items.push(ListItem::new(Span::raw("")));
 
-            // Field 3: START SCRAPER BUTTON
-            let style_3 = if selected_field == 3 {
+            // Field 7: START SCRAPER BUTTON
+            let style_7 = if selected_field == 7 {
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Yellow)
             };
-            let prefix_3 = if selected_field == 3 { " ▶ " } else { "   " };
+            let prefix_7 = if selected_field == 7 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}[ START SCRAPER ]", prefix_3),
-                style_3,
+                format!("{}[ START SCRAPER ]", prefix_7),
+                style_7,
             )));
 
             let list = List::new(list_items).block(

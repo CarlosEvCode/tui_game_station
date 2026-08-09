@@ -12,6 +12,14 @@ pub struct ScraperSearchParams {
     pub sha1_hash: Option<String>,
     pub file_size: Option<u64>,
     pub serial: Option<String>,
+    /// Preferred region for media & titles ("us", "eu", "wor", "jp")
+    pub preferred_region: Option<String>,
+    /// Preferred cover media type ("box-2d", "box-3d", "support-2d", "support-3d", "mix-recalboxv1", "mix-recalboxv2")
+    pub cover_pref: Option<String>,
+    /// Preferred banner media type ("fanart", "screenmarque", "ss", "sstitle", "wheel")
+    pub banner_pref: Option<String>,
+    /// Preferred icon media type ("wheel", "steel", "carbon", "support-2d", "support-3d")
+    pub icon_pref: Option<String>,
     /// If true, performs strict automatic match (e.g. hash match or exact name match).
     /// If false, performs broader search (e.g. text query for user selection).
     pub automatic_mode: bool,

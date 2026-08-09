@@ -641,14 +641,22 @@ pub enum ModalState {
         selected_idx: usize,
     },
     /// Modal for Scraper Menu matching ES-DE architecture
-    /// (Scrape Source, Filter, Platforms selection, Start Scrape)
+    /// (Scrape Source, Filter, Platforms selection, Region, Cover/Banner/Icon preferences, Start Scrape)
     ScraperMenu {
         selected_source: scraper::pipeline::ScraperSource,
         /// Filter index: 0=All Games, 1=Favorite Games, 2=No Metadata, 3=No Game Image
         filter_idx: usize,
         /// Platform IDs enabled for scraping (empty means all enabled)
         enabled_platform_ids: std::collections::HashSet<i64>,
-        /// Currently focused row index in the modal (0=Source, 1=Filter, 2=Systems, 3=Start Scraping)
+        /// Preferred Region: 0=USA (us), 1=World (wor), 2=Europe (eu), 3=Japan (jp)
+        region_idx: usize,
+        /// Cover preference: 0=2D Boxart, 1=3D Boxart, 2=2D Support Cartridge, 3=3D Support Cartridge, 4=Recalbox Mix V1, 5=Recalbox Mix V2
+        cover_pref_idx: usize,
+        /// Banner preference: 0=Fanart Background, 1=ScreenMarquee, 2=Gameplay Screenshot, 3=Title Screen, 4=Wheel Logo
+        banner_pref_idx: usize,
+        /// Icon preference: 0=Wheel Logo, 1=Steel Wheel, 2=Carbon Wheel, 3=2D Cartridge, 4=3D Cartridge
+        icon_pref_idx: usize,
+        /// Currently focused row index in the modal
         selected_field: usize,
     },
     /// Sub-modal from ScraperMenu to select which platforms/systems to scrape
@@ -5853,7 +5861,7 @@ impl App {
                         ref mut selected_field,
                         ..
                     } => {
-                        *selected_field = (*selected_field + 1) % 4;
+                        *selected_field = (*selected_field + 1) % 8;
                     }
                     ModalState::ScraperSystemSelector {
                         ref platforms,
@@ -6087,7 +6095,7 @@ impl App {
                         ..
                     } => {
                         if *selected_field == 0 {
-                            *selected_field = 3;
+                            *selected_field = 7;
                         } else {
                             *selected_field -= 1;
                         }
@@ -8823,6 +8831,10 @@ impl App {
                     selected_source: scraper::pipeline::ScraperSource::ScreenScraper,
                     filter_idx: 0,
                     enabled_platform_ids: std::collections::HashSet::new(),
+                    region_idx: 0,     // 0=USA (us)
+                    cover_pref_idx: 0, // 0=2D Boxart
+                    banner_pref_idx: 0,// 0=Fanart Background
+                    icon_pref_idx: 0,  // 0=Wheel Logo
                     selected_field: 0,
                 };
             }
@@ -8831,23 +8843,71 @@ impl App {
                 if let ModalState::ScraperMenu {
                     ref mut selected_source,
                     ref mut filter_idx,
+                    ref mut region_idx,
+                    ref mut cover_pref_idx,
+                    ref mut banner_pref_idx,
+                    ref mut icon_pref_idx,
                     selected_field,
                     ..
                 } = self.modal_state
                 {
-                    if selected_field == 0 {
-                        *selected_source = match selected_source {
-                            scraper::pipeline::ScraperSource::ScreenScraper => scraper::pipeline::ScraperSource::TheGamesDB,
-                            scraper::pipeline::ScraperSource::TheGamesDB => scraper::pipeline::ScraperSource::ScreenScraper,
-                        };
-                    } else if selected_field == 1 {
-                        if forward {
-                            *filter_idx = (*filter_idx + 1) % 4;
-                        } else if *filter_idx == 0 {
-                            *filter_idx = 3;
-                        } else {
-                            *filter_idx -= 1;
+                    match selected_field {
+                        0 => {
+                            *selected_source = match selected_source {
+                                scraper::pipeline::ScraperSource::ScreenScraper => scraper::pipeline::ScraperSource::TheGamesDB,
+                                scraper::pipeline::ScraperSource::TheGamesDB => scraper::pipeline::ScraperSource::ScreenScraper,
+                            };
                         }
+                        1 => {
+                            if forward {
+                                *filter_idx = (*filter_idx + 1) % 4;
+                            } else if *filter_idx == 0 {
+                                *filter_idx = 3;
+                            } else {
+                                *filter_idx -= 1;
+                            }
+                        }
+                        3 => {
+                            // Region: 0=USA (us), 1=World (wor), 2=Europe (eu), 3=Japan (jp)
+                            if forward {
+                                *region_idx = (*region_idx + 1) % 4;
+                            } else if *region_idx == 0 {
+                                *region_idx = 3;
+                            } else {
+                                *region_idx -= 1;
+                            }
+                        }
+                        4 => {
+                            // Cover: 0=2D Boxart, 1=3D Boxart, 2=2D Cartridge, 3=3D Cartridge, 4=Recalbox Mix V1, 5=Recalbox Mix V2
+                            if forward {
+                                *cover_pref_idx = (*cover_pref_idx + 1) % 6;
+                            } else if *cover_pref_idx == 0 {
+                                *cover_pref_idx = 5;
+                            } else {
+                                *cover_pref_idx -= 1;
+                            }
+                        }
+                        5 => {
+                            // Banner: 0=Fanart Background, 1=ScreenMarquee, 2=Gameplay Screenshot, 3=Title Screen, 4=Wheel Logo
+                            if forward {
+                                *banner_pref_idx = (*banner_pref_idx + 1) % 5;
+                            } else if *banner_pref_idx == 0 {
+                                *banner_pref_idx = 4;
+                            } else {
+                                *banner_pref_idx -= 1;
+                            }
+                        }
+                        6 => {
+                            // Icon: 0=Wheel Logo, 1=Steel Wheel, 2=Carbon Wheel, 3=2D Cartridge, 4=3D Cartridge
+                            if forward {
+                                *icon_pref_idx = (*icon_pref_idx + 1) % 5;
+                            } else if *icon_pref_idx == 0 {
+                                *icon_pref_idx = 4;
+                            } else {
+                                *icon_pref_idx -= 1;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -8905,10 +8965,46 @@ impl App {
                     selected_source,
                     filter_idx,
                     ref enabled_platform_ids,
+                    region_idx,
+                    cover_pref_idx,
+                    banner_pref_idx,
+                    icon_pref_idx,
                     ..
                 } = self.modal_state.clone()
                 {
                     self.modal_state = ModalState::None;
+
+                    let preferred_region = match region_idx {
+                        1 => "wor",
+                        2 => "eu",
+                        3 => "jp",
+                        _ => "us",
+                    }.to_string();
+
+                    let cover_pref = match cover_pref_idx {
+                        1 => "box-3d",
+                        2 => "support-2d",
+                        3 => "support-3d",
+                        4 => "mix-recalboxv1",
+                        5 => "mix-recalboxv2",
+                        _ => "box-2d",
+                    }.to_string();
+
+                    let banner_pref = match banner_pref_idx {
+                        1 => "screenmarque",
+                        2 => "ss",
+                        3 => "sstitle",
+                        4 => "wheel",
+                        _ => "fanart",
+                    }.to_string();
+
+                    let icon_pref = match icon_pref_idx {
+                        1 => "steel",
+                        2 => "carbon",
+                        3 => "support-2d",
+                        4 => "support-3d",
+                        _ => "wheel",
+                    }.to_string();
 
                     // Gather games matching platform & filter
                     let mut candidate_games = Vec::new();
@@ -8992,6 +9088,10 @@ impl App {
                                 sha1_hash: game.file_hash_sha1.clone(),
                                 file_size: game.file_size.map(|s| s as u64),
                                 serial: game.serial.clone(),
+                                preferred_region: Some(preferred_region.clone()),
+                                cover_pref: Some(cover_pref.clone()),
+                                banner_pref: Some(banner_pref.clone()),
+                                icon_pref: Some(icon_pref.clone()),
                                 automatic_mode: true,
                             };
                             

@@ -76,8 +76,20 @@ impl ScreenScraperClient {
         self.platform_map.get(slug).copied()
     }
 
-    /// Parse ScreenScraper XML response into ScraperSearchResult list and Quota
+    /// Parse ScreenScraper XML response into ScraperSearchResult list and Quota (default options)
     pub fn parse_xml_response(&self, xml_text: &str) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
+        self.parse_xml_response_with_options(xml_text, None, None, None, None)
+    }
+
+    /// Parse ScreenScraper XML response with region preference and media type preferences
+    pub fn parse_xml_response_with_options(
+        &self,
+        xml_text: &str,
+        preferred_region: Option<&str>,
+        cover_pref: Option<&str>,
+        banner_pref: Option<&str>,
+        icon_pref: Option<&str>,
+    ) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
         if xml_text.starts_with("Erreur : Rom") || xml_text.contains("not found") {
             return Ok((Vec::new(), ScreenScraperQuota::default()));
         }
@@ -96,6 +108,16 @@ impl ScreenScraperClient {
             quota.remaining_today = quota.max_requests_per_day.saturating_sub(quota.requests_today);
         }
 
+        let user_reg = preferred_region.unwrap_or("us").to_lowercase();
+        let region_fallback_order = vec![
+            user_reg.as_str(),
+            "wor",
+            "us",
+            "eu",
+            "jp",
+            "ss",
+        ];
+
         let mut results = Vec::new();
         let juegos_node = doc.descendants().find(|n| n.has_tag_name("jeux"))
             .unwrap_or_else(|| doc.root_element());
@@ -103,11 +125,11 @@ impl ScreenScraperClient {
         for game_node in juegos_node.children().filter(|n| n.has_tag_name("jeu")) {
             let game_id = game_node.attribute("id").unwrap_or("").to_string();
 
-            // Extract Name (regions fallback: wor, us, ss, eu, jp)
+            // Extract Name (regions fallback: user_region, wor, us, eu, jp, ss)
             let mut title = String::new();
             if let Some(noms_node) = game_node.children().find(|n| n.has_tag_name("noms")) {
-                for reg in &["wor", "us", "ss", "eu", "jp"] {
-                    if let Some(nom) = noms_node.children().find(|n| n.has_tag_name("nom") && n.attribute("region") == Some(reg)) {
+                for reg in &region_fallback_order {
+                    if let Some(nom) = noms_node.children().find(|n| n.has_tag_name("nom") && n.attribute("region") == Some(*reg)) {
                         if let Some(txt) = nom.text() {
                             title = txt.replace("&nbsp;", " ").replace("&#x26;", "&").replace("&#39;", "'");
                             break;
@@ -117,7 +139,7 @@ impl ScreenScraperClient {
                 if title.is_empty() {
                     if let Some(nom) = noms_node.children().find(|n| n.has_tag_name("nom")) {
                         if let Some(txt) = nom.text() {
-                            title = txt.to_string();
+                            title = txt.replace("&nbsp;", " ").replace("&#x26;", "&").replace("&#39;", "'");
                         }
                     }
                 }
@@ -158,7 +180,7 @@ impl ScreenScraperClient {
             // Description
             let mut description = None;
             if let Some(syn_node) = game_node.children().find(|n| n.has_tag_name("synopsis")) {
-                for lang in &["en", "wor"] {
+                for lang in &["en", "wor", "es", "fr"] {
                     if let Some(s) = syn_node.children().find(|n| n.has_tag_name("synopsis") && n.attribute("langue") == Some(lang)) {
                         if let Some(txt) = s.text() {
                             description = Some(txt.replace("&nbsp;", " ").replace("&quot;", "\""));
@@ -176,7 +198,7 @@ impl ScreenScraperClient {
                 }
             }
 
-            // Rating note/20 -> 0-5 (ES-DE ceilf(val / 20.0 / 0.1) / 10 = scale 0-5)
+            // Rating note/20 -> 0-5
             let mut rating = None;
             if let Some(note_node) = game_node.children().find(|n| n.has_tag_name("note")) {
                 if let Some(txt) = note_node.text() {
@@ -187,38 +209,70 @@ impl ScreenScraperClient {
                 }
             }
 
-            // Media extraction
-            let mut cover_url = None;
-            let mut banner_url = None;
-            let mut icon_url = None;
-            let mut screenshot_url = None;
-            let mut fanart_url = None;
-            let mut logo_url = None;
+            // Region-aware media extraction helper
+            let get_media_url_by_type = |target_types: &[&str]| -> Option<String> {
+                if let Some(medias_node) = game_node.children().find(|n| n.has_tag_name("medias")) {
+                    for target_type in target_types {
+                        let matching_nodes: Vec<_> = medias_node
+                            .children()
+                            .filter(|n| n.has_tag_name("media") && n.attribute("type").unwrap_or("").to_lowercase() == *target_type)
+                            .collect();
 
-            if let Some(medias_node) = game_node.children().find(|n| n.has_tag_name("medias")) {
-                for media in medias_node.children().filter(|n| n.has_tag_name("media")) {
-                    let m_type = media.attribute("type").unwrap_or("").to_lowercase();
-                    let m_url = media.text().map(|u| u.replace(' ', "%20"));
+                        if matching_nodes.is_empty() {
+                            continue;
+                        }
 
-                    match m_type.as_str() {
-                        "box-2d" | "box-3d" | "box-2d-front" | "box-3d-front" | "flyer" | "poster" | "box" | "box-2d-side" | "support-2d" | "support-3d" if cover_url.is_none() => cover_url = m_url,
-                        "banner" | "steam-banner" if banner_url.is_none() => banner_url = m_url,
-                        "wheel" | "wheel-hd" | "screenmarque" if logo_url.is_none() => logo_url = m_url,
-                        "screenshot" | "ss" | "sstitle" if screenshot_url.is_none() => screenshot_url = m_url,
-                        "fanart" if fanart_url.is_none() => fanart_url = m_url,
-                        "steam-icon" | "icon" if icon_url.is_none() => icon_url = m_url,
-                        _ => {}
+                        // Try finding node matching region fallback order
+                        for reg in &region_fallback_order {
+                            if let Some(m) = matching_nodes.iter().find(|n| n.attribute("region") == Some(*reg)) {
+                                if let Some(txt) = m.text() {
+                                    return Some(txt.replace(' ', "%20"));
+                                }
+                            }
+                        }
+
+                        // Fallback to first available matching node
+                        if let Some(m) = matching_nodes.first() {
+                            if let Some(txt) = m.text() {
+                                return Some(txt.replace(' ', "%20"));
+                            }
+                        }
                     }
                 }
-            }
+                None
+            };
 
-            // Fallback for banner_url and icon_url if ScreenScraper doesn't provide explicit banner/icon tags
-            if banner_url.is_none() {
-                banner_url = logo_url.clone().or_else(|| fanart_url.clone()).or_else(|| screenshot_url.clone());
-            }
-            if icon_url.is_none() {
-                icon_url = logo_url.clone().or_else(|| cover_url.clone());
-            }
+            let cover_targets: Vec<&str> = match cover_pref.unwrap_or("box-2d") {
+                "box-3d" => vec!["box-3d", "box-3d-front", "box-2d", "box-2d-front", "flyer", "poster"],
+                "support-2d" => vec!["support-2d", "support-3d", "box-2d", "box-3d"],
+                "support-3d" => vec!["support-3d", "support-2d", "box-3d", "box-2d"],
+                "mix-recalboxv1" => vec!["mix-recalboxv1", "mix-recalboxv2", "box-2d", "box-3d"],
+                "mix-recalboxv2" => vec!["mix-recalboxv2", "mix-recalboxv1", "box-2d", "box-3d"],
+                _ => vec!["box-2d", "box-2d-front", "box-3d", "box-3d-front", "flyer", "poster", "box"],
+            };
+
+            let banner_targets: Vec<&str> = match banner_pref.unwrap_or("fanart") {
+                "screenmarque" => vec!["screenmarque", "wheel-hd", "wheel", "fanart", "ss", "sstitle"],
+                "ss" => vec!["ss", "sstitle", "screenshot", "fanart", "wheel"],
+                "sstitle" => vec!["sstitle", "ss", "screenshot", "fanart", "wheel"],
+                "wheel" => vec!["wheel", "wheel-hd", "screenmarque", "fanart"],
+                _ => vec!["fanart", "screenmarque", "wheel-hd", "wheel", "ss", "sstitle", "banner"],
+            };
+
+            let icon_targets: Vec<&str> = match icon_pref.unwrap_or("wheel") {
+                "steel" => vec!["wheel-steel", "wheel-carbon", "wheel", "support-2d", "support-3d"],
+                "carbon" => vec!["wheel-carbon", "wheel-steel", "wheel", "support-2d", "support-3d"],
+                "support-2d" => vec!["support-2d", "support-3d", "wheel", "icon"],
+                "support-3d" => vec!["support-3d", "support-2d", "wheel", "icon"],
+                _ => vec!["wheel", "wheel-hd", "steam-icon", "icon", "support-2d", "support-3d"],
+            };
+
+            let cover_url = get_media_url_by_type(&cover_targets);
+            let banner_url = get_media_url_by_type(&banner_targets).or_else(|| get_media_url_by_type(&["wheel", "fanart", "ss", "box-2d"]));
+            let icon_url = get_media_url_by_type(&icon_targets).or_else(|| get_media_url_by_type(&["wheel", "support-2d", "box-2d"]));
+            let screenshot_url = get_media_url_by_type(&["ss", "sstitle", "screenshot"]);
+            let fanart_url = get_media_url_by_type(&["fanart"]);
+            let logo_url = get_media_url_by_type(&["wheel", "wheel-hd"]);
 
             results.push(ScraperSearchResult {
                 provider_name: "screenscraper".to_string(),
@@ -303,7 +357,13 @@ impl ScraperProvider for ScreenScraperClient {
         }
 
         let body = resp.text().await?;
-        let (mut results, quota) = self.parse_xml_response(&body)?;
+        let (mut results, quota) = self.parse_xml_response_with_options(
+            &body,
+            params.preferred_region.as_deref(),
+            params.cover_pref.as_deref(),
+            params.banner_pref.as_deref(),
+            params.icon_pref.as_deref(),
+        )?;
 
         if results.is_empty() && endpoint == "jeuInfos.php" {
             let mut fallback_url = format!(
@@ -316,7 +376,13 @@ impl ScraperProvider for ScreenScraperClient {
             if let Ok(fb_resp) = self.client.get(&fallback_url).send().await {
                 if fb_resp.status().is_success() {
                     if let Ok(fb_body) = fb_resp.text().await {
-                        if let Ok((fb_results, _)) = self.parse_xml_response(&fb_body) {
+                        if let Ok((fb_results, _)) = self.parse_xml_response_with_options(
+                            &fb_body,
+                            params.preferred_region.as_deref(),
+                            params.cover_pref.as_deref(),
+                            params.banner_pref.as_deref(),
+                            params.icon_pref.as_deref(),
+                        ) {
                             results = fb_results;
                         }
                     }
