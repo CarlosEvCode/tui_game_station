@@ -1427,7 +1427,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let inner_h = center_inner.height;
         let inner_w = center_inner.width;
 
-        let text_h = 5u16;
+        let text_h = 2u16;
         let gap_h = 1u16;
         let padding_h = 3u16;
 
@@ -1480,38 +1480,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             _ => "Emulator ROM",
         };
 
-        let platform_name = app
-            .platforms
-            .iter()
-            .find(|p| p.id == active_game.platform_id)
-            .map(|p| p.name.as_str())
-            .unwrap_or("Unknown Platform");
-
-        let year_str = active_game
-            .release_year
-            .map(|y| y.to_string())
-            .unwrap_or_else(|| "Unknown".to_string());
-        let dev_str = active_game
-            .developer
-            .as_deref()
-            .unwrap_or("Unknown Developer");
-        let pub_str = active_game
-            .publisher
-            .as_deref()
-            .unwrap_or("Unknown Publisher");
-        let genre_str = active_game
-            .genre
-            .as_deref()
-            .unwrap_or("Unknown Genre");
-
-        let rating_str = if let Some(r) = active_game.rating {
-            let stars = (r / 2.0).round().clamp(1.0, 5.0) as usize;
-            format!("{} ({:.1}/10)", "★".repeat(stars) + &"☆".repeat(5 - stars), r)
-        } else {
-            "N/A".to_string()
-        };
-
-        let mut details_lines = vec![
+        let details_lines = vec![
             Line::from(vec![
                 Span::styled(
                     "TITLE: ",
@@ -1525,56 +1494,6 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                         .fg(Color::White)
                         .add_modifier(Modifier::BOLD),
                 ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "PLATFORM: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(platform_name, Style::default().fg(Color::White)),
-                Span::raw("  |  "),
-                Span::styled(
-                    "YEAR: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(year_str, Style::default().fg(Color::Yellow)),
-                Span::raw("  |  "),
-                Span::styled(
-                    "RATING: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(rating_str, Style::default().fg(Color::LightYellow)),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "DEV: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(dev_str, Style::default().fg(Color::White)),
-                Span::raw("  |  "),
-                Span::styled(
-                    "PUB: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(pub_str, Style::default().fg(Color::White)),
-                Span::raw("  |  "),
-                Span::styled(
-                    "GENRE: ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(genre_str, Style::default().fg(Color::Magenta)),
             ]),
             Line::from(vec![
                 Span::styled(
@@ -1595,30 +1514,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             ]),
         ];
 
-        if let Some(ref desc) = active_game.description {
-            let trimmed = desc.trim();
-            if !trimmed.is_empty() {
-                // Shortened single line or wrapped line for description
-                let clean_desc = trimmed.replace('\n', " ");
-                let max_len = 110;
-                let desc_display = if clean_desc.chars().count() > max_len {
-                    format!("{}...", clean_desc.chars().take(max_len).collect::<String>())
-                } else {
-                    clean_desc
-                };
-                details_lines.push(Line::from(vec![
-                    Span::styled(
-                        "DESC: ",
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(desc_display, Style::default().fg(Color::Gray)),
-                ]));
-            }
-        }
-
-        let details_p = Paragraph::new(details_lines).alignment(Alignment::Center).wrap(Wrap { trim: true });
+        let details_p = Paragraph::new(details_lines).alignment(Alignment::Center);
         frame.render_widget(details_p, details_rect);
 
         // 3. RIGHT SIDE: Next Game Preview (Halfblocks cover, 2D dead-centered)
@@ -1872,7 +1768,22 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         frame.render_widget(title_p, title_rect);
     }
 
-    let info_lines = vec![
+    let year_str = game
+        .release_year
+        .map(|y| y.to_string())
+        .unwrap_or_else(|| "Unknown".to_string());
+    let dev_str = game.developer.as_deref().unwrap_or("Unknown");
+    let pub_str = game.publisher.as_deref().unwrap_or("Unknown");
+    let genre_str = game.genre.as_deref().unwrap_or("Unknown");
+
+    let rating_str = if let Some(r) = game.rating {
+        let stars = (r / 2.0).round().clamp(1.0, 5.0) as usize;
+        format!("{} ({:.1}/10)", "★".repeat(stars) + &"☆".repeat(5 - stars), r)
+    } else {
+        "N/A".to_string()
+    };
+
+    let mut info_lines = vec![
         Line::from(vec![
             Span::styled(
                 "PLATFORM: ",
@@ -1881,16 +1792,87 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(&platform_name, Style::default().fg(Color::White)),
-            Span::raw("   "),
+            Span::raw("   |   "),
             Span::styled(
-                "TYPE: ",
+                "RELEASE YEAR: ",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(badge, Style::default().fg(Color::Magenta)),
+            Span::styled(year_str, Style::default().fg(Color::Yellow)),
+            Span::raw("   |   "),
+            Span::styled(
+                "RATING: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(rating_str, Style::default().fg(Color::LightYellow)),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "DEVELOPER: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(dev_str, Style::default().fg(Color::White)),
+            Span::raw("   |   "),
+            Span::styled(
+                "PUBLISHER: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(pub_str, Style::default().fg(Color::White)),
+            Span::raw("   |   "),
+            Span::styled(
+                "GENRE: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(genre_str, Style::default().fg(Color::Magenta)),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "EXECUTABLE TYPE: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(badge, Style::default().fg(Color::Yellow)),
+            Span::raw("   |   "),
+            Span::styled(
+                "STATUS: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Ready to Play", Style::default().fg(Color::Green)),
         ]),
     ];
+
+    if let Some(ref desc) = game.description {
+        let trimmed = desc.trim();
+        if !trimmed.is_empty() {
+            info_lines.push(Line::from(""));
+            info_lines.push(Line::from(vec![
+                Span::styled(
+                    "DESCRIPTION:",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            for desc_line in trimmed.lines() {
+                let clean = desc_line.trim();
+                if !clean.is_empty() {
+                    info_lines.push(Line::from(Span::styled(clean, Style::default().fg(Color::Gray))));
+                }
+            }
+        }
+    }
 
     let info_p = Paragraph::new(info_lines).wrap(Wrap { trim: true });
     frame.render_widget(info_p, info_chunks[1]);
