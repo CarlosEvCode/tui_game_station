@@ -860,7 +860,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
         .media_protocols
         .get_mut(&(game_id, media_type.to_string()))
     {
-        let image_widget = StatefulImage::new(None);
+        let image_widget = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
         frame.render_stateful_widget(image_widget, centered_media_rect, protocol);
     } else {
         render_cover_placeholder(frame, app, game_id, media_type, centered_media_rect);
@@ -1386,7 +1386,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                 app.media_protocols.get_mut(&key_cover)
             };
             if let Some(protocol) = protocol {
-                let image_widget = StatefulImage::new(None);
+                let image_widget = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
                 frame.render_stateful_widget(image_widget, left_img_rect, protocol);
             } else {
                 let lines = vec![
@@ -1463,7 +1463,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         // Render Featured HD Native Cover Image
         let key = (active_game.id, "cover".to_string());
         if let Some(protocol) = app.media_protocols.get_mut(&key) {
-            let image_widget = StatefulImage::new(None);
+            let image_widget = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
             frame.render_stateful_widget(image_widget, img_centered_rect, protocol);
         } else {
             let no_img =
@@ -1552,7 +1552,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                 app.media_protocols.get_mut(&key_cover)
             };
             if let Some(protocol) = protocol {
-                let image_widget = StatefulImage::new(None);
+                let image_widget = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
                 frame.render_stateful_widget(image_widget, right_img_rect, protocol);
             } else {
                 let lines = vec![
@@ -1665,7 +1665,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         app.media_protocols.get_mut(&cover_hb_key)
     };
     if let Some(proto) = cover_proto {
-        let img = StatefulImage::new(None);
+        let img = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
         frame.render_stateful_widget(img, cover_rect, proto);
     }
 
@@ -1728,7 +1728,7 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let icon_key = (game.id, "icon_hb".to_string());
     if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
         let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, ICON_H);
-        let icon_img = StatefulImage::new(None);
+        let icon_img = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
         frame.render_stateful_widget(icon_img, icon_rect, icon_proto);
     }
 
