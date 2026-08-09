@@ -1398,6 +1398,43 @@ impl Database {
         }
     }
 
+    /// Update game metadata fields in SQLite (release_year, developer, publisher, description, genre, rating, serial)
+    pub fn update_game_metadata(
+        &self,
+        game_id: i64,
+        release_year: Option<i32>,
+        developer: Option<&str>,
+        publisher: Option<&str>,
+        description: Option<&str>,
+        genre: Option<&str>,
+        rating: Option<f32>,
+        serial: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE games SET
+                release_year = COALESCE(?2, release_year),
+                developer = COALESCE(?3, developer),
+                publisher = COALESCE(?4, publisher),
+                description = COALESCE(?5, description),
+                genre = COALESCE(?6, genre),
+                rating = COALESCE(?7, rating),
+                serial = COALESCE(?8, serial),
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![
+                game_id,
+                release_year,
+                developer,
+                publisher,
+                description,
+                genre,
+                rating,
+                serial,
+            ],
+        )?;
+        Ok(())
+    }
+
     /// Return `(crc32, md5, sha1, file_size)` for the game owning `file_path`.
     /// `None` when the path is not indexed yet. Lets the scanner reuse a
     /// previously computed hash instead of re-reading the whole ROM file.
@@ -2114,6 +2151,83 @@ mod tests {
         // 5. Reverting override to None falls back to normal resolution
         let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
         assert_eq!(chosen.name, "Citron");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_update_game_metadata() {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_db_metadata_{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = Database::open(&path).unwrap();
+        let nes = db.get_platform_by_slug("nes").unwrap().unwrap();
+
+        let game_id = db
+            .insert_game(&crate::models::Game {
+                id: 0,
+                platform_id: nes.id,
+                folder_id: None,
+                emulator_override: None,
+                core_override: None,
+                title: "Super Mario Bros".to_string(),
+                sort_title: None,
+                game_type: "emulator".to_string(),
+                file_path: Some("/roms/nes/mario.nes".to_string()),
+                working_dir: None,
+                custom_command: None,
+                env_vars: None,
+                wine_prefix: None,
+                wine_runner_id: None,
+                steam_appid: None,
+                file_name: Some("mario.nes".to_string()),
+                file_extension: Some(".nes".to_string()),
+                file_size: Some(40960),
+                file_hash_crc32: None,
+                file_hash_md5: None,
+                file_hash_sha1: None,
+                serial: None,
+                release_year: None,
+                developer: None,
+                publisher: None,
+                description: None,
+                genre: None,
+                rating: None,
+                favorite: false,
+                play_count: 0,
+                play_time_seconds: 0,
+                last_played_at: None,
+                created_at: String::new(),
+                updated_at: String::new(),
+                components: Vec::new(),
+                is_missing_base: false,
+            })
+            .unwrap();
+
+        db.update_game_metadata(
+            game_id,
+            Some(1985),
+            Some("Nintendo EAD"),
+            Some("Nintendo"),
+            Some("Classic platformer game"),
+            Some("Platform"),
+            Some(4.9),
+            Some("NES-MA-USA"),
+        )
+        .unwrap();
+
+        let games = db.get_games_for_platform(nes.id).unwrap();
+        let saved = games.iter().find(|g| g.id == game_id).unwrap();
+        assert_eq!(saved.release_year, Some(1985));
+        assert_eq!(saved.developer.as_deref(), Some("Nintendo EAD"));
+        assert_eq!(saved.publisher.as_deref(), Some("Nintendo"));
+        assert_eq!(saved.description.as_deref(), Some("Classic platformer game"));
+        assert_eq!(saved.genre.as_deref(), Some("Platform"));
+        assert!((saved.rating.unwrap() - 4.9).abs() < 0.001);
+        assert_eq!(saved.serial.as_deref(), Some("NES-MA-USA"));
 
         drop(db);
         let _ = std::fs::remove_file(path);
