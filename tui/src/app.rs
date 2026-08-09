@@ -2402,10 +2402,32 @@ impl App {
             self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                 let target_dir = media_dir.join("covers");
-                let local = ["jpg", "png", "webp"]
-                    .into_iter()
-                    .map(|e| target_dir.join(format!("{}.{}", id, e)))
-                    .find(|p| p.exists());
+                let local = if target_dir.exists() {
+                    std::fs::read_dir(&target_dir)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok().map(|entry| entry.path()))
+                        .flat_map(|p| {
+                            if p.is_dir() {
+                                vec![
+                                    p.join(format!("{}.jpg", id)),
+                                    p.join(format!("{}.png", id)),
+                                    p.join(format!("{}.webp", id)),
+                                ]
+                            } else {
+                                vec![]
+                            }
+                        })
+                        .chain(vec![
+                            target_dir.join(format!("{}.jpg", id)),
+                            target_dir.join(format!("{}.png", id)),
+                            target_dir.join(format!("{}.webp", id)),
+                        ])
+                        .find(|p| p.exists())
+                } else {
+                    None
+                };
                 let path = if let Some(p) = local {
                     Some(p)
                 } else if let Some(appid) = steam_appid {
@@ -2557,13 +2579,32 @@ impl App {
             self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                 let target_dir = media_dir.join("covers");
-                let local_cover = vec![
-                    target_dir.join(format!("{}.jpg", game_id)),
-                    target_dir.join(format!("{}.png", game_id)),
-                    target_dir.join(format!("{}.webp", game_id)),
-                ]
-                .into_iter()
-                .find(|p| p.exists());
+                let local_cover = if target_dir.exists() {
+                    std::fs::read_dir(&target_dir)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok().map(|entry| entry.path()))
+                        .flat_map(|p| {
+                            if p.is_dir() {
+                                vec![
+                                    p.join(format!("{}.jpg", game_id)),
+                                    p.join(format!("{}.png", game_id)),
+                                    p.join(format!("{}.webp", game_id)),
+                                ]
+                            } else {
+                                vec![]
+                            }
+                        })
+                        .chain(vec![
+                            target_dir.join(format!("{}.jpg", game_id)),
+                            target_dir.join(format!("{}.png", game_id)),
+                            target_dir.join(format!("{}.webp", game_id)),
+                        ])
+                        .find(|p| p.exists())
+                } else {
+                    None
+                };
 
                 let cover_path = if let Some(path) = local_cover {
                     Some(path)
