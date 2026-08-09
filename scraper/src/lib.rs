@@ -1,4 +1,5 @@
 pub mod downloader;
+pub mod pipeline;
 pub mod proton;
 pub mod steam_cover;
 pub mod steamgriddb;
