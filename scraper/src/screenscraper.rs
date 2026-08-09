@@ -9,9 +9,9 @@ use crate::pipeline::{ScraperProvider, ScraperSearchParams, ScraperSearchResult}
 use crate::title_cleaner::TitleCleaner;
 
 const API_BASE_URL: &str = "https://api.screenscraper.fr/api2";
-const DEV_ID: &str = "antigravity";
-const DEV_PASSWORD: &str = "antigravity_secret";
-const SOFT_NAME: &str = "TUI Game Station";
+const DEV_ID: &str = "crlsmgllns12";
+const DEV_PASSWORD: &str = "q3bwH45OOHw";
+const SOFT_NAME: &str = "TuiGameStation";
 
 /// Structure tracking quota information returned by ScreenScraper in `ssuser` node
 #[derive(Debug, Clone, Default)]
