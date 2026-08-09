@@ -809,7 +809,7 @@ async fn main() -> Result<()> {
                                     ModalState::ScraperMenu { selected_field, .. } => {
                                         if selected_field == 2 {
                                             app.update(Action::OpenScraperSystemSelector).await;
-                                        } else if selected_field == 3 {
+                                        } else if selected_field == 7 {
                                             app.update(Action::StartScraper).await;
                                         } else {
                                             app.update(Action::ModalSelectNext).await;
