@@ -2313,13 +2313,32 @@ impl App {
         self.cover_tasks.spawn(async move {
             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
             let target_dir = media_dir.join(&sub_dir_str);
-            let local_cover = vec![
-                target_dir.join(format!("{}.jpg", game_id)),
-                target_dir.join(format!("{}.png", game_id)),
-                target_dir.join(format!("{}.webp", game_id)),
-            ]
-            .into_iter()
-            .find(|p| p.exists());
+            let local_cover = if target_dir.exists() {
+                std::fs::read_dir(&target_dir)
+                    .ok()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.ok().map(|entry| entry.path()))
+                    .flat_map(|p| {
+                        if p.is_dir() {
+                            vec![
+                                p.join(format!("{}.jpg", game_id)),
+                                p.join(format!("{}.png", game_id)),
+                                p.join(format!("{}.webp", game_id)),
+                            ]
+                        } else {
+                            vec![]
+                        }
+                    })
+                    .chain(vec![
+                        target_dir.join(format!("{}.jpg", game_id)),
+                        target_dir.join(format!("{}.png", game_id)),
+                        target_dir.join(format!("{}.webp", game_id)),
+                    ])
+                    .find(|p| p.exists())
+            } else {
+                None
+            };
 
             let cover_path = if let Some(path) = local_cover {
                 Some(path)
@@ -2441,10 +2460,25 @@ impl App {
             self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                 let target_dir = media_dir.join(&sub_dir_s);
-                let local = exts
-                    .into_iter()
-                    .map(|e| target_dir.join(format!("{}.{}", game_id, e)))
-                    .find(|p| p.exists());
+                let local = if target_dir.exists() {
+                    let exts_c = exts.clone();
+                    std::fs::read_dir(&target_dir)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok().map(|entry| entry.path()))
+                        .flat_map(|p| {
+                            if p.is_dir() {
+                                exts_c.iter().map(|e| p.join(format!("{}.{}", game_id, e))).collect()
+                            } else {
+                                vec![]
+                            }
+                        })
+                        .chain(exts.into_iter().map(|e| target_dir.join(format!("{}.{}", game_id, e))))
+                        .find(|p| p.exists())
+                } else {
+                    None
+                };
 
                 let path = if let Some(p) = local {
                     Some(p)
@@ -9120,18 +9154,20 @@ impl App {
 
                                          // Download cover, banner, and icon media if available
                                          let media_targets = [
-                                             ("cover", res.cover_url.as_ref(), "covers"),
-                                             ("banner", res.banner_url.as_ref(), "banners"),
-                                             ("icon", res.icon_url.as_ref(), "icons"),
+                                             ("cover", res.cover_url.as_ref(), "covers", &cover_pref),
+                                             ("banner", res.banner_url.as_ref(), "banners", &banner_pref),
+                                             ("icon", res.icon_url.as_ref(), "icons", &icon_pref),
                                          ];
 
-                                         for (media_type, opt_url, folder_name) in media_targets {
+                                         for (media_type, opt_url, folder_name, subfolder_name) in media_targets {
                                              let mut downloaded = false;
                                              if let Some(img_url) = opt_url {
                                                  if let Ok(resp) = reqwest::get(img_url).await {
                                                      if let Ok(bytes) = resp.bytes().await {
                                                          let ext = if img_url.contains(".png") { "png" } else { "jpg" };
-                                                         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join(folder_name);
+                                                         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir()
+                                                             .join(folder_name)
+                                                             .join(subfolder_name);
                                                          let _ = std::fs::create_dir_all(&media_dir);
                                                          let target_file = media_dir.join(format!("{}.{}", game.id, ext));
                                                          if std::fs::write(&target_file, &bytes).is_ok() {
