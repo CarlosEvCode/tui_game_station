@@ -868,6 +868,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
     // 2. Render Game Details Panel
     let mut details_lines = Vec::new();
 
+    // Title line
     details_lines.push(Line::from(vec![
         Span::styled(
             "Title: ",
@@ -883,6 +884,7 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
     ]));
 
+    // Platform & Game Type line
     if let Some(p) = current_platform {
         let gtype = get_game_type_badge(game, &app.platforms);
         details_lines.push(Line::from(vec![
@@ -894,22 +896,79 @@ fn render_game_cover_card(frame: &mut Frame, app: &mut App, area: Rect) {
         ]));
     }
 
+    // Release Year, Rating, Genre
+    let mut meta_spans = Vec::new();
+
+    if let Some(year) = game.release_year {
+        meta_spans.push(Span::styled("Year: ", Style::default().fg(Color::DarkGray)));
+        meta_spans.push(Span::styled(year.to_string(), Style::default().fg(Color::Magenta)));
+        meta_spans.push(Span::raw(" | "));
+    }
+
+    if let Some(rating) = game.rating {
+        let stars_count = (rating.round() as usize).min(5);
+        let stars = format!("{}{}", "★".repeat(stars_count), "☆".repeat(5 - stars_count));
+        meta_spans.push(Span::styled("Rating: ", Style::default().fg(Color::DarkGray)));
+        meta_spans.push(Span::styled(format!("{} ({:.1})", stars, rating), Style::default().fg(Color::Yellow)));
+        meta_spans.push(Span::raw(" | "));
+    }
+
+    if let Some(ref genre) = game.genre {
+        if !genre.trim().is_empty() {
+            meta_spans.push(Span::styled("Genre: ", Style::default().fg(Color::DarkGray)));
+            meta_spans.push(Span::styled(genre, Style::default().fg(Color::Cyan)));
+        }
+    }
+
+    // Strip trailing separator if needed
+    if meta_spans.last().map(|s| s.content.as_ref()) == Some(" | ") {
+        meta_spans.pop();
+    }
+
+    if !meta_spans.is_empty() {
+        details_lines.push(Line::from(meta_spans));
+    }
+
+    // Developer & Publisher
+    let mut dev_pub_spans = Vec::new();
+    if let Some(ref dev) = game.developer {
+        if !dev.trim().is_empty() {
+            dev_pub_spans.push(Span::styled("Developer: ", Style::default().fg(Color::DarkGray)));
+            dev_pub_spans.push(Span::styled(dev, Style::default().fg(Color::White)));
+        }
+    }
+
+    if let Some(ref publ) = game.publisher {
+        if !publ.trim().is_empty() {
+            if !dev_pub_spans.is_empty() {
+                dev_pub_spans.push(Span::raw(" | "));
+            }
+            dev_pub_spans.push(Span::styled("Publisher: ", Style::default().fg(Color::DarkGray)));
+            dev_pub_spans.push(Span::styled(publ, Style::default().fg(Color::White)));
+        }
+    }
+
+    if !dev_pub_spans.is_empty() {
+        details_lines.push(Line::from(dev_pub_spans));
+    }
+
+    // Steam AppID or Disk Size
     if let Some(appid) = game.steam_appid {
         details_lines.push(Line::from(vec![
             Span::styled("Steam AppID: ", Style::default().fg(Color::DarkGray)),
             Span::styled(appid.to_string(), Style::default().fg(Color::Yellow)),
         ]));
+    } else {
+        let size_str = game
+            .file_size
+            .map(|s| format!("{:.2} GB", s as f64 / (1024.0 * 1024.0 * 1024.0)))
+            .unwrap_or_else(|| "N/A".to_string());
+
+        details_lines.push(Line::from(vec![
+            Span::styled("Size on Disk: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(size_str),
+        ]));
     }
-
-    let size_str = game
-        .file_size
-        .map(|s| format!("{:.2} GB", s as f64 / (1024.0 * 1024.0 * 1024.0)))
-        .unwrap_or_else(|| "N/A".to_string());
-
-    details_lines.push(Line::from(vec![
-        Span::styled("Size on Disk: ", Style::default().fg(Color::DarkGray)),
-        Span::raw(size_str),
-    ]));
 
     details_lines.push(Line::from(vec![Span::styled(
         "[ENTER] Launch Game",
