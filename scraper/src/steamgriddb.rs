@@ -45,6 +45,8 @@ struct ApiResponse<T> {
 pub struct SteamGridDBClient {
     api_key: String,
     client: Client,
+    base_url: String,
+    media_dir: PathBuf,
 }
 
 impl SteamGridDBClient {
@@ -58,6 +60,8 @@ impl SteamGridDBClient {
                 .timeout(Duration::from_secs(15))
                 .build()
                 .unwrap_or_default(),
+            base_url: BASE_URL.to_string(),
+            media_dir: Self::get_media_dir(),
         }
     }
 
@@ -74,15 +78,19 @@ impl SteamGridDBClient {
 
     /// Search game by title on SteamGridDB using cleaned search query
     pub async fn search_game(&self, raw_title: &str) -> Result<Vec<SteamGridSearchResult>> {
+        Ok(self.search_game_checked(raw_title).await?.unwrap_or_default())
+    }
+
+    /// Search returning the raw API outcome so callers can tell "no results"
+    /// (`Ok(Some(empty))`) apart from an API failure (`Ok(None)` on a
+    /// `success:false` body, or `Err` on HTTP/network errors).
+    async fn search_game_checked(&self, raw_title: &str) -> Result<Option<Vec<SteamGridSearchResult>>> {
         let url = format!(
             "{}/search/autocomplete/{}",
-            BASE_URL,
+            self.base_url,
             urlencoding::encode(raw_title)
         );
-        let body = self
-            .request_json::<Vec<SteamGridSearchResult>>(&url)
-            .await?;
-        Ok(body.unwrap_or_default())
+        self.request_json::<Vec<SteamGridSearchResult>>(&url).await
     }
 
     /// Get images of type: "grids" (cover), "heroes" (banner), or "icons" (icon)
@@ -100,12 +108,12 @@ impl SteamGridDBClient {
 
         let url = format!(
             "{}/{}/game/{}{}",
-            BASE_URL, image_type, sgdb_game_id, params
+            self.base_url, image_type, sgdb_game_id, params
         );
         let body = self.request_json::<Vec<SteamGridImageItem>>(&url).await?;
         let res = body.unwrap_or_default();
         if res.is_empty() && image_type == "grids" {
-            let fallback_url = format!("{}/grids/game/{}?limit=30", BASE_URL, sgdb_game_id);
+            let fallback_url = format!("{}/grids/game/{}?limit=30", self.base_url, sgdb_game_id);
             if let Ok(Some(fallback_res)) = self
                 .request_json::<Vec<SteamGridImageItem>>(&fallback_url)
                 .await
@@ -124,7 +132,7 @@ impl SteamGridDBClient {
         raw_title: &str,
         force: bool,
     ) -> Result<DownloadedMediaResult> {
-        let media_dir = Self::get_media_dir();
+        let media_dir = self.media_dir.clone();
         fs::create_dir_all(media_dir.join("covers"))?;
         fs::create_dir_all(media_dir.join("banners"))?;
         fs::create_dir_all(media_dir.join("icons"))?;
@@ -180,18 +188,35 @@ impl SteamGridDBClient {
         }
 
         let mut sgdb_id = None;
+        let mut search_failed = false;
         for cand in &candidates_to_try {
             tracing::info!("[SteamGridDB] Searching candidate: '{}'", cand);
-            if let Ok(res) = self.search_game(cand).await {
-                if let Some(first) = res.first() {
-                    sgdb_id = Some(first.id);
-                    tracing::info!(
-                        "[SteamGridDB] Candidate match for '{}' -> SGDB ID: {} ({})",
-                        cand,
-                        first.id,
-                        first.name
+            match self.search_game_checked(cand).await {
+                Ok(Some(res)) => {
+                    if let Some(first) = res.first() {
+                        sgdb_id = Some(first.id);
+                        tracing::info!(
+                            "[SteamGridDB] Candidate match for '{}' -> SGDB ID: {} ({})",
+                            cand,
+                            first.id,
+                            first.name
+                        );
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!(
+                        "[SteamGridDB] API reported an error (success:false) for candidate '{}'",
+                        cand
                     );
-                    break;
+                    search_failed = true;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "[SteamGridDB] Search request failed for candidate '{}': {err:#}",
+                        cand
+                    );
+                    search_failed = true;
                 }
             }
         }
@@ -199,6 +224,24 @@ impl SteamGridDBClient {
         let sgdb_id = match sgdb_id {
             Some(id) => id,
             None => {
+                if search_failed {
+                    // The request itself failed (bad key, rate limit, network).
+                    // Record a retryable status instead of permanently marking
+                    // the game as "not found", so a later session re-attempts.
+                    tracing::warn!(
+                        "[SteamGridDB] Search failed (retryable) for '{}'",
+                        raw_title
+                    );
+                    if let Some(ref d) = db {
+                        let _ = d.record_media_status(game_id, "cover", "failed", None, None);
+                        let _ = d.record_media_status(game_id, "banner", "failed", None, None);
+                        let _ = d.record_media_status(game_id, "icon", "failed", None, None);
+                    }
+                    anyhow::bail!(
+                        "SteamGridDB search failed (retryable) for '{}'",
+                        raw_title
+                    );
+                }
                 tracing::warn!(
                     "[SteamGridDB] No candidates found on SteamGridDB for '{}'",
                     raw_title
@@ -410,6 +453,204 @@ impl SteamGridDBClient {
             }
         }
 
-        Ok(None)
+        anyhow::bail!("SteamGridDB API Error: rate limited (HTTP 429) after retries");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    /// Tiny HTTP server that answers every request with a canned response, so
+    /// the client can be exercised without touching the network.
+    fn spawn_mock_server(
+        status_line: &'static str,
+        body: &'static [u8],
+        max_requests: usize,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..max_requests {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut buf = [0u8; 2048];
+                    let _ = stream.read(&mut buf);
+                    let header = format!(
+                        "{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        status_line,
+                        body.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes());
+                    let _ = stream.write_all(body);
+                }
+            }
+        });
+        format!("http://{}", addr)
+    }
+
+    fn test_client(base_url: String) -> SteamGridDBClient {
+        SteamGridDBClient {
+            api_key: "test-key".to_string(),
+            client: Client::new(),
+            base_url,
+            media_dir: std::env::temp_dir().join(format!(
+                "tui_game_station_sgdb_test_media_{}",
+                std::process::id()
+            )),
+        }
+    }
+
+    fn temp_db(game_id: i64) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "tui_game_station_sgdb_test_{}_{}.db",
+            std::process::id(),
+            game_id
+        ));
+        let _ = fs::remove_file(&path);
+        path
+    }
+
+    /// Seed a real `games` row (the media table has a FK on `game_id`) and
+    /// return its id.
+    fn seed_test_game(db_path: &PathBuf) -> i64 {
+        let db = game_core::db::Database::open(db_path).unwrap();
+        let platform_id = db.get_platforms().unwrap()[0].id;
+        let game = game_core::models::Game {
+            id: 0,
+            platform_id,
+            folder_id: None,
+            emulator_override: None,
+            core_override: None,
+            title: "Zelda".to_string(),
+            sort_title: None,
+            game_type: "rom".to_string(),
+            file_path: Some(db_path.to_string_lossy().to_string()),
+            working_dir: None,
+            custom_command: None,
+            env_vars: None,
+            wine_prefix: None,
+            wine_runner_id: None,
+            steam_appid: None,
+            file_name: Some("game.nds".to_string()),
+            file_extension: Some(".nds".to_string()),
+            file_size: None,
+            file_hash_crc32: None,
+            file_hash_md5: None,
+            file_hash_sha1: None,
+            serial: None,
+            release_year: None,
+            developer: None,
+            publisher: None,
+            description: None,
+            genre: None,
+            rating: None,
+            favorite: false,
+            play_count: 0,
+            play_time_seconds: 0,
+            last_played_at: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            components: Vec::new(),
+            is_missing_base: false,
+        };
+        db.insert_game(&game).unwrap()
+    }
+
+    #[tokio::test]
+    async fn api_error_during_search_does_not_poison_media_as_not_found() {
+        let base = spawn_mock_server(
+            "HTTP/1.1 401 Unauthorized",
+            br#"{"success":false,"errors":["Authentication Required"]}"#,
+            4,
+        );
+        let client = test_client(base);
+        let db_path = temp_db(1);
+        let game_id = seed_test_game(&db_path);
+
+        let res = client
+            .download_all_media_for_game(Some(db_path.clone()), game_id, "Zelda", false)
+            .await;
+        assert!(res.is_err(), "a 401 must surface as an error");
+
+        let db = game_core::db::Database::open(&db_path).unwrap();
+        for media_type in ["cover", "banner", "icon"] {
+            let status = db.get_media_status(game_id, media_type).unwrap();
+            assert_ne!(
+                status.as_deref(),
+                Some("not_found"),
+                "{} must not be poisoned as not_found on API error",
+                media_type
+            );
+            assert_eq!(
+                status.as_deref(),
+                Some("failed"),
+                "{} should be recorded as retryable 'failed'",
+                media_type
+            );
+        }
+        let _ = fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn api_error_body_during_search_does_not_poison_media_as_not_found() {
+        // HTTP 200 with success:false is how the API reports errors like a bad
+        // key; it must NOT be confused with "no results".
+        let base = spawn_mock_server(
+            "HTTP/1.1 200 OK",
+            br#"{"success":false,"errors":["Authentication Required"]}"#,
+            4,
+        );
+        let client = test_client(base);
+        let db_path = temp_db(2);
+        let game_id = seed_test_game(&db_path);
+
+        let res = client
+            .download_all_media_for_game(Some(db_path.clone()), game_id, "Zelda", false)
+            .await;
+        assert!(res.is_err());
+
+        let db = game_core::db::Database::open(&db_path).unwrap();
+        for media_type in ["cover", "banner", "icon"] {
+            assert_ne!(
+                db.get_media_status(game_id, media_type).unwrap().as_deref(),
+                Some("not_found"),
+                "{} must not be poisoned as not_found on an API error body",
+                media_type
+            );
+            assert_eq!(
+                db.get_media_status(game_id, media_type).unwrap().as_deref(),
+                Some("failed"),
+                "{} should be recorded as retryable 'failed'",
+                media_type
+            );
+        }
+        let _ = fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn genuine_empty_search_records_not_found() {
+        let base = spawn_mock_server("HTTP/1.1 200 OK", br#"{"success":true,"data":[]}"#, 4);
+        let client = test_client(base);
+        let db_path = temp_db(3);
+        let game_id = seed_test_game(&db_path);
+
+        let res = client
+            .download_all_media_for_game(Some(db_path.clone()), game_id, "Zelda", false)
+            .await;
+        assert!(res.is_err(), "no candidate must surface as an error");
+
+        let db = game_core::db::Database::open(&db_path).unwrap();
+        for media_type in ["cover", "banner", "icon"] {
+            assert_eq!(
+                db.get_media_status(game_id, media_type).unwrap().as_deref(),
+                Some("not_found"),
+                "{} should be a genuine not_found",
+                media_type
+            );
+        }
+        let _ = fs::remove_file(&db_path);
     }
 }
