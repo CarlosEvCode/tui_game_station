@@ -5575,9 +5575,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ref games,
             selected_idx,
         } => {
-            let needed_w = 64u16.min(frame.area().width.saturating_sub(4));
-            let needed_h = (games.len() as u16 + 6).clamp(8, 20).min(frame.area().height.saturating_sub(2));
-            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
+            let popup_area = centered_rect(60, 60, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let mut list_items = Vec::new();

@@ -1092,18 +1092,11 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                     }
-                                     ModalState::FavoritesModal { ref games, selected_idx } => {
-                                         if let Some(g) = games.get(selected_idx) {
-                                             let gid = g.id;
-                                             app.modal_state = ModalState::None;
-                                             if let Some(pos) = app.games.iter().position(|x| x.id == gid) {
-                                                 app.selected_game_idx = pos;
-                                                 if app.is_big_picture {
-                                                     app.update(Action::OpenGameDetail).await;
-                                                 }
-                                             }
-                                         }
-                                     }
+                                    ModalState::FavoritesModal { ref games, selected_idx } => {
+                                        if let Some(g) = games.get(selected_idx) {
+                                            app.jump_to_favorite_game(g.id, g.platform_id).await;
+                                        }
+                                    }
                                       ModalState::LocalMediaPicker {
                                           game_id,
                                           selected_row,

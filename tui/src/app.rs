@@ -1982,6 +1982,28 @@ impl App {
         self.trigger_auto_bulk_media_fetch();
     }
 
+    /// Closes the favorites modal and navigates to the selected game in the
+    /// current mode: Big Picture opens the detail view, normal mode switches
+    /// to the game's platform and selects it in the Games pane.
+    pub(crate) async fn jump_to_favorite_game(&mut self, gid: i64, platform_id: i64) {
+        self.modal_state = ModalState::None;
+        if self.is_big_picture {
+            if let Some(pos) = self.games.iter().position(|x| x.id == gid) {
+                self.selected_game_idx = pos;
+                self.update(Action::OpenGameDetail).await;
+            }
+        } else {
+            if let Some(plat_pos) = self.platforms.iter().position(|p| p.id == platform_id) {
+                self.selected_platform_idx = plat_pos;
+                self.load_games_for_selected_platform();
+            }
+            if let Some(game_pos) = self.games.iter().position(|x| x.id == gid) {
+                self.selected_game_idx = game_pos;
+                self.focused_pane = FocusedPane::Games;
+            }
+        }
+    }
+
     pub fn load_local_covers_for_loaded_games(&mut self) {
         if self.games.is_empty() {
             return;
@@ -3137,6 +3159,11 @@ impl App {
                         } => {
                             let key = sgdb_api_key.clone();
                             self.finish_welcome_wizard(&key);
+                        }
+                        ModalState::FavoritesModal { games, selected_idx } => {
+                            if let Some(g) = games.get(selected_idx) {
+                                self.jump_to_favorite_game(g.id, g.platform_id).await;
+                            }
                         }
                         _ => {}
                     }
@@ -5737,6 +5764,20 @@ impl App {
                             *selected_idx = (*selected_idx + 1) % candidates.len();
                         }
                     }
+                    ModalState::FavoritesModal {
+                        ref games,
+                        ref mut selected_idx,
+                    } => {
+                        if !games.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % games.len();
+                        }
+                    }
+                    ModalState::LocalMediaPicker {
+                        ref mut selected_row,
+                        ..
+                    } => {
+                        *selected_row = (*selected_row + 1) % 3;
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -5931,6 +5972,28 @@ impl App {
                             } else {
                                 *selected_idx -= 1;
                             }
+                        }
+                    }
+                    ModalState::FavoritesModal {
+                        ref games,
+                        ref mut selected_idx,
+                    } => {
+                        if !games.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = games.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::LocalMediaPicker {
+                        ref mut selected_row,
+                        ..
+                    } => {
+                        if *selected_row == 0 {
+                            *selected_row = 2;
+                        } else {
+                            *selected_row -= 1;
                         }
                     }
                     _ => {}
