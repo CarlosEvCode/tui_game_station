@@ -873,7 +873,7 @@ pub struct App {
     pub preview_rx: mpsc::Receiver<LoadedPreviewEvent>,
     pub cover_manager: CoverManager,
     pub cover_tasks: tokio::task::JoinSet<()>,
-    pub pending_cover_requests: HashSet<i64>,
+    pub pending_cover_requests: HashSet<(i64, String)>,
     pub media_protocols: HashMap<(i64, String), StatefulProtocol>,
     pub visual_preview_protocol: Option<StatefulProtocol>,
     pub visual_preview_url: Option<String>,
@@ -2132,7 +2132,7 @@ impl App {
             .games
             .iter()
             .filter(|g| {
-                if self.pending_cover_requests.contains(&g.id) {
+                if self.pending_cover_requests.contains(&(g.id, "cover".to_string())) {
                     return false;
                 }
                 let j = media_dir.join(format!("{}.jpg", g.id));
@@ -2148,7 +2148,7 @@ impl App {
         }
 
         for g in &target_games {
-            self.pending_cover_requests.insert(g.id);
+            self.pending_cover_requests.insert((g.id, "cover".to_string()));
         }
 
         let total_games = target_games.len();
@@ -2285,7 +2285,10 @@ impl App {
             ViewMode::Table => ("cover", "covers"),
         };
 
-        if self.pending_cover_requests.contains(&game_id) {
+        let media_type_str = media_type.to_string();
+        let sub_dir_str = media_sub_dir.to_string();
+        let key = (game_id, media_type_str.clone());
+        if self.pending_cover_requests.contains(&key) {
             return;
         }
 
@@ -2294,12 +2297,10 @@ impl App {
             return;
         }
 
-        self.pending_cover_requests.insert(game_id);
+        self.pending_cover_requests.insert(key);
         let tx = self.cover_tx.clone();
         let manager = self.cover_manager.clone();
         let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
-        let media_type_str = media_type.to_string();
-        let sub_dir_str = media_sub_dir.to_string();
 
         self.cover_tasks.spawn(async move {
             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
@@ -2360,6 +2361,8 @@ impl App {
         let game_id = game.id;
         let title = game.title.clone();
 
+        let steam_appid = game.steam_appid;
+
         // Focused media (cover): native / high-fidelity, same pipeline as the
         // featured game in the carousel center.
         if !self
@@ -2376,7 +2379,14 @@ impl App {
                     .into_iter()
                     .map(|e| target_dir.join(format!("{}.{}", id, e)))
                     .find(|p| p.exists());
-                if let Some(path) = local {
+                let path = if let Some(p) = local {
+                    Some(p)
+                } else if let Some(appid) = steam_appid {
+                    SteamCoverResolver::resolve_media(appid, "cover").await
+                } else {
+                    None
+                };
+                if let Some(path) = path {
                     if let Some(protocol) = manager.load_native_protocol_from_file(&path) {
                         let _ = tx
                             .send(LoadedCoverEvent {
@@ -2418,6 +2428,7 @@ impl App {
             let exts = ext.clone();
             let title_c = title.clone();
             let key = media_key;
+            let s_appid = steam_appid;
 
             self.cover_tasks.spawn(async move {
                 let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
@@ -2429,6 +2440,8 @@ impl App {
 
                 let path = if let Some(p) = local {
                     Some(p)
+                } else if let Some(appid) = s_appid {
+                    SteamCoverResolver::resolve_media(appid, &media_type_s).await
                 } else {
                     let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
                     let db_path = dirs::data_dir()
@@ -2489,11 +2502,12 @@ impl App {
             {
                 continue;
             }
-            if self.pending_cover_requests.contains(&game_id) {
+            let req_key = (game_id, "cover_hb".to_string());
+            if self.pending_cover_requests.contains(&req_key) {
                 continue;
             }
 
-            self.pending_cover_requests.insert(game_id);
+            self.pending_cover_requests.insert(req_key);
             let tx = self.cover_tx.clone();
             let manager = self.cover_manager.clone();
             let db_key = self.db.get_setting("steamgriddb_api_key").ok().flatten();
@@ -2558,7 +2572,7 @@ impl App {
 
         // Receive loaded cover events from background task non-blocking
         while let Ok(loaded) = self.cover_rx.try_recv() {
-            self.pending_cover_requests.remove(&loaded.game_id);
+            self.pending_cover_requests.remove(&(loaded.game_id, loaded.media_type.clone()));
             if let Some(proto) = loaded.protocol {
                 self.media_protocols
                     .insert((loaded.game_id, loaded.media_type), proto);
@@ -7838,7 +7852,7 @@ impl App {
                         self.media_protocols.remove(&(g.id, "banner".to_string()));
                         self.media_protocols.remove(&(g.id, "icon".to_string()));
                         self.media_protocols.remove(&(g.id, "icon_hb".to_string()));
-                        self.pending_cover_requests.insert(g.id);
+                        self.pending_cover_requests.insert((g.id, "cover".to_string()));
                     }
 
                     let total_games = target_games.len();
@@ -8459,7 +8473,7 @@ impl App {
                                 }
                             });
                             self.media_protocols.remove(&(game_id, "cover".to_string()));
-                            self.pending_cover_requests.remove(&game_id);
+                            self.pending_cover_requests.remove(&(game_id, "cover".to_string()));
                             updated_media.push("Cover");
                         }
                     }
@@ -8501,7 +8515,7 @@ impl App {
                             });
                             self.media_protocols
                                 .remove(&(game_id, "banner".to_string()));
-                            self.pending_cover_requests.remove(&game_id);
+                            self.pending_cover_requests.remove(&(game_id, "banner".to_string()));
                             updated_media.push("Banner");
                         }
                     }
@@ -8544,7 +8558,7 @@ impl App {
                             self.media_protocols.remove(&(game_id, "icon".to_string()));
                             self.media_protocols
                                 .remove(&(game_id, "icon_hb".to_string()));
-                            self.pending_cover_requests.remove(&game_id);
+                            self.pending_cover_requests.remove(&(game_id, "icon".to_string()));
                             updated_media.push("Icon");
                         }
                     }
