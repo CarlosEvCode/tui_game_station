@@ -279,7 +279,8 @@ async fn main() -> Result<()> {
                                     | ModalState::SelectDetectedEmulatorModal { .. }
                                     | ModalState::WineToolsMenu { .. }
                                     | ModalState::FavoritesModal { .. }
-                                    | ModalState::LocalMediaPicker { .. } => {
+                                    | ModalState::LocalMediaPicker { .. }
+                                    | ModalState::ScraperMenu { .. } => {
                                         app.update(Action::ModalSelectPrev).await;
                                     }
                                     ModalState::ManageRunnersStep2Config {
@@ -355,6 +356,7 @@ async fn main() -> Result<()> {
                                     | ModalState::WineToolsMenu { .. }
                                     | ModalState::FavoritesModal { .. }
                                     | ModalState::LocalMediaPicker { .. }
+                                    | ModalState::ScraperMenu { .. }
                                     | ModalState::WindowsGamesManager { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }

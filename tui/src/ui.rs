@@ -5650,6 +5650,75 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             );
             frame.render_widget(list, popup_area);
         }
+        ModalState::ScraperMenu {
+            selected_source,
+            filter_idx,
+            selected_field,
+        } => {
+            let needed_w = 60u16.min(frame.area().width.saturating_sub(4));
+            let needed_h = 10u16;
+            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let filter_labels = ["All Games", "Favorite Games", "No Metadata", "No Game Image"];
+            let filter_name = filter_labels.get(filter_idx).unwrap_or(&"All Games");
+
+            let mut list_items = Vec::new();
+
+            // Field 0: SCRAPE FROM
+            let style_0 = if selected_field == 0 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_0 = if selected_field == 0 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}SCRAPE FROM: ◄ {} ►", prefix_0, selected_source.as_str().to_uppercase()),
+                style_0,
+            )));
+
+            // Field 1: SCRAPE THESE GAMES
+            let style_1 = if selected_field == 1 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_1 = if selected_field == 1 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}SCRAPE THESE GAMES: ◄ {} ►", prefix_1, filter_name.to_uppercase()),
+                style_1,
+            )));
+
+            // Blank separator line
+            list_items.push(ListItem::new(Span::raw("")));
+
+            // Field 2: START SCRAPER BUTTON
+            let style_2 = if selected_field == 2 {
+                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Yellow)
+            };
+            let prefix_2 = if selected_field == 2 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}[ START SCRAPER ]", prefix_2),
+                style_2,
+            )));
+
+            let list = List::new(list_items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " SCRAPER CONFIGURATION ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        " [Up/Down] Navigate | [Left/Right] Change Option | [Enter] Start | [Esc] Close ",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+            frame.render_widget(list, popup_area);
+        }
         ModalState::None => {}
     }
 }

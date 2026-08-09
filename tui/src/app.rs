@@ -640,6 +640,15 @@ pub enum ModalState {
         games: Vec<game_core::models::Game>,
         selected_idx: usize,
     },
+    /// Modal for Scraper Menu matching ES-DE architecture
+    /// (Scrape Source, Filter, Platforms selection, Start Scrape)
+    ScraperMenu {
+        selected_source: scraper::pipeline::ScraperSource,
+        /// Filter index: 0=All Games, 1=Favorite Games, 2=No Metadata, 3=No Game Image
+        filter_idx: usize,
+        /// Currently focused row index in the modal (0=Source, 1=Filter, 2=Start Scraping)
+        selected_field: usize,
+    },
     /// Sub-modal from EditGameForm to select custom local files for
     /// cover, banner, or icon by choosing a row and launching file picker.
     LocalMediaPicker {
@@ -785,6 +794,8 @@ pub enum Action {
     SaveApiKey,
     OpenSettingsModal,
     SaveAppSettings,
+    OpenScraperMenu,
+    CycleScraperOption(bool),
     OpenVisualMediaModal,
     SearchVisualMedia,
     SelectVisualMediaCandidate,
@@ -5810,6 +5821,12 @@ impl App {
                     } => {
                         *selected_row = (*selected_row + 1) % 3;
                     }
+                    ModalState::ScraperMenu {
+                        ref mut selected_field,
+                        ..
+                    } => {
+                        *selected_field = (*selected_field + 1) % 3;
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -6026,6 +6043,16 @@ impl App {
                             *selected_row = 2;
                         } else {
                             *selected_row -= 1;
+                        }
+                    }
+                    ModalState::ScraperMenu {
+                        ref mut selected_field,
+                        ..
+                    } => {
+                        if *selected_field == 0 {
+                            *selected_field = 2;
+                        } else {
+                            *selected_field -= 1;
                         }
                     }
                     _ => {}
@@ -8739,6 +8766,38 @@ impl App {
                     games,
                     selected_idx: 0,
                 };
+            }
+
+            Action::OpenScraperMenu => {
+                self.modal_state = ModalState::ScraperMenu {
+                    selected_source: scraper::pipeline::ScraperSource::ScreenScraper,
+                    filter_idx: 0,
+                    selected_field: 0,
+                };
+            }
+
+            Action::CycleScraperOption(forward) => {
+                if let ModalState::ScraperMenu {
+                    ref mut selected_source,
+                    ref mut filter_idx,
+                    selected_field,
+                } = self.modal_state
+                {
+                    if selected_field == 0 {
+                        *selected_source = match selected_source {
+                            scraper::pipeline::ScraperSource::ScreenScraper => scraper::pipeline::ScraperSource::TheGamesDB,
+                            scraper::pipeline::ScraperSource::TheGamesDB => scraper::pipeline::ScraperSource::ScreenScraper,
+                        };
+                    } else if selected_field == 1 {
+                        if forward {
+                            *filter_idx = (*filter_idx + 1) % 4;
+                        } else if *filter_idx == 0 {
+                            *filter_idx = 3;
+                        } else {
+                            *filter_idx -= 1;
+                        }
+                    }
+                }
             }
 
             // ─────────────────────────────────────────────────────────────
