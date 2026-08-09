@@ -646,8 +646,17 @@ pub enum ModalState {
         selected_source: scraper::pipeline::ScraperSource,
         /// Filter index: 0=All Games, 1=Favorite Games, 2=No Metadata, 3=No Game Image
         filter_idx: usize,
-        /// Currently focused row index in the modal (0=Source, 1=Filter, 2=Start Scraping)
+        /// Platform IDs enabled for scraping (empty means all enabled)
+        enabled_platform_ids: std::collections::HashSet<i64>,
+        /// Currently focused row index in the modal (0=Source, 1=Filter, 2=Systems, 3=Start Scraping)
         selected_field: usize,
+    },
+    /// Sub-modal from ScraperMenu to select which platforms/systems to scrape
+    ScraperSystemSelector {
+        platforms: Vec<game_core::models::Platform>,
+        enabled_platform_ids: std::collections::HashSet<i64>,
+        selected_idx: usize,
+        parent_modal: Box<ModalState>,
     },
     /// Sub-modal from EditGameForm to select custom local files for
     /// cover, banner, or icon by choosing a row and launching file picker.
@@ -796,6 +805,9 @@ pub enum Action {
     SaveAppSettings,
     OpenScraperMenu,
     CycleScraperOption(bool),
+    OpenScraperSystemSelector,
+    ToggleScraperSystem,
+    StartScraper,
     OpenVisualMediaModal,
     SearchVisualMedia,
     SelectVisualMediaCandidate,
@@ -2012,7 +2024,6 @@ impl App {
 
         self.load_local_covers_for_loaded_games();
         self.trigger_async_cover_fetch();
-        self.trigger_auto_bulk_media_fetch();
     }
 
     /// Closes the favorites modal and navigates to the selected game in the
@@ -5657,6 +5668,9 @@ impl App {
                 ModalState::DownloadCoreModal { parent_state, .. } => {
                     self.modal_state = *parent_state;
                 }
+                ModalState::ScraperSystemSelector { parent_modal, .. } => {
+                    self.modal_state = *parent_modal;
+                }
                 ModalState::SelectDetectedEmulatorModal { parent_modal, .. } => {
                     self.modal_state = *parent_modal;
                 }
@@ -5825,7 +5839,16 @@ impl App {
                         ref mut selected_field,
                         ..
                     } => {
-                        *selected_field = (*selected_field + 1) % 3;
+                        *selected_field = (*selected_field + 1) % 4;
+                    }
+                    ModalState::ScraperSystemSelector {
+                        ref platforms,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !platforms.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % platforms.len();
+                        }
                     }
                     _ => {}
                 }
@@ -6050,9 +6073,22 @@ impl App {
                         ..
                     } => {
                         if *selected_field == 0 {
-                            *selected_field = 2;
+                            *selected_field = 3;
                         } else {
                             *selected_field -= 1;
+                        }
+                    }
+                    ModalState::ScraperSystemSelector {
+                        ref platforms,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !platforms.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = platforms.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
                         }
                     }
                     _ => {}
@@ -8772,6 +8808,7 @@ impl App {
                 self.modal_state = ModalState::ScraperMenu {
                     selected_source: scraper::pipeline::ScraperSource::ScreenScraper,
                     filter_idx: 0,
+                    enabled_platform_ids: std::collections::HashSet::new(),
                     selected_field: 0,
                 };
             }
@@ -8781,6 +8818,7 @@ impl App {
                     ref mut selected_source,
                     ref mut filter_idx,
                     selected_field,
+                    ..
                 } = self.modal_state
                 {
                     if selected_field == 0 {
@@ -8797,6 +8835,182 @@ impl App {
                             *filter_idx -= 1;
                         }
                     }
+                }
+            }
+
+            Action::OpenScraperSystemSelector => {
+                if let ModalState::ScraperMenu {
+                    ref enabled_platform_ids,
+                    ..
+                } = self.modal_state
+                {
+                    let parent = Box::new(self.modal_state.clone());
+                    let platforms = self.platforms.clone();
+                    self.modal_state = ModalState::ScraperSystemSelector {
+                        platforms,
+                        enabled_platform_ids: enabled_platform_ids.clone(),
+                        selected_idx: 0,
+                        parent_modal: parent,
+                    };
+                }
+            }
+
+            Action::ToggleScraperSystem => {
+                if let ModalState::ScraperSystemSelector {
+                    ref platforms,
+                    ref mut enabled_platform_ids,
+                    selected_idx,
+                    ..
+                } = self.modal_state
+                {
+                    if let Some(p) = platforms.get(selected_idx) {
+                        if enabled_platform_ids.contains(&p.id) {
+                            enabled_platform_ids.remove(&p.id);
+                        } else {
+                            enabled_platform_ids.insert(p.id);
+                        }
+                    }
+                }
+            }
+
+            Action::StartScraper => {
+                if let ModalState::ScraperMenu {
+                    selected_source,
+                    filter_idx,
+                    ref enabled_platform_ids,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    self.modal_state = ModalState::None;
+
+                    // Gather games matching platform & filter
+                    let mut candidate_games = Vec::new();
+                    let all_games = self.db.get_all_games().unwrap_or_default();
+
+                    for game in all_games {
+                        // Check platform filter (empty = all enabled)
+                        if !enabled_platform_ids.is_empty() && !enabled_platform_ids.contains(&game.platform_id) {
+                            continue;
+                        }
+
+                        // Check search filter (0=All, 1=Favorites, 2=No Metadata, 3=No Image)
+                        let passes_filter = match filter_idx {
+                            1 => game.favorite,
+                            2 => game.description.as_deref().unwrap_or("").trim().is_empty(),
+                            3 => {
+                                let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join("covers");
+                                let j = media_dir.join(format!("{}.jpg", game.id));
+                                let p = media_dir.join(format!("{}.png", game.id));
+                                let w = media_dir.join(format!("{}.webp", game.id));
+                                !j.exists() && !p.exists() && !w.exists()
+                            }
+                            _ => true,
+                        };
+
+                        if passes_filter {
+                            candidate_games.push(game);
+                        }
+                    }
+
+                    if candidate_games.is_empty() {
+                        self.show_toast("No games match the selected scraper filter", crate::toast::ToastKind::Warning);
+                        return;
+                    }
+
+                    let total_games = candidate_games.len();
+                    self.status_msg = format!("Scraping metadata for {} game(s)...", total_games);
+                    self.show_toast(&format!("Starting scraper for {} game(s)...", total_games), crate::toast::ToastKind::Info);
+
+                    let tgdb_key = self.db.get_setting("thegamesdb_api_key").ok().flatten().unwrap_or_default();
+                    let ss_user = self.db.get_setting("screenscraper_user").ok().flatten();
+                    let ss_pass = self.db.get_setting("screenscraper_pass").ok().flatten();
+
+                    let pipeline = scraper::pipeline::ScraperPipelineManager::new(ss_user, ss_pass, tgdb_key);
+
+                    let (progress_tx, progress_rx) = mpsc::channel::<DownloadEvent>(100);
+                    self.download_rx = Some(progress_rx);
+
+                    self.download_progress = Some(DownloadProgressState {
+                        runner_id: 0,
+                        runner_name: format!("Scraping (0/{}) - {}", total_games, candidate_games[0].title),
+                        downloaded_bytes: 0,
+                        total_bytes: total_games as u64,
+                        percentage: 0.0,
+                        is_finished: false,
+                        error_msg: None,
+                    });
+
+                    tokio::spawn(async move {
+                        let db_path = dirs::data_dir()
+                            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                            .join("tui_game_station")
+                            .join("game_station.db");
+
+                        let mut completed = 0;
+                        for game in candidate_games {
+                            let mut params = scraper::pipeline::ScraperSearchParams {
+                                title: game.title.clone(),
+                                platform_slug: String::new(),
+                                platform_id: Some(game.platform_id),
+                                md5_hash: game.file_hash_md5.clone(),
+                                crc32_hash: game.file_hash_crc32.clone(),
+                                sha1_hash: game.file_hash_sha1.clone(),
+                                file_size: game.file_size.map(|s| s as u64),
+                                serial: game.serial.clone(),
+                                automatic_mode: true,
+                            };
+                            
+                            // Get platform slug from DB if possible
+                            if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                if let Ok(platforms) = db.get_platforms() {
+                                    if let Some(p) = platforms.iter().find(|p| p.id == game.platform_id) {
+                                        params.platform_slug = p.slug.clone();
+                                    }
+                                }
+                            }
+
+                            if let Ok(results) = pipeline.search(selected_source, &params).await {
+                                if let Some(res) = results.first() {
+                                    if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                        let _ = db.update_game_metadata(
+                                            game.id,
+                                            res.release_year,
+                                            res.developer.as_deref(),
+                                            res.publisher.as_deref(),
+                                            res.description.as_deref(),
+                                            res.genre.as_deref(),
+                                            res.rating,
+                                            None,
+                                        );
+
+                                        // Download cover image if available
+                                        if let Some(ref img_url) = res.cover_url {
+                                            if let Ok(resp) = reqwest::get(img_url).await {
+                                                if let Ok(bytes) = resp.bytes().await {
+                                                    let ext = if img_url.contains(".png") { "png" } else { "jpg" };
+                                                    let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join("covers");
+                                                    let _ = std::fs::create_dir_all(&media_dir);
+                                                    let target_file = media_dir.join(format!("{}.{}", game.id, ext));
+                                                    let _ = std::fs::write(target_file, bytes);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            completed += 1;
+                            let pct = (completed as f64 / total_games as f64) * 100.0;
+                            let _ = progress_tx.send(DownloadEvent {
+                                downloaded: completed as u64,
+                                total: total_games as u64,
+                                percentage: pct,
+                                finished: completed == total_games,
+                                error: None,
+                                task_name: Some(format!("Scraping ({}/{}) - {}", completed, total_games, game.title)),
+                            }).await;
+                        }
+                    });
                 }
             }
 

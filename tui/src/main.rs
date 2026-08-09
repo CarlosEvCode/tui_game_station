@@ -357,6 +357,7 @@ async fn main() -> Result<()> {
                                     | ModalState::FavoritesModal { .. }
                                     | ModalState::LocalMediaPicker { .. }
                                     | ModalState::ScraperMenu { .. }
+                                    | ModalState::ScraperSystemSelector { .. }
                                     | ModalState::WindowsGamesManager { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
@@ -804,6 +805,18 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::ConfigureApiKeyInput { .. } => {
                                         app.update(Action::SaveApiKey).await;
+                                    }
+                                    ModalState::ScraperMenu { selected_field, .. } => {
+                                        if selected_field == 2 {
+                                            app.update(Action::OpenScraperSystemSelector).await;
+                                        } else if selected_field == 3 {
+                                            app.update(Action::StartScraper).await;
+                                        } else {
+                                            app.update(Action::ModalSelectNext).await;
+                                        }
+                                    }
+                                    ModalState::ScraperSystemSelector { .. } => {
+                                        app.update(Action::ToggleScraperSystem).await;
                                     }
                                     ModalState::AppSettings {
                                         selected_field,

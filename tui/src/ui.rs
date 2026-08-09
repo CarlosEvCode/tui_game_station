@@ -5653,13 +5653,20 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         ModalState::ScraperMenu {
             selected_source,
             filter_idx,
+            ref enabled_platform_ids,
             selected_field,
         } => {
-            let popup_area = centered_rect(60, 50, frame.area());
+            let popup_area = centered_rect(65, 55, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let filter_labels = ["All Games", "Favorite Games", "No Metadata", "No Game Image"];
             let filter_name = filter_labels.get(filter_idx).unwrap_or(&"All Games");
+
+            let systems_summary = if enabled_platform_ids.is_empty() {
+                "ALL SYSTEMS".to_string()
+            } else {
+                format!("{} SYSTEM(S) SELECTED", enabled_platform_ids.len())
+            };
 
             let mut list_items = Vec::new();
 
@@ -5687,19 +5694,31 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 style_1,
             )));
 
+            // Field 2: SCRAPE THESE SYSTEMS
+            let style_2 = if selected_field == 2 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix_2 = if selected_field == 2 { " ▶ " } else { "   " };
+            list_items.push(ListItem::new(Span::styled(
+                format!("{}SCRAPE THESE SYSTEMS: [ {} ] ↵", prefix_2, systems_summary),
+                style_2,
+            )));
+
             // Blank separator line
             list_items.push(ListItem::new(Span::raw("")));
 
-            // Field 2: START SCRAPER BUTTON
-            let style_2 = if selected_field == 2 {
+            // Field 3: START SCRAPER BUTTON
+            let style_3 = if selected_field == 3 {
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Yellow)
             };
-            let prefix_2 = if selected_field == 2 { " ▶ " } else { "   " };
+            let prefix_3 = if selected_field == 3 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}[ START SCRAPER ]", prefix_2),
-                style_2,
+                format!("{}[ START SCRAPER ]", prefix_3),
+                style_3,
             )));
 
             let list = List::new(list_items).block(
@@ -5709,7 +5728,50 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
                     ))
                     .title_bottom(Span::styled(
-                        " [Up/Down] Navigate | [Left/Right] Change Option | [Enter] Start | [Esc] Close ",
+                        " [Up/Down] Navigate | [Left/Right] Option | [Enter] Select/Start | [Esc] Close ",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+            frame.render_widget(list, popup_area);
+        }
+        ModalState::ScraperSystemSelector {
+            ref platforms,
+            ref enabled_platform_ids,
+            selected_idx,
+            ..
+        } => {
+            let popup_area = centered_rect(65, 60, frame.area());
+            frame.render_widget(Clear, popup_area);
+
+            let mut list_items = Vec::new();
+            for (idx, p) in platforms.iter().enumerate() {
+                let is_sel = idx == selected_idx;
+                let is_enabled = enabled_platform_ids.is_empty() || enabled_platform_ids.contains(&p.id);
+                let check_mark = if is_enabled { "[X]" } else { "[ ]" };
+
+                let style = if is_sel {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let prefix = if is_sel { " ▶ " } else { "   " };
+
+                list_items.push(ListItem::new(Span::styled(
+                    format!("{}{} {} ({})", prefix, check_mark, p.name.to_uppercase(), p.slug),
+                    style,
+                )));
+            }
+
+            let list = List::new(list_items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " SELECT SYSTEMS TO SCRAPE ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        " [Up/Down] Navigate | [Enter/Space] Toggle System | [Esc] Back ",
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
