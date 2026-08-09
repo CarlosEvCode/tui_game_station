@@ -9004,67 +9004,60 @@ impl App {
                                             None,
                                         );
 
-                                        let mut downloaded_cover = false;
-                                        if let Some(ref img_url) = res.cover_url {
-                                            if let Ok(resp) = reqwest::get(img_url).await {
-                                                if let Ok(bytes) = resp.bytes().await {
-                                                    let ext = if img_url.contains(".png") { "png" } else { "jpg" };
-                                                    let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join("covers");
-                                                    let _ = std::fs::create_dir_all(&media_dir);
-                                                    let target_file = media_dir.join(format!("{}.{}", game.id, ext));
-                                                    if std::fs::write(&target_file, &bytes).is_ok() {
-                                                        downloaded_cover = true;
-                                                        if let Ok(db) = game_core::db::Database::open(&db_path) {
-                                                            let _ = db.record_media_status(
-                                                                game.id,
-                                                                "cover",
-                                                                "downloaded",
-                                                                Some(&target_file.to_string_lossy()),
-                                                                Some(img_url),
-                                                            );
-                                                        }
+                                         // Download cover, banner, and icon media if available
+                                         let media_targets = [
+                                             ("cover", res.cover_url.as_ref(), "covers"),
+                                             ("banner", res.banner_url.as_ref(), "banners"),
+                                             ("icon", res.icon_url.as_ref(), "icons"),
+                                         ];
 
-                                                        if let Some(protocol) = cover_manager.load_protocol_from_file(&target_file) {
-                                                            let _ = cover_tx.send(LoadedCoverEvent {
-                                                                game_id: game.id,
-                                                                media_type: "cover".to_string(),
-                                                                protocol: Some(protocol),
-                                                            }).await;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+                                         for (media_type, opt_url, folder_name) in media_targets {
+                                             let mut downloaded = false;
+                                             if let Some(img_url) = opt_url {
+                                                 if let Ok(resp) = reqwest::get(img_url).await {
+                                                     if let Ok(bytes) = resp.bytes().await {
+                                                         let ext = if img_url.contains(".png") { "png" } else { "jpg" };
+                                                         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join(folder_name);
+                                                         let _ = std::fs::create_dir_all(&media_dir);
+                                                         let target_file = media_dir.join(format!("{}.{}", game.id, ext));
+                                                         if std::fs::write(&target_file, &bytes).is_ok() {
+                                                             downloaded = true;
+                                                             if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                                                 let _ = db.record_media_status(
+                                                                     game.id,
+                                                                     media_type,
+                                                                     "downloaded",
+                                                                     Some(&target_file.to_string_lossy()),
+                                                                     Some(img_url),
+                                                                 );
+                                                             }
 
-                                        if !downloaded_cover {
-                                            if let Ok(db) = game_core::db::Database::open(&db_path) {
-                                                let _ = db.record_media_status(
-                                                    game.id,
-                                                    "cover",
-                                                    "not_found",
-                                                    None,
-                                                    None,
-                                                );
-                                            }
-                                        }
-                                    }
-                                } else if let Ok(db) = game_core::db::Database::open(&db_path) {
-                                    let _ = db.record_media_status(
-                                        game.id,
-                                        "cover",
-                                        "not_found",
-                                        None,
-                                        None,
-                                    );
+                                                             if let Some(protocol) = cover_manager.load_protocol_from_file(&target_file) {
+                                                                 let _ = cover_tx.send(LoadedCoverEvent {
+                                                                     game_id: game.id,
+                                                                     media_type: media_type.to_string(),
+                                                                     protocol: Some(protocol),
+                                                                 }).await;
+                                                             }
+                                                         }
+                                                     }
+                                                 }
+                                             }
+
+                                             if !downloaded {
+                                                 if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                                     let _ = db.record_media_status(
+                                                         game.id,
+                                                         media_type,
+                                                         "not_found",
+                                                         None,
+                                                         None,
+                                                     );
+                                                 }
+                                             }
+                                         }
+                                     }
                                 }
-                            } else if let Ok(db) = game_core::db::Database::open(&db_path) {
-                                let _ = db.record_media_status(
-                                    game.id,
-                                    "cover",
-                                    "not_found",
-                                    None,
-                                    None,
-                                );
                             }
 
                             completed += 1;

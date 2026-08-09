@@ -201,8 +201,8 @@ impl ScreenScraperClient {
                     let m_url = media.text().map(|u| u.replace(' ', "%20"));
 
                     match m_type {
-                        "box-2d" | "box-3d" if cover_url.is_none() => cover_url = m_url,
-                        "banner" if banner_url.is_none() => banner_url = m_url,
+                        "box-2d" | "box-3d" | "box-2d-front" | "box-3d-front" | "flyer" | "poster" | "box" if cover_url.is_none() => cover_url = m_url,
+                        "banner" | "steam-banner" if banner_url.is_none() => banner_url = m_url,
                         "wheel" | "wheel-hd" if logo_url.is_none() => logo_url = m_url,
                         "screenshot" if screenshot_url.is_none() => screenshot_url = m_url,
                         "fanart" if fanart_url.is_none() => fanart_url = m_url,
