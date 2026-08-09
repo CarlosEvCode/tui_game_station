@@ -2314,8 +2314,8 @@ impl App {
 
             let cover_path = if let Some(path) = local_cover {
                 Some(path)
-            } else if let Some(appid) = appid.filter(|_| media_type_str == "cover") {
-                SteamCoverResolver::resolve_cover(appid).await
+            } else if let Some(appid) = appid {
+                SteamCoverResolver::resolve_media(appid, &media_type_str).await
             } else {
                 let client = scraper::steamgriddb::SteamGridDBClient::new(db_key);
                 let db_path = dirs::data_dir()
