@@ -9,6 +9,7 @@ use urlencoding::encode;
 use crate::pipeline::{ScraperProvider, ScraperSearchParams, ScraperSearchResult};
 
 const API_BASE_URL: &str = "https://api.thegamesdb.net/v1";
+const DEFAULT_API_KEY: &str = "b59cd99ed87a2a3687c416c41f91a2bb37253f44796be15a47ff5be4aa552fca";
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TheGamesDBAllowance {
@@ -104,12 +105,18 @@ impl TheGamesDBClient {
         platform_map.insert("mame".to_string(), 23);
         platform_map.insert("neogeo".to_string(), 24);
 
+        let effective_key = if api_key.trim().is_empty() {
+            DEFAULT_API_KEY.to_string()
+        } else {
+            api_key
+        };
+
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
                 .unwrap_or_default(),
-            api_key,
+            api_key: effective_key,
             platform_map,
         }
     }

@@ -475,6 +475,9 @@ async fn main() -> Result<()> {
                                             app.cycle_add_folder_core(true);
                                         }
                                     }
+                                    ModalState::ScraperMenu { .. } => {
+                                        app.update(Action::CycleScraperOption(false)).await;
+                                    }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
                                         // ◀ Emulador (o Núcleo) anterior.
                                         app.update(Action::CycleActiveEmulatorPrev).await;
@@ -618,6 +621,9 @@ async fn main() -> Result<()> {
                                         } else if has_core && *selected_field == core_idx {
                                             app.cycle_add_folder_core(false);
                                         }
+                                    }
+                                    ModalState::ScraperMenu { .. } => {
+                                        app.update(Action::CycleScraperOption(true)).await;
                                     }
                                     ModalState::None if app.focused_pane == FocusedPane::Platforms => {
                                         // Emulador (o Núcleo) siguiente ▶.

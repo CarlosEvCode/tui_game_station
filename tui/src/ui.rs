@@ -5655,9 +5655,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             filter_idx,
             selected_field,
         } => {
-            let needed_w = 60u16.min(frame.area().width.saturating_sub(4));
-            let needed_h = 10u16;
-            let popup_area = centered_rect_exact(needed_w, needed_h, frame.area());
+            let popup_area = centered_rect(60, 50, frame.area());
             frame.render_widget(Clear, popup_area);
 
             let filter_labels = ["All Games", "Favorite Games", "No Metadata", "No Game Image"];
