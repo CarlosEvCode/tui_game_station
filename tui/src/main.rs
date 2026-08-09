@@ -1659,7 +1659,14 @@ async fn main() -> Result<()> {
                                             app.update(Action::ToggleShowAllPlatforms).await;
                                         }
                                     }
-                                    KeyCode::Char('r') => {
+                                    KeyCode::Char('S') => {
+                                        if app.modal_state == ModalState::None {
+                                            app.update(Action::OpenScraperMenu).await;
+                                        } else {
+                                            app.update(Action::ModalInputChar('S')).await;
+                                        }
+                                    }
+                                 KeyCode::Char('r') => {
                                         app.update(Action::QuickRescanPlatform).await;
                                     }
                                     KeyCode::Char('g') => {
