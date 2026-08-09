@@ -212,6 +212,14 @@ impl ScreenScraperClient {
                 }
             }
 
+            // Fallback for banner_url and icon_url if ScreenScraper doesn't provide explicit banner/icon tags
+            if banner_url.is_none() {
+                banner_url = logo_url.clone().or_else(|| fanart_url.clone()).or_else(|| screenshot_url.clone());
+            }
+            if icon_url.is_none() {
+                icon_url = logo_url.clone().or_else(|| cover_url.clone());
+            }
+
             results.push(ScraperSearchResult {
                 provider_name: "screenscraper".to_string(),
                 game_id,
