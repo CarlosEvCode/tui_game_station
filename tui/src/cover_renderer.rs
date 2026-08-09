@@ -80,8 +80,9 @@ impl CoverManager {
 
     /// Decode an image file, upscaling tiny sources to MIN_SOURCE_DIM so the
     /// ratatui-image renderer always has something visible to work with.
-    /// No maximum-resolution cap is applied here; callers that need a cap
-    /// (e.g. halfblocks thumbnails) apply `clamp_max_resolution` themselves.
+    /// If the image contains an alpha channel (like transparent Wheel PNGs),
+    /// alpha-blend its pixels over a dark panel color (RGB: 18, 20, 26) so
+    /// transparent areas render smoothly without harsh black box artifacts.
     fn decode_image(path: &Path) -> Option<DynamicImage> {
         let dyn_img: DynamicImage = ImageReader::open(path)
             .ok()?
@@ -89,7 +90,30 @@ impl CoverManager {
             .ok()?
             .decode()
             .ok()?;
-        Some(Self::ensure_min_resolution(dyn_img))
+
+        let blended_img = if dyn_img.color().has_alpha() {
+            let rgba = dyn_img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            let mut out = image::RgbImage::new(w, h);
+
+            // Dark UI panel background color: RGB(18, 20, 26)
+            let bg_r = 18f32;
+            let bg_g = 20f32;
+            let bg_b = 26f32;
+
+            for (x, y, pixel) in rgba.enumerate_pixels() {
+                let a = pixel[3] as f32 / 255.0;
+                let r = (pixel[0] as f32 * a + bg_r * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
+                let g = (pixel[1] as f32 * a + bg_g * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
+                let b = (pixel[2] as f32 * a + bg_b * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
+                out.put_pixel(x, y, image::Rgb( [r, g, b] ));
+            }
+            DynamicImage::ImageRgb8(out)
+        } else {
+            dyn_img
+        };
+
+        Some(Self::ensure_min_resolution(blended_img))
     }
 
     /// Downscale the image if its largest dimension exceeds `max_allowed` px.
