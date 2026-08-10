@@ -525,8 +525,10 @@ pub enum ModalState {
     },
     AppSettings {
         api_key_input: String,
+        screenscraper_user_input: String,
+        screenscraper_pass_input: String,
         selected_field: usize,
-        is_editing_api_key: bool,
+        is_editing_field: bool,
         cursor_pos: usize,
     },
     WelcomeWizard {
@@ -3246,28 +3248,26 @@ impl App {
                         }
                         ModalState::AppSettings {
                             selected_field,
-                            is_editing_api_key,
+                            is_editing_field,
                             ..
                         } => {
-                            if selected_field == 0 {
-                                if !is_editing_api_key {
+                            if selected_field <= 2 {
+                                if !is_editing_field {
                                     if let ModalState::AppSettings {
-                                        ref mut is_editing_api_key,
+                                        ref mut is_editing_field,
                                         ..
                                     } = self.modal_state
                                     {
-                                        *is_editing_api_key = true;
+                                        *is_editing_field = true;
                                     }
                                 }
-                            } else if selected_field == 1 {
-                                // Bug fix: was ResetRunnerConfig (no-op here); should open wizard.
-                                self.update(Action::OpenWelcomeWizardModal).await;
-                            } else if selected_field == 2 {
-                                self.modal_state = ModalState::About;
                             } else if selected_field == 3 {
-                                self.update(Action::CheckForUpdates { silent: false }).await;
+                                self.update(Action::OpenWelcomeWizardModal).await;
                             } else if selected_field == 4 {
-                                // Bug fix: was ModalState::None (lost changes); must save first.
+                                self.modal_state = ModalState::About;
+                            } else if selected_field == 5 {
+                                self.update(Action::CheckForUpdates { silent: false }).await;
+                            } else if selected_field == 6 {
                                 self.update(Action::SaveAppSettings).await;
                             }
                         }
@@ -6523,7 +6523,7 @@ impl App {
                     ref mut selected_field,
                     ..
                 } => {
-                    *selected_field = (*selected_field + 1) % 5;
+                    *selected_field = (*selected_field + 1) % 7;
                 }
                 _ => {}
             },
@@ -6533,7 +6533,7 @@ impl App {
                     ..
                 } => {
                     if *selected_field == 0 {
-                        *selected_field = 4;
+                        *selected_field = 6;
                     } else {
                         *selected_field -= 1;
                     }
@@ -6821,15 +6821,22 @@ impl App {
                 {
                     input.push(ch);
                 } else if let ModalState::AppSettings {
-                    selected_field: 0,
-                    is_editing_api_key: true,
+                    selected_field,
+                    is_editing_field: true,
                     ref mut api_key_input,
+                    ref mut screenscraper_user_input,
+                    ref mut screenscraper_pass_input,
                     ref mut cursor_pos,
-                    ..
                 } = self.modal_state
                 {
-                    let pos = (*cursor_pos).min(api_key_input.len());
-                    api_key_input.insert(pos, ch);
+                    let target = match selected_field {
+                        0 => api_key_input,
+                        1 => screenscraper_user_input,
+                        2 => screenscraper_pass_input,
+                        _ => &mut String::new(),
+                    };
+                    let pos = (*cursor_pos).min(target.len());
+                    target.insert(pos, ch);
                     *cursor_pos = pos + 1;
                 } else if let ModalState::VisualMediaSelector {
                     active_tab: 0,
@@ -7045,16 +7052,23 @@ impl App {
                 {
                     input.pop();
                 } else if let ModalState::AppSettings {
-                    selected_field: 0,
-                    is_editing_api_key: true,
+                    selected_field,
+                    is_editing_field: true,
                     ref mut api_key_input,
+                    ref mut screenscraper_user_input,
+                    ref mut screenscraper_pass_input,
                     ref mut cursor_pos,
-                    ..
                 } = self.modal_state
                 {
-                    let pos = (*cursor_pos).min(api_key_input.len());
-                    if pos > 0 && !api_key_input.is_empty() {
-                        api_key_input.remove(pos - 1);
+                    let target = match selected_field {
+                        0 => api_key_input,
+                        1 => screenscraper_user_input,
+                        2 => screenscraper_pass_input,
+                        _ => &mut String::new(),
+                    };
+                    let pos = (*cursor_pos).min(target.len());
+                    if pos > 0 && !target.is_empty() {
+                        target.remove(pos - 1);
                         *cursor_pos = pos - 1;
                     }
                 } else if let ModalState::VisualMediaSelector {
@@ -8081,15 +8095,29 @@ impl App {
                     .ok()
                     .flatten()
                     .unwrap_or_default();
+                let ss_user = self
+                    .db
+                    .get_setting("screenscraper_user")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                let ss_pass = self
+                    .db
+                    .get_setting("screenscraper_pass")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let len = current_key.len();
                 self.modal_state = ModalState::AppSettings {
                     api_key_input: current_key,
+                    screenscraper_user_input: ss_user,
+                    screenscraper_pass_input: ss_pass,
                     selected_field: 0,
-                    is_editing_api_key: false,
+                    is_editing_field: false,
                     cursor_pos: len,
                 };
                 self.status_msg =
-                    "Settings menu opened. Edit API Key and press Enter to save.".to_string();
+                    "Settings menu opened. Edit credentials and press Enter to save.".to_string();
             }
             Action::OpenAboutModal => {
                 self.modal_state = ModalState::About;
@@ -8154,14 +8182,20 @@ impl App {
             }
             Action::SaveAppSettings => {
                 if let ModalState::AppSettings {
-                    ref api_key_input, ..
+                    ref api_key_input,
+                    ref screenscraper_user_input,
+                    ref screenscraper_pass_input,
+                    ..
                 } = self.modal_state.clone()
                 {
-                    let trimmed = api_key_input.trim();
-                    if self.db.set_setting("steamgriddb_api_key", trimmed).is_ok() {
-                        self.status_msg = "[OK] Settings updated successfully!".to_string();
-                        self.modal_state = ModalState::None;
-                    }
+                    let trimmed_key = api_key_input.trim();
+                    let trimmed_user = screenscraper_user_input.trim();
+                    let trimmed_pass = screenscraper_pass_input.trim();
+                    let _ = self.db.set_setting("steamgriddb_api_key", trimmed_key);
+                    let _ = self.db.set_setting("screenscraper_user", trimmed_user);
+                    let _ = self.db.set_setting("screenscraper_pass", trimmed_pass);
+                    self.status_msg = "[OK] Settings updated successfully!".to_string();
+                    self.modal_state = ModalState::None;
                 }
             }
             Action::OpenVisualMediaModal => {
@@ -9153,6 +9187,7 @@ impl App {
                             .join("game_station.db");
 
                         let mut completed = 0;
+                        let mut last_quota: Option<scraper::screenscraper::ScreenScraperQuota> = None;
                         for game in candidate_games {
                             let mut params = scraper::pipeline::ScraperSearchParams {
                                 title: game.title.clone(),
@@ -9179,7 +9214,10 @@ impl App {
                                 }
                             }
 
-                            if let Ok(results) = pipeline.search(selected_source, &params).await {
+                            if let Ok((results, opt_q)) = pipeline.search_with_quota(selected_source, &params).await {
+                                if let Some(q) = opt_q {
+                                    last_quota = Some(q);
+                                }
                                 if let Some(res) = results.first() {
                                     if let Ok(db) = game_core::db::Database::open(&db_path) {
                                         let _ = db.update_game_metadata(
@@ -9252,14 +9290,26 @@ impl App {
                             }
 
                             completed += 1;
+                            let is_finished = completed == total_games;
                             let pct = (completed as f64 / total_games as f64) * 100.0;
+                            
+                            let task_name = if is_finished {
+                                if let Some(ref q) = last_quota {
+                                    format!("Scrapeo listo. Cuota hoy: {} / {}", q.requests_today, q.max_requests_per_day)
+                                } else {
+                                    format!("Scrapeo listo para {} juego(s)", total_games)
+                                }
+                            } else {
+                                format!("Scraping ({}/{}) - {}", completed, total_games, game.title)
+                            };
+
                             let _ = progress_tx.send(DownloadEvent {
                                 downloaded: completed as u64,
                                 total: total_games as u64,
                                 percentage: pct,
-                                finished: completed == total_games,
+                                finished: is_finished,
                                 error: None,
-                                task_name: Some(format!("Scraping ({}/{}) - {}", completed, total_games, game.title)),
+                                task_name: Some(task_name),
                             }).await;
                         }
                     });

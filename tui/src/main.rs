@@ -181,12 +181,12 @@ async fn main() -> Result<()> {
                             match key.code {
                                 KeyCode::Esc => {
                                     if let ModalState::AppSettings {
-                                        ref mut is_editing_api_key,
+                                        ref mut is_editing_field,
                                         ..
                                     } = app.modal_state
                                     {
-                                        if *is_editing_api_key {
-                                            *is_editing_api_key = false;
+                                        if *is_editing_field {
+                                            *is_editing_field = false;
                                             continue;
                                         }
                                     }
@@ -240,10 +240,10 @@ async fn main() -> Result<()> {
                                 KeyCode::Up => match &mut app.modal_state {
                                     ModalState::AppSettings {
                                         ref mut selected_field,
-                                        ref mut is_editing_api_key,
+                                        ref mut is_editing_field,
                                         ..
                                     } => {
-                                        *is_editing_api_key = false;
+                                        *is_editing_field = false;
                                         if *selected_field > 0 {
                                             *selected_field -= 1;
                                         }
@@ -308,11 +308,11 @@ async fn main() -> Result<()> {
                                 KeyCode::Down => match &mut app.modal_state {
                                     ModalState::AppSettings {
                                         ref mut selected_field,
-                                        ref mut is_editing_api_key,
+                                        ref mut is_editing_field,
                                         ..
                                     } => {
-                                        *is_editing_api_key = false;
-                                        if *selected_field < 4 {
+                                        *is_editing_field = false;
+                                        if *selected_field < 6 {
                                             *selected_field += 1;
                                         }
                                     }
@@ -382,8 +382,7 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                     ModalState::AppSettings {
-                                        selected_field: 0,
-                                        is_editing_api_key: true,
+                                        is_editing_field: true,
                                         ref mut cursor_pos,
                                         ..
                                     } => {
@@ -429,7 +428,7 @@ async fn main() -> Result<()> {
                                         app.update(Action::FormNavLeft).await;
                                     }
                                     ModalState::ProtonDownloader { .. } => {
-                                        app.update(Action::ProtonDownloaderBack).await;
+                                        app.update(Action::ProtonDownloaderSelectPrev).await;
                                     }
                                     ModalState::ConfirmDeleteGame { .. } => {
                                         app.update(Action::ToggleConfirmDeleteOption).await;
@@ -505,13 +504,20 @@ async fn main() -> Result<()> {
                                         }
                                     }
                                     ModalState::AppSettings {
-                                        selected_field: 0,
-                                        is_editing_api_key: true,
+                                        selected_field,
+                                        is_editing_field: true,
                                         ref api_key_input,
+                                        ref screenscraper_user_input,
+                                        ref screenscraper_pass_input,
                                         ref mut cursor_pos,
-                                        ..
                                     } => {
-                                        if *cursor_pos < api_key_input.len() {
+                                        let max_len = match selected_field {
+                                            0 => api_key_input.len(),
+                                            1 => screenscraper_user_input.len(),
+                                            2 => screenscraper_pass_input.len(),
+                                            _ => 0,
+                                        };
+                                        if *cursor_pos < max_len {
                                             *cursor_pos += 1;
                                         }
                                     }
@@ -554,7 +560,7 @@ async fn main() -> Result<()> {
                                                     || std::path::Path::new(exe_t).exists());
                                             let is_flatpak_cmd = exe_t.starts_with("flatpak run")
                                                 || (exe_t.contains(' ')
-                                                    && !std::path::Path::new(exe_t).exists());
+                                                    || !std::path::Path::new(exe_t).exists());
                                             let mut total_btns = 3; // browse + detect + save
                                             if runner_info.download_url.is_some() {
                                                 total_btns += 1; // download
@@ -643,8 +649,7 @@ async fn main() -> Result<()> {
                                     {
                                         *cursor_pos = 0;
                                     } else if let ModalState::AppSettings {
-                                        selected_field: 0,
-                                        is_editing_api_key: true,
+                                        is_editing_field: true,
                                         ref mut cursor_pos,
                                         ..
                                     } = app.modal_state
@@ -662,14 +667,21 @@ async fn main() -> Result<()> {
                                     {
                                         *cursor_pos = sgdb_api_key.len();
                                     } else if let ModalState::AppSettings {
-                                        selected_field: 0,
-                                        is_editing_api_key: true,
+                                        selected_field,
+                                        is_editing_field: true,
                                         ref api_key_input,
+                                        ref screenscraper_user_input,
+                                        ref screenscraper_pass_input,
                                         ref mut cursor_pos,
-                                        ..
                                     } = app.modal_state
                                     {
-                                        *cursor_pos = api_key_input.len();
+                                        let len = match selected_field {
+                                            0 => api_key_input.len(),
+                                            1 => screenscraper_user_input.len(),
+                                            2 => screenscraper_pass_input.len(),
+                                            _ => 0,
+                                        };
+                                        *cursor_pos = len;
                                     }
                                 }
                                 KeyCode::Char('1') => {
@@ -820,23 +832,35 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::AppSettings {
                                         selected_field,
-                                        ref mut is_editing_api_key,
+                                        ref mut is_editing_field,
                                         ref api_key_input,
+                                        ref screenscraper_user_input,
+                                        ref screenscraper_pass_input,
                                         ref mut cursor_pos,
                                     } => {
                                         if selected_field == 0 {
-                                            *is_editing_api_key = !*is_editing_api_key;
-                                            if *is_editing_api_key {
+                                            *is_editing_field = !*is_editing_field;
+                                            if *is_editing_field {
                                                 *cursor_pos = api_key_input.len();
                                             }
                                         } else if selected_field == 1 {
-                                            app.update(Action::OpenWelcomeWizardModal).await;
+                                            *is_editing_field = !*is_editing_field;
+                                            if *is_editing_field {
+                                                *cursor_pos = screenscraper_user_input.len();
+                                            }
                                         } else if selected_field == 2 {
-                                            app.update(Action::OpenAboutModal).await;
+                                            *is_editing_field = !*is_editing_field;
+                                            if *is_editing_field {
+                                                *cursor_pos = screenscraper_pass_input.len();
+                                            }
                                         } else if selected_field == 3 {
+                                            app.update(Action::OpenWelcomeWizardModal).await;
+                                        } else if selected_field == 4 {
+                                            app.update(Action::OpenAboutModal).await;
+                                        } else if selected_field == 5 {
                                             app.update(Action::CheckForUpdates { silent: false })
                                                 .await;
-                                        } else if selected_field == 4 {
+                                        } else if selected_field == 6 {
                                             app.update(Action::SaveAppSettings).await;
                                         }
                                     }
@@ -1279,15 +1303,23 @@ async fn main() -> Result<()> {
                                             sgdb_api_key.remove(cursor_pos);
                                         }
                                     } else if let ModalState::AppSettings {
-                                        selected_field: 0,
-                                        is_editing_api_key: true,
+                                        selected_field,
+                                        is_editing_field: true,
                                         ref mut api_key_input,
+                                        ref mut screenscraper_user_input,
+                                        ref mut screenscraper_pass_input,
                                         cursor_pos,
                                         ..
                                     } = app.modal_state
                                     {
-                                        if cursor_pos < api_key_input.len() {
-                                            api_key_input.remove(cursor_pos);
+                                        let target = match selected_field {
+                                            0 => api_key_input,
+                                            1 => screenscraper_user_input,
+                                            2 => screenscraper_pass_input,
+                                            _ => &mut String::new(),
+                                        };
+                                        if cursor_pos < target.len() {
+                                            target.remove(cursor_pos);
                                         }
                                     } else if let ModalState::ManageWineRunners { .. } =
                                         app.modal_state
@@ -1312,16 +1344,25 @@ async fn main() -> Result<()> {
                                             *cursor_pos += pasted.len();
                                         }
                                     } else if let ModalState::AppSettings {
-                                        selected_field: 0,
-                                        ref mut is_editing_api_key,
+                                        selected_field,
+                                        ref mut is_editing_field,
                                         ref mut api_key_input,
+                                        ref mut screenscraper_user_input,
+                                        ref mut screenscraper_pass_input,
                                         ref mut cursor_pos,
+                                        ..
                                     } = app.modal_state
                                     {
                                         if let Some(pasted) = crate::app::get_clipboard_text() {
-                                            *is_editing_api_key = true;
-                                            let pos = (*cursor_pos).min(api_key_input.len());
-                                            api_key_input.insert_str(pos, &pasted);
+                                            *is_editing_field = true;
+                                            let target = match selected_field {
+                                                0 => api_key_input,
+                                                1 => screenscraper_user_input,
+                                                2 => screenscraper_pass_input,
+                                                _ => &mut String::new(),
+                                            };
+                                            let pos = (*cursor_pos).min(target.len());
+                                            target.insert_str(pos, &pasted);
                                             *cursor_pos = pos + pasted.len();
                                         }
                                     } else if let ModalState::ConfigureApiKeyInput {

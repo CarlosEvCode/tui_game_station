@@ -295,15 +295,9 @@ impl ScreenScraperClient {
 
         Ok((results, quota))
     }
-}
 
-#[async_trait]
-impl ScraperProvider for ScreenScraperClient {
-    fn provider_name(&self) -> &'static str {
-        "screenscraper"
-    }
-
-    async fn search(&self, params: &ScraperSearchParams) -> Result<Vec<ScraperSearchResult>> {
+    /// Search for game candidates and return both results and ScreenScraperQuota tracking info
+    pub async fn search_with_quota(&self, params: &ScraperSearchParams) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
         let is_arcade = params.platform_slug == "arcade" || params.platform_slug == "mame";
         let (query, single_search) = TitleCleaner::prepare_search_query_esde(&params.title, is_arcade);
 
@@ -319,7 +313,9 @@ impl ScraperProvider for ScreenScraperClient {
         );
 
         if let (Some(u), Some(p)) = (&self.user_id, &self.user_password) {
-            url.push_str(&format!("&ssid={}&sspassword={}", encode(u), encode(p)));
+            if !u.trim().is_empty() && !p.trim().is_empty() {
+                url.push_str(&format!("&ssid={}&sspassword={}", encode(u.trim()), encode(p.trim())));
+            }
         }
 
         if let Some(sys_id) = self.get_system_id(&params.platform_slug) {
@@ -370,6 +366,11 @@ impl ScraperProvider for ScreenScraperClient {
                 "{}/jeuRecherche.php?devid={}&devpassword={}&softname={}&output=xml&recherche={}",
                 API_BASE_URL, DEV_ID, DEV_PASSWORD, encode(SOFT_NAME), encode(&query)
             );
+            if let (Some(u), Some(p)) = (&self.user_id, &self.user_password) {
+                if !u.trim().is_empty() && !p.trim().is_empty() {
+                    fallback_url.push_str(&format!("&ssid={}&sspassword={}", encode(u.trim()), encode(p.trim())));
+                }
+            }
             if let Some(sys_id) = self.get_system_id(&params.platform_slug) {
                 fallback_url.push_str(&format!("&systemeid={}", sys_id));
             }
@@ -397,6 +398,18 @@ impl ScraperProvider for ScreenScraperClient {
             quota.max_requests_per_day
         );
 
+        Ok((results, quota))
+    }
+}
+
+#[async_trait]
+impl ScraperProvider for ScreenScraperClient {
+    fn provider_name(&self) -> &'static str {
+        "screenscraper"
+    }
+
+    async fn search(&self, params: &ScraperSearchParams) -> Result<Vec<ScraperSearchResult>> {
+        let (results, _) = self.search_with_quota(params).await?;
         Ok(results)
     }
 }

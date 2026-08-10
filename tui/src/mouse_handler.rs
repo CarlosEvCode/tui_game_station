@@ -154,12 +154,14 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
 
     if let ModalState::AppSettings {
         ref mut selected_field,
-        ref mut is_editing_api_key,
+        ref mut is_editing_field,
         ref api_key_input,
+        ref screenscraper_user_input,
+        ref screenscraper_pass_input,
         ref mut cursor_pos,
     } = app.modal_state
     {
-        let popup_area = centered_rect_exact(60, 10, area);
+        let popup_area = centered_rect_exact(60, 14, area);
         if x >= popup_area.x
             && x < popup_area.x + popup_area.width
             && y >= popup_area.y
@@ -168,17 +170,37 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
             let rel_y = y.saturating_sub(popup_area.y + 1);
             if rel_y <= 2 {
                 *selected_field = 0;
-                *is_editing_api_key = !*is_editing_api_key;
-                if *is_editing_api_key {
+                *is_editing_field = !*is_editing_field;
+                if *is_editing_field {
                     *cursor_pos = api_key_input.len();
                 }
             } else if rel_y == 3 || rel_y == 4 {
                 *selected_field = 1;
-                *is_editing_api_key = false;
-                app.update(Action::OpenWelcomeWizardModal).await;
-            } else if rel_y >= 5 {
+                *is_editing_field = !*is_editing_field;
+                if *is_editing_field {
+                    *cursor_pos = screenscraper_user_input.len();
+                }
+            } else if rel_y == 5 || rel_y == 6 {
                 *selected_field = 2;
-                *is_editing_api_key = false;
+                *is_editing_field = !*is_editing_field;
+                if *is_editing_field {
+                    *cursor_pos = screenscraper_pass_input.len();
+                }
+            } else if rel_y == 7 || rel_y == 8 {
+                *selected_field = 3;
+                *is_editing_field = false;
+                app.update(Action::OpenWelcomeWizardModal).await;
+            } else if rel_y == 9 {
+                *selected_field = 4;
+                *is_editing_field = false;
+                app.update(Action::OpenAboutModal).await;
+            } else if rel_y == 10 {
+                *selected_field = 5;
+                *is_editing_field = false;
+                app.update(Action::CheckForUpdates { silent: false }).await;
+            } else if rel_y >= 11 {
+                *selected_field = 6;
+                *is_editing_field = false;
                 app.update(Action::SaveAppSettings).await;
             }
         }

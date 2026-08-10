@@ -94,15 +94,21 @@ impl ScraperPipelineManager {
         }
     }
 
-    /// Dispatch search request to the chosen scraper source (screenscraper or thegamesdb)
-    pub async fn search(
+    /// Dispatch search request to the chosen scraper source and return quota if available
+    pub async fn search_with_quota(
         &self,
         source: ScraperSource,
         params: &ScraperSearchParams,
-    ) -> anyhow::Result<Vec<ScraperSearchResult>> {
+    ) -> anyhow::Result<(Vec<ScraperSearchResult>, Option<crate::screenscraper::ScreenScraperQuota>)> {
         match source {
-            ScraperSource::ScreenScraper => self.screenscraper.search(params).await,
-            ScraperSource::TheGamesDB => self.thegamesdb.search(params).await,
+            ScraperSource::ScreenScraper => {
+                let (res, q) = self.screenscraper.search_with_quota(params).await?;
+                Ok((res, Some(q)))
+            }
+            ScraperSource::TheGamesDB => {
+                let res = self.thegamesdb.search(params).await?;
+                Ok((res, None))
+            }
         }
     }
 }

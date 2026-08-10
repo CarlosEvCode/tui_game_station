@@ -2621,19 +2621,22 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         }
         ModalState::AppSettings {
             ref api_key_input,
+            ref screenscraper_user_input,
+            ref screenscraper_pass_input,
             selected_field,
-            is_editing_api_key,
+            is_editing_field,
             cursor_pos,
         } => {
             let mut lines = Vec::new();
             lines.push(Line::from(Span::styled(
-                "Application Settings",
+                "Application Settings & Integrations",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
 
+            // Field 0: SteamGridDB API Key
             let f0_label = if selected_field == 0 {
                 "▶ 1. SteamGridDB API Key: "
             } else {
@@ -2646,22 +2649,18 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             } else {
                 Style::default().fg(Color::White)
             };
-
             lines.push(Line::from(vec![Span::styled(f0_label, f0_label_style)]));
 
-            if is_editing_api_key {
+            if is_editing_field && selected_field == 0 {
                 let (before, after) = api_key_input.split_at(cursor_pos.min(api_key_input.len()));
                 lines.push(Line::from(vec![
                     Span::raw("   "),
-                    Span::styled(
-                        before,
-                        Style::default().fg(Color::White).bg(Color::DarkGray),
-                    ),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
                     Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
                     Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
                 ]));
                 lines.push(Line::from(Span::styled(
-                    "   [Enter/Esc] Lock Key | [Ctrl+V] Paste",
+                    "   [Enter] Lock Field | [Ctrl+V] Paste",
                     Style::default().fg(Color::Yellow),
                 )));
             } else {
@@ -2671,9 +2670,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     "●".repeat(api_key_input.len())
                 };
                 let display_style = if selected_field == 0 {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::DarkGray)
                 };
@@ -2681,78 +2678,132 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Span::raw("   "),
                     Span::styled(masked_text, display_style),
                 ]));
-                lines.push(Line::from(Span::styled(
-                    "   * SteamGridDB URL: https://www.steamgriddb.com/profile/preferences/api",
-                    Style::default().fg(Color::DarkGray),
-                )));
             }
             lines.push(Line::from(""));
 
-            let f1_style = if selected_field == 1 {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+            // Field 1: ScreenScraper User
+            let f1_label = if selected_field == 1 {
+                "▶ 2. ScreenScraper Username: "
+            } else {
+                "  2. ScreenScraper Username: "
+            };
+            let f1_label_style = if selected_field == 1 {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            lines.push(Line::from(vec![Span::styled(f1_label, f1_label_style)]));
+
+            if is_editing_field && selected_field == 1 {
+                let (before, after) = screenscraper_user_input.split_at(cursor_pos.min(screenscraper_user_input.len()));
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                ]));
+            } else {
+                let text = if screenscraper_user_input.is_empty() {
+                    "< Anonymous / Default IP Quota >".to_string()
+                } else {
+                    screenscraper_user_input.clone()
+                };
+                let display_style = if selected_field == 1 {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(text, display_style),
+                ]));
+            }
+            lines.push(Line::from(""));
+
+            // Field 2: ScreenScraper Password
+            let f2_label = if selected_field == 2 {
+                "▶ 3. ScreenScraper Password: "
+            } else {
+                "  3. ScreenScraper Password: "
+            };
+            let f2_label_style = if selected_field == 2 {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            lines.push(Line::from(vec![Span::styled(f2_label, f2_label_style)]));
+
+            if is_editing_field && selected_field == 2 {
+                let (before, after) = screenscraper_pass_input.split_at(cursor_pos.min(screenscraper_pass_input.len()));
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                ]));
+            } else {
+                let masked_pass = if screenscraper_pass_input.is_empty() {
+                    "< No Password Set >".to_string()
+                } else {
+                    "●".repeat(screenscraper_pass_input.len())
+                };
+                let display_style = if selected_field == 2 {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(masked_pass, display_style),
+                ]));
+            }
+            lines.push(Line::from(""));
+
+            // Field 3: Re-run Welcome Wizard
+            let f3_style = if selected_field == 3 {
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Cyan)
             };
             lines.push(Line::from(vec![
-                Span::styled(
-                    if selected_field == 1 { " ▶ " } else { "   " },
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled("[ Re-run Welcome & Setup Wizard ]", f1_style),
+                Span::styled(if selected_field == 3 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ Re-run Welcome & Setup Wizard ]", f3_style),
             ]));
             lines.push(Line::from(""));
 
-            let f2_style = if selected_field == 2 {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+            // Field 4: About
+            let f4_style = if selected_field == 4 {
+                Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Yellow)
             };
             lines.push(Line::from(vec![
-                Span::styled(
-                    if selected_field == 2 { " ▶ " } else { "   " },
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled("[ About TUI Game Station ]", f2_style),
+                Span::styled(if selected_field == 4 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ About TUI Game Station ]", f4_style),
             ]));
             lines.push(Line::from(""));
 
-            let f3_style = if selected_field == 3 {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Blue)
-                    .add_modifier(Modifier::BOLD)
+            // Field 5: Check Updates
+            let f5_style = if selected_field == 5 {
+                Style::default().fg(Color::Black).bg(Color::Blue).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Blue)
             };
             lines.push(Line::from(vec![
-                Span::styled(
-                    if selected_field == 3 { " ▶ " } else { "   " },
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled("[ Check for Updates ]", f3_style),
+                Span::styled(if selected_field == 5 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ Check for Updates ]", f5_style),
             ]));
             lines.push(Line::from(""));
 
-            let f4_style = if selected_field == 4 {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
+            // Field 6: Save Settings
+            let f6_style = if selected_field == 6 {
+                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
             lines.push(Line::from(vec![
-                Span::styled(
-                    if selected_field == 4 { " ▶ " } else { "   " },
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled("[ SAVE SETTINGS ]", f4_style),
+                Span::styled(if selected_field == 6 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ SAVE SETTINGS ]", f6_style),
             ]));
 
             let p = Paragraph::new(lines).block(
