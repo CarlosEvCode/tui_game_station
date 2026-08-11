@@ -9237,20 +9237,19 @@ impl App {
 
                                          // Download cover, banner, and icon media if available
                                          let media_targets = [
-                                             ("cover", res.cover_url.as_ref(), "covers", &cover_pref),
-                                             ("banner", res.banner_url.as_ref(), "banners", &banner_pref),
-                                             ("icon", res.icon_url.as_ref(), "icons", &icon_pref),
+                                             ("cover", res.cover_url.as_ref(), "covers"),
+                                             ("banner", res.banner_url.as_ref(), "banners"),
+                                             ("icon", res.icon_url.as_ref(), "icons"),
                                          ];
 
-                                         for (media_type, opt_url, folder_name, subfolder_name) in media_targets {
+                                         for (media_type, opt_url, folder_name) in media_targets {
                                              let mut downloaded = false;
                                              if let Some(img_url) = opt_url {
                                                  if let Ok(resp) = reqwest::get(img_url).await {
                                                      if let Ok(bytes) = resp.bytes().await {
                                                          let ext = if img_url.contains(".png") { "png" } else { "jpg" };
                                                          let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir()
-                                                             .join(folder_name)
-                                                             .join(subfolder_name);
+                                                             .join(folder_name);
                                                          let _ = std::fs::create_dir_all(&media_dir);
                                                          let target_file = media_dir.join(format!("{}.{}", game.id, ext));
                                                          if std::fs::write(&target_file, &bytes).is_ok() {
