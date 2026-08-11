@@ -139,8 +139,8 @@ pub(crate) fn scan_folder_platform_has_retroarch(db: &Database, platform_id: i64
         .any(is_retroarch_runner)
 }
 
-pub(crate) fn scan_folder_supports_dat(slug: &str) -> bool {
-    game_core::dat_downloader::DatDownloader::supports_dat_identification(slug)
+pub(crate) fn scan_folder_supports_dat(_slug: &str) -> bool {
+    false
 }
 
 pub(crate) fn scan_folder_add_has_core(db: &Database, platform_id: i64, add_emu_id: Option<i64>) -> bool {
@@ -5558,8 +5558,12 @@ impl App {
                         } else if let Some(err) = event.error {
                             self.status_msg = format!("[Error] Download failed: {}", err);
                         } else {
-                            self.status_msg =
-                                format!("[OK] Download of '{}' completed successfully!", name);
+                            if name.starts_with("Scrapeo") || name.starts_with("Scraping") {
+                                self.show_toast(&name, crate::toast::ToastKind::Success);
+                            } else {
+                                self.status_msg =
+                                    format!("[OK] Download of '{}' completed successfully!", name);
+                            }
 
                             // Sync DB immediately on main thread for downloaded AppImage
                             if let Ok(td) = RunnerDownloader::get_runner_dir("emulators") {

@@ -244,10 +244,10 @@ impl ScreenScraperClient {
 
             let cover_targets: Vec<&str> = match cover_pref.unwrap_or("box-2d") {
                 "box-3d" => vec!["box-3d", "box-3d-front", "box-2d", "box-2d-front", "flyer", "poster"],
-                "support-2d" => vec!["support-2d", "support-3d", "box-2d", "box-3d"],
-                "support-3d" => vec!["support-3d", "support-2d", "box-3d", "box-2d"],
-                "mix-recalboxv1" => vec!["mix-recalboxv1", "mix-recalboxv2", "box-2d", "box-3d"],
-                "mix-recalboxv2" => vec!["mix-recalboxv2", "mix-recalboxv1", "box-2d", "box-3d"],
+                "support-2d" => vec!["support-2d", "support-3d", "media-2d", "media-3d", "box-2d", "box-3d"],
+                "support-3d" => vec!["support-3d", "support-2d", "media-3d", "media-2d", "box-3d", "box-2d"],
+                "mix-recalboxv1" => vec!["mix-recalboxv1", "mix-recalbox1", "recalboxv1", "mix-recalboxv2", "box-2d", "box-3d"],
+                "mix-recalboxv2" => vec!["mix-recalboxv2", "mix-recalbox2", "recalboxv2", "mix-recalboxv1", "box-2d", "box-3d"],
                 _ => vec!["box-2d", "box-2d-front", "box-3d", "box-3d-front", "flyer", "poster", "box"],
             };
 
@@ -260,16 +260,16 @@ impl ScreenScraperClient {
             };
 
             let icon_targets: Vec<&str> = match icon_pref.unwrap_or("wheel") {
-                "steel" => vec!["wheel-steel", "wheel-carbon", "wheel", "support-2d", "support-3d"],
-                "carbon" => vec!["wheel-carbon", "wheel-steel", "wheel", "support-2d", "support-3d"],
-                "support-2d" => vec!["support-2d", "support-3d", "wheel", "icon"],
-                "support-3d" => vec!["support-3d", "support-2d", "wheel", "icon"],
-                _ => vec!["wheel", "wheel-hd", "steam-icon", "icon", "support-2d", "support-3d"],
+                "steel" => vec!["wheel-steel", "wheel-carbon", "wheel", "wheel-hd", "support-2d"],
+                "carbon" => vec!["wheel-carbon", "wheel-steel", "wheel", "wheel-hd", "support-2d"],
+                "support-2d" => vec!["support-2d", "support-3d", "media-2d", "wheel"],
+                "support-3d" => vec!["support-3d", "support-2d", "media-3d", "wheel"],
+                _ => vec!["wheel", "wheel-hd", "wheel-steel", "wheel-carbon", "steam-icon", "icon", "support-2d"],
             };
 
             let cover_url = get_media_url_by_type(&cover_targets);
-            let banner_url = get_media_url_by_type(&banner_targets).or_else(|| get_media_url_by_type(&["wheel", "fanart", "ss", "box-2d"]));
-            let icon_url = get_media_url_by_type(&icon_targets).or_else(|| get_media_url_by_type(&["wheel", "support-2d", "box-2d"]));
+            let banner_url = get_media_url_by_type(&banner_targets);
+            let icon_url = get_media_url_by_type(&icon_targets);
             let screenshot_url = get_media_url_by_type(&["ss", "sstitle", "screenshot"]);
             let fanart_url = get_media_url_by_type(&["fanart"]);
             let logo_url = get_media_url_by_type(&["wheel", "wheel-hd"]);
