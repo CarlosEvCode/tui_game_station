@@ -12,14 +12,14 @@ use ratatui_image::{Resize, StatefulImage};
 
 use crate::app::{
     add_scan_available_cores, build_scan_folder_items, folder_has_core, scan_folder_add_action_index, scan_folder_add_core_idx,
-    scan_folder_add_emu_idx, scan_folder_add_has_core, scan_folder_add_scan_index,
+    scan_folder_add_emu_idx, scan_folder_add_has_core,
     scan_folder_platform_has_retroarch, scan_folder_supports_dat, App, BigPictureFocus, FocusedPane,
-    ModalState, ScanFolderItem, ViewMode,
+    MediaFocus, ModalState, QuotaInfo, ScanFolderItem, ViewMode,
 };
 use game_core::models::PlatformType;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-pub const DETAIL_ACTIONS: [&str; 4] = ["Play", "Favorite", "Options", "Delete"];
+pub const DETAIL_ACTIONS: [&str; 5] = ["Play", "Favorite", "Scraper", "Options", "Delete"];
 
 /// Byte offset in `s` where the display column reaches `col`, snapping to the
 /// nearest char boundary (never cutting a multi-byte / wide char in half).
@@ -1170,6 +1170,8 @@ fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
             ShortcutItem { key: "v", label: "View", key_color: Color::Cyan },
             ShortcutItem { key: "m", label: "Emulators", key_color: Color::Cyan },
             ShortcutItem { key: "c", label: "Wine", key_color: Color::Cyan },
+            ShortcutItem { key: "Ctrl+S", label: "Scraper Menu", key_color: Color::Yellow },
+            ShortcutItem { key: "Shift+S", label: "Search Game", key_color: Color::Yellow },
             ShortcutItem { key: "a", label: "Add Game", key_color: Color::Cyan },
             ShortcutItem { key: "s", label: "Settings", key_color: Color::Cyan },
             ShortcutItem { key: "Alt+O", label: "Big Picture", key_color: Color::Magenta },
@@ -1178,6 +1180,27 @@ fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     render_shortcut_footer(frame, app, area, &items, Alignment::Left);
+}
+
+/// Return the display aspect ratio (width/height) to use for a cover image
+/// in the Big Picture carousel, based on the actual pixel dimensions stored in
+/// `app.media_dimensions`. Falls back to 0.75 (portrait 3:4) when unknown.
+///
+/// Three canonical buckets:
+///   portrait  ( ratio < 0.80 ) — 2:3 boxart  → ratio ≈ 0.67
+///   square    ( 0.80–1.20  )   — 1:1 cover   → ratio ≈ 1.00
+///   landscape ( ratio > 1.20 ) — 16:9 banner → ratio ≈ 1.78
+fn aspect_ratio_for_cover(game_id: i64, app: &App) -> f32 {
+    app.media_dimensions
+        .get(&(game_id, "cover".to_string()))
+        .map(|&(w, h)| {
+            if h == 0 { return 0.75; }
+            let r = w as f32 / h as f32;
+            if r < 0.80 { r }        // portrait
+            else if r > 1.20 { r }   // landscape
+            else { 1.0 }             // square
+        })
+        .unwrap_or(0.75)
 }
 
 fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -1366,12 +1389,13 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(left_block, left_stage);
 
             let max_h = inner.height.saturating_sub(2).max(4);
-            let target_w = ((max_h as f32) * 1.33) as u16;
+            let ratio = aspect_ratio_for_cover(prev_game.id, app);
+            let target_w = ((max_h as f32) * ratio) as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
             } else {
                 let fit_w = inner.width.saturating_sub(2).max(4);
-                let fit_h = ((fit_w as f32) / 1.33) as u16;
+                let fit_h = ((fit_w as f32) / ratio) as u16;
                 (fit_w, fit_h.min(max_h))
             };
             let offset_x = (inner.width.saturating_sub(img_w)) / 2;
@@ -1432,13 +1456,14 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let padding_h = 3u16;
 
         let avail_img_h = inner_h.saturating_sub(text_h + gap_h + padding_h).max(4);
-        let target_img_w = ((avail_img_h as f32) * 1.33) as u16;
+        let center_ratio = aspect_ratio_for_cover(active_game.id, app);
+        let target_img_w = ((avail_img_h as f32) * center_ratio) as u16;
 
         let (img_w, img_h) = if target_img_w <= inner_w.saturating_sub(2) {
             (target_img_w, avail_img_h)
         } else {
             let fit_w = inner_w.saturating_sub(2).max(6);
-            let fit_h = ((fit_w as f32) / 1.33) as u16;
+            let fit_h = ((fit_w as f32) / center_ratio) as u16;
             (fit_w, fit_h.min(avail_img_h))
         };
 
@@ -1533,12 +1558,13 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(right_block, right_stage);
 
             let max_h = inner.height.saturating_sub(2).max(4);
-            let target_w = ((max_h as f32) * 1.33) as u16;
+            let ratio = aspect_ratio_for_cover(next_game.id, app);
+            let target_w = ((max_h as f32) * ratio) as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
             } else {
                 let fit_w = inner.width.saturating_sub(2).max(4);
-                let fit_h = ((fit_w as f32) / 1.33) as u16;
+                let fit_h = ((fit_w as f32) / ratio) as u16;
                 (fit_w, fit_h.min(max_h))
             };
             let offset_x = (inner.width.saturating_sub(img_w)) / 2;
@@ -1628,11 +1654,9 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let hero_area = chunks[0];
     frame.render_widget(Clear, hero_area);
 
-    let banner_hb_key = (game.id, "banner_hb".to_string());
-    let banner_proto = app.media_protocols.get_mut(&banner_hb_key);
-    if let Some(proto) = banner_proto {
-        // Crop (cover) fills the full hero width; the source is pre-scaled so
-        // the crop always covers the whole area instead of letterboxing.
+    // Banner: halfblocks (crop) hero background
+    let banner_key = (game.id, "banner_hb".to_string());
+    if let Some(proto) = app.media_protocols.get_mut(&banner_key) {
         let img = StatefulImage::new(None).resize(Resize::Crop(None));
         frame.render_stateful_widget(img, hero_area, proto);
     } else {
@@ -1642,36 +1666,22 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         );
     }
 
-    // Cover: native, overlays the banner's bottom-left corner and then keeps
-    // growing DOWNWARD across the hero limit into the content zone, forming a
-    // tall poster column along the whole left side. Its top edge stays where
-    // the old (hero-sized) cover sat, and its bottom edge is computed to land
-    // exactly on the info panel's bottom edge (info_area bottom = footer top).
+    // Cover: native poster image overlaying hero + content section
     let hero_bottom = hero_area.y + hero_area.height;
     let old_cover_h = 16u16.min(hero_area.height.saturating_sub(3));
     let cover_top = hero_bottom.saturating_sub(old_cover_h);
     let info_bottom = chunks[1].y + chunks[1].height;
     let cover_h = info_bottom.saturating_sub(cover_top).max(1);
-    // Poster-ish aspect (H ≈ 0.75·W in cells for a 2:3 image), capped so the
-    // info panel keeps a usable width on narrow terminals. Fit letterboxes, so
-    // the image is never distorted.
     let cover_w = (cover_h as f32 * 4.0 / 3.0).round() as u16;
     let cover_w = cover_w.min(area.width.saturating_sub(50).max(18));
     let cover_rect = Rect::new(hero_area.x + 2, cover_top, cover_w.max(1), cover_h);
     let cover_key = (game.id, "cover".to_string());
-    let cover_hb_key = (game.id, "cover_hb".to_string());
-    let cover_proto = if app.media_protocols.contains_key(&cover_key) {
-        app.media_protocols.get_mut(&cover_key)
-    } else {
-        app.media_protocols.get_mut(&cover_hb_key)
-    };
-    if let Some(proto) = cover_proto {
+    if let Some(proto) = app.media_protocols.get_mut(&cover_key) {
         let img = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
         frame.render_stateful_widget(img, cover_rect, proto);
     }
 
-    // 2. INFO panel: single bordered box right of the cover column, below the
-    //    hero. It holds the title + icon, the info lines and the actions.
+    // 2. INFO panel
     let info_x = cover_rect.right() + 2;
     let info_w = area.right().saturating_sub(info_x + 2).max(1);
     let info_area = Rect::new(info_x, chunks[1].y, info_w, chunks[1].height);
@@ -1688,31 +1698,15 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
     let info_inner = info_block.inner(info_area);
     frame.render_widget(info_block, info_area);
 
-    // Big pixel-art title + icon at the top of the panel. The icon box uses a
-    // FIXED height derived only from the panel size (identical for every game
-    // on a given screen), mirroring the fixed-size Fit rendering of the normal
-    // icon view — so the icon never changes size with the title's length.
     let info_inner_w = info_inner.width;
 
-    // Icon beside the title: halfblocks protocol (same pipeline as the banner)
-    // rendered with Fit into a fixed-size 2:1 box. Halfblock cells are 1px
-    // wide x 2px tall, so a square image fills a box twice as wide as tall.
-    // The height is its own FIXED constant (not the title's), so every game
-    // gets the exact same icon size.
     const ICON_H: u16 = 12;
     let icon_w = (ICON_H.saturating_mul(2))
         .min(info_inner_w.saturating_sub(6))
         .max(2);
-    // Title area: everything to the right of the icon (plus a 2-cell gap).
     let title_avail_w = info_inner_w.saturating_sub(icon_w + 2);
 
-    // Big title with the TOIlet "Future" font (figlet-rs), wrapped by whole
-    // words into at most two lines if it doesn't fit on one.
     let title_art = crate::figlet_title::render_title(&game.title, title_avail_w);
-
-    // FIXED top-section height: enough for the icon AND two big-title lines.
-    // Independent of the actual title length, so the panel below never moves
-    // between games.
     let top_region_h = ICON_H.max(title_art.line_height.saturating_mul(2));
 
     let info_chunks = Layout::default()
@@ -1720,12 +1714,12 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         .constraints([
             Constraint::Length(top_region_h),
             Constraint::Min(1),
-            Constraint::Length(3), // Integrated action buttons
+            Constraint::Length(3),
         ])
         .split(info_inner);
     let title_region = info_chunks[0];
 
-    // Icon beside the title.
+    // Icon beside the title
     let icon_key = (game.id, "icon_hb".to_string());
     if let Some(icon_proto) = app.media_protocols.get_mut(&icon_key) {
         let icon_rect = Rect::new(title_region.x, title_region.y, icon_w, ICON_H);
@@ -1783,7 +1777,26 @@ fn render_game_detail_view(frame: &mut Frame, app: &mut App, area: Rect) {
         "N/A".to_string()
     };
 
+    // ── HD Focus indicator ──────────────────────────────────────────────
+    let focus_indicator = {
+        let mk = |label: &'static str, active: bool| -> Vec<Span<'static>> {
+            let dot = if active { "◆ " } else { "◇ " };
+            let col = if active { Color::Yellow } else { Color::DarkGray };
+            vec![Span::styled(format!("{}{}", dot, label), Style::default().fg(col).add_modifier(if active { Modifier::BOLD } else { Modifier::empty() }))]
+        };
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        spans.extend(mk("Cover",  app.big_picture_media_focus == MediaFocus::Cover));
+        spans.push(Span::raw("   "));
+        spans.extend(mk("Banner", app.big_picture_media_focus == MediaFocus::Banner));
+        spans.push(Span::raw("   "));
+        spans.extend(mk("Icon",   app.big_picture_media_focus == MediaFocus::Icon));
+        spans.push(Span::styled("    [Tab] foco HD", Style::default().fg(Color::DarkGray)));
+        Line::from(spans)
+    };
+
     let mut info_lines = vec![
+        focus_indicator,
+        Line::from(""),
         Line::from(vec![
             Span::styled(
                 "PLATFORM: ",
@@ -2619,10 +2632,174 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             );
             frame.render_widget(help, chunks[1]);
         }
+        ModalState::UnifiedSearchTitleInput {
+            ref search_query,
+            cursor_pos,
+            ..
+        } => {
+            let mut lines = Vec::new();
+            lines.push(Line::from(Span::styled(
+                "Unified Media & Metadata Search (w)",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from("Enter game title to search:"));
+
+            let (before, after) = search_query.split_at(cursor_pos.min(search_query.len()));
+            lines.push(Line::from(vec![
+                Span::raw(" > "),
+                Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+            ]));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "[Enter]: Continue to Select Provider  ·  [Esc]: Cancel",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let popup_area = centered_rect(55, 30, frame.area());
+            frame.render_widget(Clear, popup_area);
+            let block = Block::default()
+                .title(Span::styled(" 1. Edit Search Title ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded);
+            frame.render_widget(Paragraph::new(lines).block(block), popup_area);
+        }
+        ModalState::UnifiedSearchProviderPicker {
+            ref search_query,
+            selected_provider_idx,
+            ..
+        } => {
+            let mut lines = Vec::new();
+            lines.push(Line::from(Span::styled(
+                format!("Query: '{}'", search_query),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from("Select Search Provider:"));
+            lines.push(Line::from(""));
+
+            let providers = [
+                ("1. SteamGridDB", "Visual Media (Grids, Covers, Banners, Icons)"),
+                ("2. ScreenScraper", "Full Metadata & Official Game Artwork"),
+            ];
+
+            for (idx, (name, desc)) in providers.iter().enumerate() {
+                let is_sel = idx == selected_provider_idx;
+                let prefix = if is_sel { "▶ " } else { "  " };
+                let style = if is_sel {
+                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(Color::Yellow)),
+                    Span::styled(*name, style),
+                    Span::raw(" — "),
+                    Span::styled(*desc, Style::default().fg(Color::DarkGray)),
+                ]));
+                lines.push(Line::from(""));
+            }
+
+            lines.push(Line::from(Span::styled(
+                "[↑/↓]: Navigate  ·  [Enter]: Search with selected Provider  ·  [Esc]: Back",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let popup_area = centered_rect(65, 40, frame.area());
+            frame.render_widget(Clear, popup_area);
+            let block = Block::default()
+                .title(Span::styled(" 2. Select Provider ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded);
+            frame.render_widget(Paragraph::new(lines).block(block), popup_area);
+        }
+        ModalState::ScreenScraperAccount {
+            ref user_input,
+            ref pass_input,
+            selected_field,
+            is_editing_field,
+            cursor_pos,
+        } => {
+            let mut lines = Vec::new();
+            lines.push(Line::from(Span::styled(
+                "ScreenScraper Account Credentials",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+
+            let f0_label = if selected_field == 0 { "▶ 1. Username: " } else { "  1. Username: " };
+            let f0_style = if selected_field == 0 { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) };
+            lines.push(Line::from(vec![Span::styled(f0_label, f0_style)]));
+
+            if is_editing_field && selected_field == 0 {
+                let (before, after) = user_input.split_at(cursor_pos.min(user_input.len()));
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                ]));
+            } else {
+                let u_text = if user_input.is_empty() { "< Anonymous / Default IP Quota >".to_string() } else { user_input.clone() };
+                let u_style = if selected_field == 0 { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::DarkGray) };
+                lines.push(Line::from(vec![Span::raw("   "), Span::styled(u_text, u_style)]));
+            }
+            lines.push(Line::from(""));
+
+            let f1_label = if selected_field == 1 { "▶ 2. Password: " } else { "  2. Password: " };
+            let f1_style = if selected_field == 1 { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) };
+            lines.push(Line::from(vec![Span::styled(f1_label, f1_style)]));
+
+            if is_editing_field && selected_field == 1 {
+                let (before, after) = pass_input.split_at(cursor_pos.min(pass_input.len()));
+                lines.push(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
+                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
+                ]));
+            } else {
+                let p_text = if pass_input.is_empty() { "< No Password Set >".to_string() } else { "●".repeat(pass_input.len()) };
+                let p_style = if selected_field == 1 { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::DarkGray) };
+                lines.push(Line::from(vec![Span::raw("   "), Span::styled(p_text, p_style)]));
+            }
+            lines.push(Line::from(""));
+
+            let f2_style = if selected_field == 2 {
+                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Green)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected_field == 2 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ ✓ Save Credentials & Return ]", f2_style),
+            ]));
+
+            let help_text = if is_editing_field {
+                "[Enter]: Save & Lock field  ·  [Esc]: Cancel editing  ·  [Ctrl+V]: Paste"
+            } else {
+                "[↑/↓]: Navigate  ·  [Enter]: Edit / Save  ·  [Esc]: Return to Settings"
+            };
+
+            let popup_area = centered_rect(60, 45, frame.area());
+            frame.render_widget(Clear, popup_area);
+            let block = Block::default()
+                .title(Span::styled(" ScreenScraper Account ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded);
+            let paragraph = Paragraph::new(lines).block(block);
+            frame.render_widget(paragraph, popup_area);
+
+            let help_area = Rect::new(popup_area.x, popup_area.y + popup_area.height, popup_area.width, 1);
+            frame.render_widget(Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray)), help_area);
+        }
         ModalState::AppSettings {
             ref api_key_input,
             ref screenscraper_user_input,
             ref screenscraper_pass_input,
+            ref thegamesdb_api_key_input,
             selected_field,
             is_editing_field,
             cursor_pos,
@@ -2636,7 +2813,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             )));
             lines.push(Line::from(""));
 
-            // Field 0: SteamGridDB API Key
+            // Row 0: 1. SteamGridDB API Key
             let f0_label = if selected_field == 0 {
                 "▶ 1. SteamGridDB API Key: "
             } else {
@@ -2681,11 +2858,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             }
             lines.push(Line::from(""));
 
-            // Field 1: ScreenScraper User
+            // Row 1: 2. ScreenScraper Integration (Sub-modal trigger)
             let f1_label = if selected_field == 1 {
-                "▶ 2. ScreenScraper Username: "
+                "▶ 2. ScreenScraper Integration: "
             } else {
-                "  2. ScreenScraper Username: "
+                "  2. ScreenScraper Integration: "
             };
             let f1_label_style = if selected_field == 1 {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
@@ -2693,38 +2870,27 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(Color::White)
             };
             lines.push(Line::from(vec![Span::styled(f1_label, f1_label_style)]));
-
-            if is_editing_field && selected_field == 1 {
-                let (before, after) = screenscraper_user_input.split_at(cursor_pos.min(screenscraper_user_input.len()));
-                lines.push(Line::from(vec![
-                    Span::raw("   "),
-                    Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
-                    Span::styled("█", Style::default().fg(Color::Yellow).bg(Color::DarkGray)),
-                    Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
-                ]));
+            let ss_status = if screenscraper_user_input.is_empty() {
+                "[ User & Password: <Anonymous / IP Limit> ↵ Press Enter to Edit ]".to_string()
             } else {
-                let text = if screenscraper_user_input.is_empty() {
-                    "< Anonymous / Default IP Quota >".to_string()
-                } else {
-                    screenscraper_user_input.clone()
-                };
-                let display_style = if selected_field == 1 {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                };
-                lines.push(Line::from(vec![
-                    Span::raw("   "),
-                    Span::styled(text, display_style),
-                ]));
-            }
+                format!("[ User: {} · Pass: ●●●●●● ↵ Press Enter to Edit ]", screenscraper_user_input)
+            };
+            let ss_style = if selected_field == 1 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            lines.push(Line::from(vec![
+                Span::raw("   "),
+                Span::styled(ss_status, ss_style),
+            ]));
             lines.push(Line::from(""));
 
-            // Field 2: ScreenScraper Password
+            // Row 2: 3. TheGamesDB API Key
             let f2_label = if selected_field == 2 {
-                "▶ 3. ScreenScraper Password: "
+                "▶ 3. TheGamesDB API Key: "
             } else {
-                "  3. ScreenScraper Password: "
+                "  3. TheGamesDB API Key: "
             };
             let f2_label_style = if selected_field == 2 {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
@@ -2734,7 +2900,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             lines.push(Line::from(vec![Span::styled(f2_label, f2_label_style)]));
 
             if is_editing_field && selected_field == 2 {
-                let (before, after) = screenscraper_pass_input.split_at(cursor_pos.min(screenscraper_pass_input.len()));
+                let (before, after) = thegamesdb_api_key_input.split_at(cursor_pos.min(thegamesdb_api_key_input.len()));
                 lines.push(Line::from(vec![
                     Span::raw("   "),
                     Span::styled(before, Style::default().fg(Color::White).bg(Color::DarkGray)),
@@ -2742,10 +2908,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Span::styled(after, Style::default().fg(Color::White).bg(Color::DarkGray)),
                 ]));
             } else {
-                let masked_pass = if screenscraper_pass_input.is_empty() {
-                    "< No Password Set >".to_string()
+                let masked_tgdb = if thegamesdb_api_key_input.is_empty() {
+                    "< No API Key Set >".to_string()
                 } else {
-                    "●".repeat(screenscraper_pass_input.len())
+                    "●".repeat(thegamesdb_api_key_input.len())
                 };
                 let display_style = if selected_field == 2 {
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -2754,12 +2920,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 };
                 lines.push(Line::from(vec![
                     Span::raw("   "),
-                    Span::styled(masked_pass, display_style),
+                    Span::styled(masked_tgdb, display_style),
                 ]));
             }
             lines.push(Line::from(""));
 
-            // Field 3: Re-run Welcome Wizard
+            // Row 3: Re-run Welcome Wizard
             let f3_style = if selected_field == 3 {
                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -2771,7 +2937,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ]));
             lines.push(Line::from(""));
 
-            // Field 4: About
+            // Row 4: About TUI Game Station
             let f4_style = if selected_field == 4 {
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
@@ -2783,27 +2949,15 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             ]));
             lines.push(Line::from(""));
 
-            // Field 5: Check Updates
-            let f5_style = if selected_field == 5 {
-                Style::default().fg(Color::Black).bg(Color::Blue).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Blue)
-            };
-            lines.push(Line::from(vec![
-                Span::styled(if selected_field == 5 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
-                Span::styled("[ Check for Updates ]", f5_style),
-            ]));
-            lines.push(Line::from(""));
-
-            // Field 6: Save Settings
-            let f6_style = if selected_field == 6 {
+            // Field 7: Save Settings
+            let f7_style = if selected_field == 7 {
                 Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Green)
             };
             lines.push(Line::from(vec![
-                Span::styled(if selected_field == 6 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
-                Span::styled("[ SAVE SETTINGS ]", f6_style),
+                Span::styled(if selected_field == 7 { " ▶ " } else { "   " }, Style::default().fg(Color::Yellow)),
+                Span::styled("[ SAVE SETTINGS ]", f7_style),
             ]));
 
             let p = Paragraph::new(lines).block(
@@ -3575,6 +3729,159 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .add_modifier(Modifier::BOLD),
             );
             frame.render_widget(help, modal_chunks[2]);
+        }
+        ModalState::AdvancedScraperSearch {
+            ref original_title,
+            ref search_query,
+            cursor_pos,
+            is_searching,
+            ref results,
+            selected_result_idx,
+            ref error_msg,
+            ..
+        } => {
+            let mut top_lines = Vec::new();
+            top_lines.push(Line::from(vec![
+                Span::styled("Original Game: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(original_title, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ]));
+            top_lines.push(Line::from(""));
+
+            let mut query_spans = vec![Span::styled("Search Query: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))];
+            if search_query.is_empty() {
+                query_spans.push(Span::styled("< Type custom search title >", Style::default().fg(Color::DarkGray)));
+            } else {
+                let (left, right) = search_query.split_at(cursor_pos.min(search_query.len()));
+                query_spans.push(Span::raw(left.to_string()));
+                if let Some(ch) = right.chars().next() {
+                    query_spans.push(Span::styled(
+                        ch.to_string(),
+                        Style::default().fg(Color::Black).bg(Color::Cyan),
+                    ));
+                    query_spans.push(Span::raw(right[ch.len_utf8()..].to_string()));
+                } else {
+                    query_spans.push(Span::styled(
+                        " ",
+                        Style::default().fg(Color::Black).bg(Color::Cyan),
+                    ));
+                }
+            }
+            top_lines.push(Line::from(query_spans));
+
+            if is_searching {
+                top_lines.push(Line::from(Span::styled("  ⚡ Searching ScreenScraper / TheGamesDB...", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            } else if let Some(ref err) = error_msg {
+                top_lines.push(Line::from(Span::styled(format!("  ❌ {}", err), Style::default().fg(Color::Red))));
+            } else {
+                top_lines.push(Line::from(Span::styled(format!("  Found {} candidate result(s)", results.len()), Style::default().fg(Color::Green))));
+            }
+
+            // Quota status
+            let ss_quota = app.scraper_quota.get(&scraper::pipeline::ScraperSource::ScreenScraper);
+            let quota_color = match ss_quota.and_then(|q| q.fraction()) {
+                Some(f) if f > 0.95 => Color::Red,
+                Some(f) if f > 0.80 => Color::Yellow,
+                Some(_) => Color::Green,
+                None => Color::DarkGray,
+            };
+            let quota_label = ss_quota.map(|q| q.display_label()).unwrap_or_else(|| "--".to_string());
+            top_lines.push(Line::from(vec![
+                Span::styled("  Cuota SS: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(quota_label, Style::default().fg(quota_color)),
+            ]));
+
+            let top_widget = Paragraph::new(top_lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Refine Game Title / Advanced Search ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(8), Constraint::Min(8), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(top_widget, main_chunks[0]);
+
+            let list_detail_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+                .split(main_chunks[1]);
+
+            // Left List: Candidates
+            let items: Vec<ListItem> = if results.is_empty() {
+                vec![ListItem::new(" No results. Type a refined title and press [Enter].").style(Style::default().fg(Color::DarkGray))]
+            } else {
+                results
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, res)| {
+                        let is_selected = idx == selected_result_idx;
+                        let style = if is_selected {
+                            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::White)
+                        };
+                        let year_str = res.release_year.map(|y| format!(" ({})", y)).unwrap_or_default();
+                        ListItem::new(format!("{}. {}{}", idx + 1, res.title, year_str)).style(style)
+                    })
+                    .collect()
+            };
+
+            let results_list = List::new(items).block(
+                Block::default()
+                    .title(Span::styled(" Candidates List ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+            frame.render_widget(results_list, list_detail_chunks[0]);
+
+            // Right Detail: Selected Candidate Details
+            let mut detail_lines = Vec::new();
+            if let Some(res) = results.get(selected_result_idx) {
+                detail_lines.push(Line::from(Span::styled(&res.title, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+                if let Some(y) = res.release_year {
+                    detail_lines.push(Line::from(format!("Released: {}", y)));
+                }
+                if let Some(ref dev) = res.developer {
+                    detail_lines.push(Line::from(format!("Developer: {}", dev)));
+                }
+                if let Some(ref publ) = res.publisher {
+                    detail_lines.push(Line::from(format!("Publisher: {}", publ)));
+                }
+                if let Some(ref g) = res.genre {
+                    detail_lines.push(Line::from(format!("Genre: {}", g)));
+                }
+                if let Some(r) = res.rating {
+                    detail_lines.push(Line::from(format!("Rating: {:.1} / 5.0", r)));
+                }
+                detail_lines.push(Line::from(""));
+                if let Some(ref desc) = res.description {
+                    detail_lines.push(Line::from(Span::styled("Description:", Style::default().fg(Color::Cyan))));
+                    detail_lines.push(Line::from(desc.as_str()));
+                }
+            } else {
+                detail_lines.push(Line::from(Span::styled("Select a game result from the left list to preview details.", Style::default().fg(Color::DarkGray))));
+            }
+
+            let detail_widget = Paragraph::new(detail_lines).block(
+                Block::default()
+                    .title(Span::styled(" Result Details ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            frame.render_widget(detail_widget, list_detail_chunks[1]);
+
+            let help = Paragraph::new(" [Enter] Search/Select Result | [Up/Down] Navigate Results | [Typing] Edit Query | [Esc] Cancel").style(
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            );
+            frame.render_widget(help, main_chunks[2]);
         }
         ModalState::ManageRunnersStep1Platform {
             selected_platform_idx,
@@ -5850,7 +6157,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         }
         ModalState::ScraperMenu {
             selected_source,
-            filter_idx,
             ref enabled_platform_ids,
             region_idx,
             cover_pref_idx,
@@ -5860,9 +6166,6 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
         } => {
             let popup_area = centered_rect(70, 75, frame.area());
             frame.render_widget(Clear, popup_area);
-
-            let filter_labels = ["All Games", "Favorite Games", "No Metadata", "No Game Image"];
-            let filter_name = filter_labels.get(filter_idx).unwrap_or(&"All Games");
 
             let region_labels = ["USA / North America (us)", "World (wor)", "Europe (eu)", "Japan (jp)"];
             let region_name = region_labels.get(region_idx).unwrap_or(&"USA / North America (us)");
@@ -5896,7 +6199,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 style_0,
             )));
 
-            // Field 1: SCRAPE THESE GAMES
+            // Field 1: SCRAPE THESE SYSTEMS
             let style_1 = if selected_field == 1 {
                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -5904,11 +6207,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
             let prefix_1 = if selected_field == 1 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}SCRAPE THESE GAMES: ◄ {} ►", prefix_1, filter_name.to_uppercase()),
+                format!("{}SCRAPE THESE SYSTEMS: [ {} ] ↵", prefix_1, systems_summary),
                 style_1,
             )));
 
-            // Field 2: SCRAPE THESE SYSTEMS
+            // Field 2: PREFERRED REGION
             let style_2 = if selected_field == 2 {
                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -5916,11 +6219,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
             let prefix_2 = if selected_field == 2 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}SCRAPE THESE SYSTEMS: [ {} ] ↵", prefix_2, systems_summary),
+                format!("{}PREFERRED REGION: ◄ {} ►", prefix_2, region_name),
                 style_2,
             )));
 
-            // Field 3: PREFERRED REGION
+            // Field 3: COVER MEDIA PREFERENCE
             let style_3 = if selected_field == 3 {
                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -5928,11 +6231,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
             let prefix_3 = if selected_field == 3 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}PREFERRED REGION: ◄ {} ►", prefix_3, region_name),
+                format!("{}COVER MEDIA TYPE: ◄ {} ►", prefix_3, cover_name),
                 style_3,
             )));
 
-            // Field 4: COVER MEDIA PREFERENCE
+            // Field 4: BANNER MEDIA PREFERENCE
             let style_4 = if selected_field == 4 {
                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -5940,11 +6243,11 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
             let prefix_4 = if selected_field == 4 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}COVER MEDIA TYPE: ◄ {} ►", prefix_4, cover_name),
+                format!("{}BANNER MEDIA TYPE: ◄ {} ►", prefix_4, banner_name),
                 style_4,
             )));
 
-            // Field 5: BANNER MEDIA PREFERENCE
+            // Field 5: ICON MEDIA PREFERENCE
             let style_5 = if selected_field == 5 {
                 Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
@@ -5952,35 +6255,23 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             };
             let prefix_5 = if selected_field == 5 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}BANNER MEDIA TYPE: ◄ {} ►", prefix_5, banner_name),
+                format!("{}ICON MEDIA TYPE: ◄ {} ►", prefix_5, icon_name),
                 style_5,
-            )));
-
-            // Field 6: ICON MEDIA PREFERENCE
-            let style_6 = if selected_field == 6 {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            let prefix_6 = if selected_field == 6 { " ▶ " } else { "   " };
-            list_items.push(ListItem::new(Span::styled(
-                format!("{}ICON MEDIA TYPE: ◄ {} ►", prefix_6, icon_name),
-                style_6,
             )));
 
             // Blank separator line
             list_items.push(ListItem::new(Span::raw("")));
 
-            // Field 7: START SCRAPER BUTTON
-            let style_7 = if selected_field == 7 {
+            // Field 6: START SCRAPER BUTTON
+            let style_6 = if selected_field == 6 {
                 Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Yellow)
             };
-            let prefix_7 = if selected_field == 7 { " ▶ " } else { "   " };
+            let prefix_6 = if selected_field == 6 { " ▶ " } else { "   " };
             list_items.push(ListItem::new(Span::styled(
-                format!("{}[ START SCRAPER ]", prefix_7),
-                style_7,
+                format!("{}[ START SCRAPER ]", prefix_6),
+                style_6,
             )));
 
             let list = List::new(list_items).block(
@@ -5997,6 +6288,35 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .border_style(Style::default().fg(Color::Cyan)),
             );
             frame.render_widget(list, popup_area);
+
+            // ── Quota status line below the list ────────────────────────────
+            let quota_area = Rect::new(
+                popup_area.x + 2,
+                popup_area.y + popup_area.height,
+                popup_area.width.saturating_sub(4),
+                1,
+            );
+            if quota_area.y < frame.area().height {
+                let quota_color = |info: Option<&QuotaInfo>| -> Color {
+                    match info.and_then(|q| q.fraction()) {
+                        Some(f) if f > 0.95 => Color::Red,
+                        Some(f) if f > 0.80 => Color::Yellow,
+                        Some(_) => Color::Green,
+                        None => Color::DarkGray,
+                    }
+                };
+                let ss_info  = app.scraper_quota.get(&scraper::pipeline::ScraperSource::ScreenScraper);
+                let tgdb_info = app.scraper_quota.get(&scraper::pipeline::ScraperSource::TheGamesDB);
+                let ss_label   = ss_info.map(|q| q.display_label()).unwrap_or_else(|| "--".to_string());
+                let tgdb_label = tgdb_info.map(|q| q.display_label()).unwrap_or_else(|| "--".to_string());
+                let quota_line = Line::from(vec![
+                    Span::styled(" SS: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(ss_label,   Style::default().fg(quota_color(ss_info))),
+                    Span::styled("   TGDB: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(tgdb_label, Style::default().fg(quota_color(tgdb_info))),
+                ]);
+                frame.render_widget(Paragraph::new(quota_line), quota_area);
+            }
         }
         ModalState::ScraperSystemSelector {
             ref platforms,

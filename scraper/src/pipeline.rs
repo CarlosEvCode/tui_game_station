@@ -26,7 +26,7 @@ pub struct ScraperSearchParams {
 }
 
 /// Metadata and asset URLs returned by a scraper backend
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ScraperSearchResult {
     pub provider_name: String,
     pub game_id: String,
@@ -56,7 +56,7 @@ pub trait ScraperProvider: Send + Sync {
 }
 
 /// Selectable scraper source matching ES-DE architecture
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ScraperSource {
     ScreenScraper,
     TheGamesDB,

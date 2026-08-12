@@ -180,28 +180,60 @@ async fn main() -> Result<()> {
                         if app.modal_state != ModalState::None {
                             match key.code {
                                 KeyCode::Esc => {
-                                    if let ModalState::AppSettings {
-                                        ref mut is_editing_field,
-                                        ..
-                                    } = app.modal_state
-                                    {
-                                        if *is_editing_field {
-                                            *is_editing_field = false;
-                                            continue;
-                                        }
-                                    }
-                                    if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                        app.update(Action::ProtonDownloaderBack).await;
-                                    } else if let ModalState::WelcomeWizard {
-                                        ref sgdb_api_key,
-                                        ..
-                                    } = app.modal_state
-                                    {
-                                        let key = sgdb_api_key.clone();
-                                        app.finish_welcome_wizard(&key);
-                                    } else {
-                                        app.update(Action::CloseModal).await;
-                                    }
+                                     if let ModalState::AppSettings {
+                                         ref mut is_editing_field,
+                                         ..
+                                     } = app.modal_state
+                                     {
+                                         if *is_editing_field {
+                                             *is_editing_field = false;
+                                             continue;
+                                         }
+                                         app.update(Action::SaveAppSettings).await;
+                                         continue;
+                                     }
+                                     if let ModalState::UnifiedSearchTitleInput { .. } = app.modal_state {
+                                         app.update(Action::CloseModal).await;
+                                         continue;
+                                     }
+                                     if let ModalState::UnifiedSearchProviderPicker {
+                                         game_id,
+                                         ref search_query,
+                                         ..
+                                     } = app.modal_state.clone()
+                                     {
+                                         let q_len = search_query.len();
+                                         app.modal_state = ModalState::UnifiedSearchTitleInput {
+                                             game_id,
+                                             search_query: search_query.clone(),
+                                             cursor_pos: q_len,
+                                         };
+                                         continue;
+                                     }
+                                     if let ModalState::ScreenScraperAccount {
+                                         ref mut is_editing_field,
+                                         ..
+                                     } = app.modal_state
+                                     {
+                                         if *is_editing_field {
+                                             *is_editing_field = false;
+                                             continue;
+                                         }
+                                         app.update(Action::OpenSettingsModal).await;
+                                         continue;
+                                     }
+                                     if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                         app.update(Action::ProtonDownloaderBack).await;
+                                     } else if let ModalState::WelcomeWizard {
+                                         ref sgdb_api_key,
+                                         ..
+                                     } = app.modal_state
+                                     {
+                                         let key = sgdb_api_key.clone();
+                                         app.finish_welcome_wizard(&key);
+                                     } else {
+                                         app.update(Action::CloseModal).await;
+                                     }
                                 }
                                 KeyCode::BackTab => {
                                     if key.modifiers.contains(KeyModifiers::SHIFT)
@@ -239,6 +271,24 @@ async fn main() -> Result<()> {
                                 }
                                 KeyCode::Up => match &mut app.modal_state {
                                     ModalState::AppSettings {
+                                        ref mut selected_field,
+                                        ref mut is_editing_field,
+                                        ..
+                                    } => {
+                                        *is_editing_field = false;
+                                        if *selected_field > 0 {
+                                            *selected_field -= 1;
+                                        }
+                                    }
+                                    ModalState::UnifiedSearchProviderPicker {
+                                        ref mut selected_provider_idx,
+                                        ..
+                                    } => {
+                                        if *selected_provider_idx > 0 {
+                                            *selected_provider_idx -= 1;
+                                        }
+                                    }
+                                    ModalState::ScreenScraperAccount {
                                         ref mut selected_field,
                                         ref mut is_editing_field,
                                         ..
@@ -312,10 +362,28 @@ async fn main() -> Result<()> {
                                         ..
                                     } => {
                                         *is_editing_field = false;
-                                        if *selected_field < 6 {
+                                        if *selected_field < 4 {
                                             *selected_field += 1;
                                         }
                                     }
+                                    ModalState::UnifiedSearchProviderPicker {
+                                        ref mut selected_provider_idx,
+                                        ..
+                                    } => {
+                                        if *selected_provider_idx < 1 {
+                                            *selected_provider_idx += 1;
+                                        }
+                                    }
+                                     ModalState::ScreenScraperAccount {
+                                         ref mut selected_field,
+                                         ref mut is_editing_field,
+                                         ..
+                                     } => {
+                                         *is_editing_field = false;
+                                         if *selected_field < 2 {
+                                             *selected_field += 1;
+                                         }
+                                     }
                                     ModalState::WelcomeWizard {
                                         step: 3,
                                         ref mut active_field,
@@ -510,6 +578,7 @@ async fn main() -> Result<()> {
                                         ref screenscraper_user_input,
                                         ref screenscraper_pass_input,
                                         ref mut cursor_pos,
+                                        ..
                                     } => {
                                         let max_len = match selected_field {
                                             0 => api_key_input.len(),
@@ -673,6 +742,7 @@ async fn main() -> Result<()> {
                                         ref screenscraper_user_input,
                                         ref screenscraper_pass_input,
                                         ref mut cursor_pos,
+                                        ..
                                     } = app.modal_state
                                     {
                                         let len = match selected_field {
@@ -830,12 +900,92 @@ async fn main() -> Result<()> {
                                     ModalState::ScraperSystemSelector { .. } => {
                                         app.update(Action::ToggleScraperSystem).await;
                                     }
-                                    ModalState::AppSettings {
+                                    ModalState::UnifiedSearchTitleInput {
+                                        game_id,
+                                        ref search_query,
+                                        ..
+                                    } => {
+                                        let q = search_query.trim().to_string();
+                                        if !q.is_empty() {
+                                            app.modal_state = ModalState::UnifiedSearchProviderPicker {
+                                                game_id,
+                                                search_query: q,
+                                                selected_provider_idx: 0,
+                                            };
+                                        }
+                                    }
+                                    ModalState::UnifiedSearchProviderPicker {
+                                        game_id,
+                                        ref search_query,
+                                        selected_provider_idx,
+                                    } => {
+                                        let gid = game_id;
+                                        let q = search_query.clone();
+                                        let provider = selected_provider_idx;
+                                        if provider == 0 {
+                                            let key = app.db.get_setting("steamgriddb_api_key").ok().flatten();
+                                            let title = app.games.iter().find(|g| g.id == gid).map(|g| g.title.clone()).unwrap_or_else(|| q.clone());
+                                            let q_len = q.len();
+                                            app.modal_state = ModalState::VisualMediaSelector {
+                                                game_id: gid,
+                                                game_title: title,
+                                                search_query: q.clone(),
+                                                active_tab: 0,
+                                                focused_section: 2,
+                                                cursor_pos: q_len,
+                                                is_searching: true,
+                                                candidates: Vec::new(),
+                                                selected_candidate_idx: 0,
+                                                selected_candidate_id: None,
+                                                selected_candidate_name: None,
+                                                covers: Vec::new(),
+                                                selected_cover_idx: 0,
+                                                chosen_cover_idx: None,
+                                                banners: Vec::new(),
+                                                selected_banner_idx: 0,
+                                                chosen_banner_idx: None,
+                                                icons: Vec::new(),
+                                                selected_icon_idx: 0,
+                                                chosen_icon_idx: None,
+                                            };
+                                            app.status_msg = format!("Searching SteamGridDB for '{}'...", q);
+                                            let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                                            if let Ok(results) = client.search_game(&q).await {
+                                                if let ModalState::VisualMediaSelector {
+                                                    ref mut is_searching,
+                                                    ref mut candidates,
+                                                    ref mut selected_candidate_idx,
+                                                    ..
+                                                } = app.modal_state
+                                                {
+                                                    *is_searching = false;
+                                                    *candidates = results;
+                                                    *selected_candidate_idx = 0;
+                                                }
+                                            }
+                                        } else {
+                                            let orig_title = app.games.iter().find(|g| g.id == gid).map(|g| g.title.clone()).unwrap_or_else(|| q.clone());
+                                            let q_len = q.len();
+                                            app.modal_state = ModalState::AdvancedScraperSearch {
+                                                game_id: gid,
+                                                original_title: orig_title,
+                                                search_query: q,
+                                                cursor_pos: q_len,
+                                                is_searching: false,
+                                                results: Vec::new(),
+                                                selected_result_idx: 0,
+                                                error_msg: None,
+                                            };
+                                            app.update(Action::ExecuteAdvancedScraperSearch).await;
+                                        }
+                                    }
+                                     ModalState::AppSettings {
                                         selected_field,
                                         ref mut is_editing_field,
                                         ref api_key_input,
                                         ref screenscraper_user_input,
                                         ref screenscraper_pass_input,
+                                        ref thegamesdb_api_key_input,
                                         ref mut cursor_pos,
                                     } => {
                                         if selected_field == 0 {
@@ -844,24 +994,50 @@ async fn main() -> Result<()> {
                                                 *cursor_pos = api_key_input.len();
                                             }
                                         } else if selected_field == 1 {
-                                            *is_editing_field = !*is_editing_field;
-                                            if *is_editing_field {
-                                                *cursor_pos = screenscraper_user_input.len();
-                                            }
+                                            let u = screenscraper_user_input.clone();
+                                            let p = screenscraper_pass_input.clone();
+                                            let u_len = u.len();
+                                            app.modal_state = ModalState::ScreenScraperAccount {
+                                                user_input: u,
+                                                pass_input: p,
+                                                selected_field: 0,
+                                                is_editing_field: false,
+                                                cursor_pos: u_len,
+                                            };
                                         } else if selected_field == 2 {
                                             *is_editing_field = !*is_editing_field;
                                             if *is_editing_field {
-                                                *cursor_pos = screenscraper_pass_input.len();
+                                                *cursor_pos = thegamesdb_api_key_input.len();
                                             }
                                         } else if selected_field == 3 {
                                             app.update(Action::OpenWelcomeWizardModal).await;
                                         } else if selected_field == 4 {
                                             app.update(Action::OpenAboutModal).await;
-                                        } else if selected_field == 5 {
-                                            app.update(Action::CheckForUpdates { silent: false })
-                                                .await;
-                                        } else if selected_field == 6 {
-                                            app.update(Action::SaveAppSettings).await;
+                                        }
+                                    }
+                                    ModalState::ScreenScraperAccount {
+                                        selected_field,
+                                        ref mut is_editing_field,
+                                        ref user_input,
+                                        ref pass_input,
+                                        ref mut cursor_pos,
+                                    } => {
+                                        if selected_field == 0 {
+                                            *is_editing_field = !*is_editing_field;
+                                            if *is_editing_field {
+                                                *cursor_pos = user_input.len();
+                                            }
+                                        } else if selected_field == 1 {
+                                            *is_editing_field = !*is_editing_field;
+                                            if *is_editing_field {
+                                                *cursor_pos = pass_input.len();
+                                            }
+                                        } else if selected_field == 2 {
+                                            let u = user_input.trim().to_string();
+                                            let p = pass_input.trim().to_string();
+                                            let _ = app.db.set_setting("screenscraper_user", &u);
+                                            let _ = app.db.set_setting("screenscraper_pass", &p);
+                                            app.update(Action::OpenSettingsModal).await;
                                         }
                                     }
                                     ModalState::UpdateAvailable {

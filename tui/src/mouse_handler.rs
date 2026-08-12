@@ -158,10 +158,11 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
         ref api_key_input,
         ref screenscraper_user_input,
         ref screenscraper_pass_input,
+        ref thegamesdb_api_key_input,
         ref mut cursor_pos,
     } = app.modal_state
     {
-        let popup_area = centered_rect_exact(60, 14, area);
+        let popup_area = centered_rect_exact(60, 16, area);
         if x >= popup_area.x
             && x < popup_area.x + popup_area.width
             && y >= popup_area.y
@@ -188,18 +189,24 @@ async fn handle_modal_click(app: &mut App, x: u16, y: u16, area: Rect) {
                 }
             } else if rel_y == 7 || rel_y == 8 {
                 *selected_field = 3;
-                *is_editing_field = false;
-                app.update(Action::OpenWelcomeWizardModal).await;
-            } else if rel_y == 9 {
+                *is_editing_field = !*is_editing_field;
+                if *is_editing_field {
+                    *cursor_pos = thegamesdb_api_key_input.len();
+                }
+            } else if rel_y == 9 || rel_y == 10 {
                 *selected_field = 4;
                 *is_editing_field = false;
-                app.update(Action::OpenAboutModal).await;
-            } else if rel_y == 10 {
+                app.update(Action::OpenWelcomeWizardModal).await;
+            } else if rel_y == 11 {
                 *selected_field = 5;
                 *is_editing_field = false;
-                app.update(Action::CheckForUpdates { silent: false }).await;
-            } else if rel_y >= 11 {
+                app.update(Action::OpenAboutModal).await;
+            } else if rel_y == 12 {
                 *selected_field = 6;
+                *is_editing_field = false;
+                app.update(Action::CheckForUpdates { silent: false }).await;
+            } else if rel_y >= 13 {
+                *selected_field = 7;
                 *is_editing_field = false;
                 app.update(Action::SaveAppSettings).await;
             }
