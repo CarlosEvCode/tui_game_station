@@ -77,11 +77,7 @@ fn is_destructive_action(action: &Action) -> bool {
 /// navigation, launching, quitting, deletes — is ignored regardless of which
 /// input source produced it. This is the single source of truth for input
 /// protection: keyboard, mouse and (hot-plugged) gamepad events all funnel
-/// through the action dispatcher, so no input thread needs to "know" that a
-/// game is running.
-fn is_action_allowed_while_game_running(action: &Action) -> bool {
-    matches!(action, Action::ForceCloseGame)
-}
+
 
 /// Item in the flat focusable sequence of Modal 1 (ScanFolderForm).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3770,15 +3766,6 @@ impl App {
     }
 
     pub async fn update(&mut self, action: Action) {
-        // Guardián central (TAREA 5): mientras un juego está corriendo, la
-        // única interacción válida con el launcher es forzarlo a cerrar. Todas
-        // las fuentes de input (teclado, gamepad — incluso uno conectado en
-        // caliente durante la partida — y ratón) convergen aquí, así que este
-        // es el único punto que necesita filtrar qué se ejecuta.
-        if self.running_game.is_some() && !is_action_allowed_while_game_running(&action) {
-            tracing::info!("acción ignorada mientras un juego está en ejecución: {action:?}");
-            return;
-        }
         // Input-safe-mode guard (TAREA 3): while the post-game drain is open,
         // a stale key/button must never quit, relaunch or delete anything.
         if self.input_safe_mode == InputSafeMode::Locked && is_destructive_action(&action) {
@@ -3787,10 +3774,6 @@ impl App {
         }
         match action {
             Action::Quit => {
-                if self.running_game.is_some() {
-                    self.status_msg = "A game is currently running. Close it or press [F] to force close before quitting.".to_string();
-                    return;
-                }
                 if self.modal_state != ModalState::None {
                     self.modal_state = ModalState::None;
                 } else {
@@ -6629,6 +6612,8 @@ impl App {
                             .flatten();
 
                         self.modal_state = ModalState::None;
+                        self.needs_terminal_clear = true;
+                        self.trigger_async_cover_fetch();
                         self.status_msg = format!("Launching software utility '{}'...", app_game.title);
                         self.start_game_background(app_game.clone(), runner);
                     }
@@ -10215,134 +10200,6 @@ mod tests {
         assert!(!is_destructive_action(&Action::CloseModal));
     }
 
-    /// Guardián central: mientras un juego está corriendo, NINGUNA acción del
-    /// launcher es válida salvo `ForceCloseGame`. Cubre explícitamente el caso
-    /// del bug: un gamepad conectado en caliente durante la partida — cada
-    /// botón del mando se traduce en una de estas acciones y todas convergen
-    /// en el mismo despachador.
-    #[test]
-    fn game_running_rejects_all_actions_except_force_close() {
-        assert!(is_action_allowed_while_game_running(
-            &Action::ForceCloseGame
-        ));
-
-        let rejected = [
-            // Destructivas / lanzamiento / salida.
-            Action::Quit,
-            Action::LaunchGame,
-            Action::OpenRunnerStandalone,
-            Action::StartRunnerDownload,
-            Action::StartAppUpdate {
-                download_url: String::new(),
-                new_version: String::new(),
-            },
-            Action::DeleteSelectedGames,
-            Action::OpenConfirmDeleteModal,
-            Action::ConfirmDeleteGameExecution,
-            Action::ConfirmDeleteRunnerExecution,
-            Action::ScanCurrentFolder,
-            Action::StartFolderScan,
-            Action::KillWineProcesses,
-            // Navegación normal (debe ignorarse también).
-            Action::NextGame,
-            Action::PrevGame,
-            Action::NextPlatform,
-            Action::PrevPlatform,
-            Action::TogglePane,
-            Action::ToggleViewMode,
-            Action::ToggleSelectGame,
-            Action::ToggleBigPictureMode,
-            Action::CloseGameDetail,
-            Action::DetailNextAction,
-            Action::DetailPrevAction,
-            Action::OpenSettingsModal,
-            Action::OpenCheatsheetModal,
-            Action::OpenManageRunnersModal,
-            Action::OpenWineToolsMenu,
-            Action::FetchGameMedia,
-            Action::QuickRescanPlatform,
-            Action::ScanSteamGames,
-            Action::ToggleShowAllPlatforms,
-            Action::ModalSelectNext,
-            Action::ModalSelectPrev,
-            Action::SwitchVisualMediaTab,
-            Action::SwitchVisualMediaTabPrev,
-            Action::ToggleConfirmDeleteRunnerOption,
-            Action::ToggleConfirmDeleteOption,
-        ];
-        for action in &rejected {
-            assert!(
-                !is_action_allowed_while_game_running(action),
-                "la acción {action:?} debería estar bloqueada mientras un juego corre"
-            );
-        }
-    }
-
-    /// End-to-end del guardián en el despachador: con un juego corriendo, una
-    /// acción de navegación (ToggleViewMode) se ignora; `ForceCloseGame` sí se
-    /// despacha. Sin juego corriendo, la navegación vuelve a funcionar. El
-    /// entorno (DB, caché) se aísla en un directorio temporal vía XDG.
-    #[tokio::test]
-    #[allow(clippy::await_holding_lock)]
-    async fn dispatcher_blocks_all_input_while_a_game_runs_except_force_close() {
-        let _xdg_guard = XDG_MUTEX.lock().unwrap();
-        let old_data = std::env::var_os("XDG_DATA_HOME");
-        let old_cache = std::env::var_os("XDG_CACHE_HOME");
-        let tmp = std::env::temp_dir().join(format!(
-            "tui_game_station_test_data_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::env::set_var("XDG_DATA_HOME", tmp.join("data"));
-        std::env::set_var("XDG_CACHE_HOME", tmp.join("cache"));
-
-        let mut app = App::new().expect("App::new should work with isolated dirs");
-        let view_before = app.view_mode;
-
-        // Simula el juego en curso (mando conectado en caliente, partida viva).
-        app.running_game = Some(RunningGame {
-            title: "Hot-plug test".to_string(),
-            runner_name: None,
-            started_at: std::time::Instant::now(),
-            game_id: None,
-        });
-
-        app.update(Action::ToggleViewMode).await;
-        assert_eq!(
-            app.view_mode, view_before,
-            "navegación no debe ejecutarse mientras un juego corre"
-        );
-
-        // ForceCloseGame sí llega al runner (sin proceso real devuelve un
-        // error de estado; lo importante es que pasó el guardián).
-        app.update(Action::ForceCloseGame).await;
-        assert!(
-            app.status_msg.starts_with("[Error]") || app.status_msg.starts_with("[OK]"),
-            "ForceCloseGame debe despacharse: {}",
-            app.status_msg
-        );
-
-        // Sin juego corriendo, la navegación vuelve a ejecutarse.
-        app.running_game = None;
-        app.update(Action::ToggleViewMode).await;
-        assert_ne!(
-            app.view_mode, view_before,
-            "sin juego corriendo la navegación debe ejecutarse"
-        );
-
-        match old_data {
-            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
-            None => std::env::remove_var("XDG_DATA_HOME"),
-        }
-        match old_cache {
-            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
-            None => std::env::remove_var("XDG_CACHE_HOME"),
-        }
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
 
     /// La etiqueta del campo "Emulador" de los formularios de escaneo solo
     /// ofrece "Default" cuando la plataforma ya tiene una carpeta que heredar.

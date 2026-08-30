@@ -472,6 +472,10 @@ impl GameRunner {
     ) -> Result<ExitStatus> {
         let mut cmd = Command::new(exe);
         cmd.args(args);
+        #[cfg(unix)]
+        {
+            cmd.process_group(0);
+        }
 
         if let Some(wd) = work_dir {
             cmd.current_dir(wd);
