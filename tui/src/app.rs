@@ -9218,23 +9218,15 @@ impl App {
                             .unwrap_or(1),
                         PlatformType::Wine => {
                             let apps_id = all_db_platforms.iter().find(|p| p.slug == "apps").map(|p| p.id);
-                            if let Some(a_id) = apps_id {
-                                if let Some(p) = self.platforms.get(platform_idx) {
-                                    if p.id == a_id {
-                                        a_id
-                                    } else {
-                                        all_db_platforms.iter().find(|p| p.slug == "windows").map(|p| p.id).unwrap_or(1)
-                                    }
-                                } else {
-                                    // Default if platform_idx is for apps or fallback
-                                    a_id
-                                }
+                            let win_id = all_db_platforms.iter().find(|p| p.slug == "windows").map(|p| p.id).unwrap_or(1);
+                            let is_app_category = match parent_modal.as_deref() {
+                                Some(ModalState::WindowsStep2CategoryMode { selected_category_idx, .. }) => *selected_category_idx == 1,
+                                _ => platform_idx == 999999,
+                            };
+                            if is_app_category {
+                                apps_id.unwrap_or(win_id)
                             } else {
-                                all_db_platforms
-                                    .iter()
-                                    .find(|p| p.slug == "windows")
-                                    .map(|p| p.id)
-                                    .unwrap_or(1)
+                                win_id
                             }
                         }
                         PlatformType::Steam => all_db_platforms
@@ -9356,15 +9348,24 @@ impl App {
                                     selected_idx: 0,
                                 };
                             } else {
-                                self.modal_state = ModalState::None;
                                 self.load_platforms();
-                                if let Some(pos) = self
+                                let is_app_platform = self.db.get_platform_by_slug("apps").ok().flatten().map(|p| p.id) == Some(platform_id);
+                                if is_app_platform {
+                                    let apps = self.db.get_games_for_platform(platform_id).unwrap_or_default();
+                                    self.modal_state = ModalState::SoftwareHubModal {
+                                        apps,
+                                        selected_idx: 0,
+                                    };
+                                } else if let Some(pos) = self
                                     .platforms
                                     .iter()
                                     .position(|p| p.id == platform_id)
                                 {
+                                    self.modal_state = ModalState::None;
                                     self.selected_platform_idx = pos;
                                     self.load_games_for_selected_platform();
+                                } else {
+                                    self.modal_state = ModalState::None;
                                 }
                             }
                         }

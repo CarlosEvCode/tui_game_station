@@ -2345,16 +2345,23 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     let icon_area = card_chunks[0];
                     let info_area = card_chunks[1];
 
+                    // Fixed Icon Container Area (6 cols x 4 rows)
+                    let icon_w = 6.min(icon_area.width);
+                    let icon_h = 4.min(icon_area.height);
+                    let offset_x = (icon_area.width.saturating_sub(icon_w)) / 2;
+                    let offset_y = (icon_area.height.saturating_sub(icon_h)) / 2;
+                    let fixed_icon_rect = Rect::new(icon_area.x + offset_x, icon_area.y + offset_y, icon_w, icon_h);
+
                     // Render Icon if protocol exists
                     let key = (app_game.id, "icon_hb".to_string());
                     if let Some(protocol) = app.media_protocols.get_mut(&key) {
                         let icon_img = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
-                        frame.render_stateful_widget(icon_img, icon_area, protocol);
+                        frame.render_stateful_widget(icon_img, fixed_icon_rect, protocol);
                     } else {
                         let fallback_p = Paragraph::new("[APP]")
                             .alignment(Alignment::Center)
                             .style(Style::default().fg(Color::Cyan));
-                        frame.render_widget(fallback_p, icon_area);
+                        frame.render_widget(fallback_p, fixed_icon_rect);
                     }
 
                     // Render Title (Clean Icon + Name layout)
