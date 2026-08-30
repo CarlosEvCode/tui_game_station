@@ -398,10 +398,7 @@ pub fn next_core_key(
     if cores.len() == 1 {
         return Some(current.to_string());
     }
-    let idx = cores
-        .iter()
-        .position(|(k, _)| k == current)
-        .unwrap_or(0);
+    let idx = cores.iter().position(|(k, _)| k == current).unwrap_or(0);
     let next = (idx + if backward { cores.len() - 1 } else { 1 }) % cores.len();
     Some(cores[next].0.clone())
 }
@@ -862,8 +859,19 @@ mod tests {
     fn retroarch_requires_core_selection_and_others_do_not() {
         assert!(emulator_requires_core_selection("RetroArch"));
         for name in [
-            "Azahar", "Eden", "Ryujinx", "Citron", "Dolphin", "DuckStation",
-            "PCSX2", "Cemu", "PPSSPP", "melonDS", "MAME", "Redream", "Vita3K",
+            "Azahar",
+            "Eden",
+            "Ryujinx",
+            "Citron",
+            "Dolphin",
+            "DuckStation",
+            "PCSX2",
+            "Cemu",
+            "PPSSPP",
+            "melonDS",
+            "MAME",
+            "Redream",
+            "Vita3K",
         ] {
             assert!(
                 !emulator_requires_core_selection(name),
@@ -881,10 +889,7 @@ mod tests {
         assert_eq!(keys, vec!["mgba", "snes9x", "genesis_plus"]);
         assert_eq!(cores[0].1, "mGBA");
         assert_eq!(cores[2].1, "Genesis Plus GX");
-        assert_eq!(
-            emulator_default_core("TestCore").as_deref(),
-            Some("mgba")
-        );
+        assert_eq!(emulator_default_core("TestCore").as_deref(), Some("mgba"));
         assert_eq!(
             emulator_core_label("TestCore", "snes9x").as_deref(),
             Some("Snes9x")

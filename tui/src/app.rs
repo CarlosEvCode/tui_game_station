@@ -78,7 +78,6 @@ fn is_destructive_action(action: &Action) -> bool {
 /// input source produced it. This is the single source of truth for input
 /// protection: keyboard, mouse and (hot-plugged) gamepad events all funnel
 
-
 /// Item in the flat focusable sequence of Modal 1 (ScanFolderForm).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanFolderItem {
@@ -108,7 +107,11 @@ pub(crate) fn folder_has_core(db: &Database, platform_id: i64, folder: &ScannedF
 }
 
 /// Build the flat focus sequence of items for Modal 1 (ScanFolderForm).
-pub fn build_scan_folder_items(db: &Database, platform_id: i64, folders: &[ScannedFolder]) -> Vec<ScanFolderItem> {
+pub fn build_scan_folder_items(
+    db: &Database,
+    platform_id: i64,
+    folders: &[ScannedFolder],
+) -> Vec<ScanFolderItem> {
     let mut items = Vec::new();
     for (i, folder) in folders.iter().enumerate() {
         items.push(ScanFolderItem::FolderEmulator(i));
@@ -139,7 +142,11 @@ pub(crate) fn scan_folder_supports_dat(_slug: &str) -> bool {
     false
 }
 
-pub(crate) fn scan_folder_add_has_core(db: &Database, platform_id: i64, add_emu_id: Option<i64>) -> bool {
+pub(crate) fn scan_folder_add_has_core(
+    db: &Database,
+    platform_id: i64,
+    add_emu_id: Option<i64>,
+) -> bool {
     let runners = db.get_runners_for_platform(platform_id).unwrap_or_default();
     let runner = match add_emu_id {
         Some(id) => runners.into_iter().find(|r| r.id == id),
@@ -437,7 +444,7 @@ pub enum ModalState {
         selected_category_idx: usize, // 0: Game (Main Library), 1: Software / Utility (Software Hub)
     },
     WindowsRunInstallerForm {
-        selected_field: usize,        // 0: Executable, 1: Wine Prefix
+        selected_field: usize, // 0: Executable, 1: Wine Prefix
         installer_path: String,
         wine_prefix: String,
         path_cursor: usize,
@@ -872,7 +879,10 @@ pub enum Action {
 
     // File / Folder Picker Actions
     OpenFilePicker,
-    OpenLocalMediaFilePicker { game_id: i64, media_type: String },
+    OpenLocalMediaFilePicker {
+        game_id: i64,
+        media_type: String,
+    },
     OpenFolderPicker,
 
     // Add Game & Scan Modal Actions
@@ -942,7 +952,9 @@ pub enum Action {
     ToggleScraperSystem,
     StartScraper,
     OpenVisualMediaModal,
-    OpenAdvancedScraperSearch { game_id: Option<i64> },
+    OpenAdvancedScraperSearch {
+        game_id: Option<i64>,
+    },
     ExecuteAdvancedScraperSearch,
     SelectAdvancedScraperResult,
     SearchVisualMedia,
@@ -980,9 +992,16 @@ pub enum Action {
     /// Open the Favorites modal listing all favorited games with icons.
     OpenFavoritesModal,
     /// Open the local-file media picker sub-modal from EditGameForm.
-    OpenLocalMediaPicker { game_id: i64, media_type: String },
+    OpenLocalMediaPicker {
+        game_id: i64,
+        media_type: String,
+    },
     /// User confirmed a local file path in the media picker.
-    LocalMediaPickerConfirm { game_id: i64, media_type: String, path: String },
+    LocalMediaPickerConfirm {
+        game_id: i64,
+        media_type: String,
+        path: String,
+    },
     /// Delete the currently displayed game from the Big Picture detail view.
     DeleteDetailGame,
 
@@ -1359,8 +1378,8 @@ impl App {
         tokio::spawn(async move {
             if use_dat_auto_id {
                 let slug = platform.slug.clone();
-                let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug)
-                    .await;
+                let _ =
+                    game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
             }
 
             let (sync_tx, sync_rx) = std::sync::mpsc::channel();
@@ -1433,7 +1452,8 @@ impl App {
         tokio::spawn(async move {
             if jobs.iter().any(|j| j.3) {
                 let slug = jobs[0].0.slug.clone();
-                let _ = game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
+                let _ =
+                    game_core::dat_downloader::DatDownloader::ensure_dat_downloaded(&slug).await;
             }
 
             let mut total_added = 0usize;
@@ -1486,10 +1506,8 @@ impl App {
                             evt.added_count = total_added;
                         } else {
                             evt.finished = false;
-                            evt.current_title = format!(
-                                "Folder {}/{} scanned.",
-                                folder_num, total_jobs
-                            );
+                            evt.current_title =
+                                format!("Folder {}/{} scanned.", folder_num, total_jobs);
                         }
                     }
                     let _ = scan_tx_clone.send(evt).await;
@@ -1521,11 +1539,12 @@ impl App {
             .db
             .get_scan_folders_for_platform(platform.id)
             .unwrap_or_default();
-        let selected_index = if let ModalState::ScanFolderForm { selected_index, .. } = self.modal_state {
-            selected_index
-        } else {
-            0
-        };
+        let selected_index =
+            if let ModalState::ScanFolderForm { selected_index, .. } = self.modal_state {
+                selected_index
+            } else {
+                0
+            };
         let items = build_scan_folder_items(&self.db, platform.id, &folders);
         let valid_index = selected_index.min(items.len().saturating_sub(1));
         self.modal_state = ModalState::ScanFolderForm {
@@ -1643,7 +1662,11 @@ impl App {
     /// Handles [Enter] on the Windows Games manager list: opens the edit form
     /// for the selected game, or the Wine details form for [ + Add New Game ].
     pub(crate) async fn handle_windows_games_enter(&mut self) {
-        if let ModalState::WindowsGamesManager { games, selected_idx } = &self.modal_state {
+        if let ModalState::WindowsGamesManager {
+            games,
+            selected_idx,
+        } = &self.modal_state
+        {
             if *selected_idx == games.len() {
                 self.update(Action::OpenAddGameWineForm).await;
             } else if let Some(game) = games.get(*selected_idx) {
@@ -1656,12 +1679,20 @@ impl App {
     /// Helper for `Action::ModalConfirm`: handles [Enter] on `ScanFolderForm` items.
     pub(crate) async fn handle_scan_form_enter(&mut self) {
         let (items, selected_index) = match &self.modal_state {
-            ModalState::ScanFolderForm { platform, folders, selected_index } => {
-                (build_scan_folder_items(&self.db, platform.id, folders), *selected_index)
-            }
+            ModalState::ScanFolderForm {
+                platform,
+                folders,
+                selected_index,
+            } => (
+                build_scan_folder_items(&self.db, platform.id, folders),
+                *selected_index,
+            ),
             _ => return,
         };
-        let item = items.get(selected_index).cloned().unwrap_or(ScanFolderItem::AddNewFolder);
+        let item = items
+            .get(selected_index)
+            .cloned()
+            .unwrap_or(ScanFolderItem::AddNewFolder);
         match item {
             ScanFolderItem::FolderEmulator(i) | ScanFolderItem::FolderCore(i) => {
                 // Enter on a folder row applies the emulator/core selection
@@ -1754,7 +1785,11 @@ impl App {
             .get_runners_for_platform(platform_id)
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| r.executable_path.as_ref().is_some_and(|ex| !ex.trim().is_empty()))
+            .filter(|r| {
+                r.executable_path
+                    .as_ref()
+                    .is_some_and(|ex| !ex.trim().is_empty())
+            })
             .collect()
     }
 
@@ -1900,14 +1935,24 @@ impl App {
         {
             if let Some(pos) = self.games.iter().position(|g| g.id == game_id) {
                 let game = self.games[pos].clone();
-                let choices = crate::edit_game_details::EditGameFormHelper::get_emulator_choices(&self.db, &game);
-                let new_override = crate::edit_game_details::EditGameFormHelper::cycle_choice(&choices, *emulator_override, backward);
+                let choices = crate::edit_game_details::EditGameFormHelper::get_emulator_choices(
+                    &self.db, &game,
+                );
+                let new_override = crate::edit_game_details::EditGameFormHelper::cycle_choice(
+                    &choices,
+                    *emulator_override,
+                    backward,
+                );
                 *emulator_override = new_override;
                 let _ = self.db.set_game_emulator_override(game_id, new_override);
                 if let Some(g) = self.games.get_mut(pos) {
                     g.emulator_override = new_override;
                 }
-                let choice_idx = crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(&choices, new_override);
+                let choice_idx =
+                    crate::edit_game_details::EditGameFormHelper::get_current_choice_idx(
+                        &choices,
+                        new_override,
+                    );
                 let choice_label = &choices[choice_idx].display_label;
                 self.status_msg = format!("Emulator assigned to game: {}", choice_label);
             }
@@ -2001,8 +2046,7 @@ impl App {
             .ok()
             .flatten()
             .map(|r| r.id);
-        let current_idx = active_id
-            .and_then(|id| configured.iter().position(|r| r.id == id));
+        let current_idx = active_id.and_then(|id| configured.iter().position(|r| r.id == id));
         let next_idx = cycle_index(current_idx, configured.len(), backward);
         let next = &configured[next_idx];
 
@@ -2011,8 +2055,7 @@ impl App {
         }
         match self.db.set_active_runner(platform.id, next.id) {
             Ok(_) => {
-                self.status_msg =
-                    format!("Active emulator for {}: {}", platform.name, next.name);
+                self.status_msg = format!("Active emulator for {}: {}", platform.name, next.name);
             }
             Err(err) => {
                 self.status_msg = format!("Error changing active emulator: {}", err);
@@ -2043,21 +2086,23 @@ impl App {
             .flatten()
             .unwrap_or_default();
         let mut env = game_core::options::from_env_json(&env_json);
-        let current = env
-            .active_core
-            .clone()
-            .or_else(|| game_core::options::emulator_default_core_for_platform(&active.name, &platform.slug));
+        let current = env.active_core.clone().or_else(|| {
+            game_core::options::emulator_default_core_for_platform(&active.name, &platform.slug)
+        });
         let Some(next) = game_core::options::next_core_key(&cores, current.as_deref(), backward)
         else {
             return;
         };
         env.active_core = Some(next.clone());
-        let _ = self.db.update_runner_env_by_name(
+        let _ = self
+            .db
+            .update_runner_env_by_name(&active.name, Some(&game_core::options::to_env_json(&env)));
+        let label = game_core::options::emulator_core_label_for_platform(
             &active.name,
-            Some(&game_core::options::to_env_json(&env)),
-        );
-        let label = game_core::options::emulator_core_label_for_platform(&active.name, &platform.slug, &next)
-            .unwrap_or_else(|| next.clone());
+            &platform.slug,
+            &next,
+        )
+        .unwrap_or_else(|| next.clone());
         self.status_msg = format!("Core for {}: {}", active.name, label);
     }
 
@@ -2116,10 +2161,16 @@ impl App {
                 .flatten()
                 .unwrap_or_default();
             let env = game_core::options::from_env_json(&env_json);
-            let current = env
-                .active_core
-                .or_else(|| game_core::options::emulator_default_core_for_platform(&active.name, &platform_slug));
-            current.and_then(|key| game_core::options::emulator_core_label_for_platform(&active.name, &platform_slug, &key))
+            let current = env.active_core.or_else(|| {
+                game_core::options::emulator_default_core_for_platform(&active.name, &platform_slug)
+            });
+            current.and_then(|key| {
+                game_core::options::emulator_core_label_for_platform(
+                    &active.name,
+                    &platform_slug,
+                    &key,
+                )
+            })
         } else {
             None
         };
@@ -2266,8 +2317,8 @@ impl App {
                                 game_id,
                                 media_type: "cover_hb".to_string(),
                                 protocol: protocol_hb,
-                            pixel_size: None,
-                        })
+                                pixel_size: None,
+                            })
                             .await;
                     });
                 }
@@ -2294,7 +2345,10 @@ impl App {
             .games
             .iter()
             .filter(|g| {
-                if self.pending_cover_requests.contains(&(g.id, "cover".to_string())) {
+                if self
+                    .pending_cover_requests
+                    .contains(&(g.id, "cover".to_string()))
+                {
                     return false;
                 }
                 let j = media_dir.join(format!("{}.jpg", g.id));
@@ -2310,7 +2364,8 @@ impl App {
         }
 
         for g in &target_games {
-            self.pending_cover_requests.insert((g.id, "cover".to_string()));
+            self.pending_cover_requests
+                .insert((g.id, "cover".to_string()));
         }
 
         let total_games = target_games.len();
@@ -2434,6 +2489,7 @@ impl App {
 
         if self.is_big_picture {
             self.preload_visible_covers();
+            self.preload_game_detail_media();
         }
 
         let game = &self.games[self.selected_game_idx];
@@ -2519,7 +2575,9 @@ impl App {
                 }
             };
 
-            let pixel_size = cover_path.as_ref().and_then(|p| image::image_dimensions(p).ok());
+            let pixel_size = cover_path
+                .as_ref()
+                .and_then(|p| image::image_dimensions(p).ok());
             let protocol = if let Some(path) = cover_path {
                 manager.load_native_protocol_from_file(&path)
             } else {
@@ -2585,12 +2643,17 @@ impl App {
                         .filter_map(|e| e.ok().map(|entry| entry.path()))
                         .flat_map(|p| {
                             if p.is_dir() {
-                                exts.iter().map(|ext| p.join(format!("{}.{}", game_id, ext))).collect()
+                                exts.iter()
+                                    .map(|ext| p.join(format!("{}.{}", game_id, ext)))
+                                    .collect()
                             } else {
                                 vec![]
                             }
                         })
-                        .chain(exts.iter().map(|ext| target_dir.join(format!("{}.{}", game_id, ext))))
+                        .chain(
+                            exts.iter()
+                                .map(|ext| target_dir.join(format!("{}.{}", game_id, ext))),
+                        )
                         .find(|p| p.exists())
                 } else {
                     None
@@ -2601,7 +2664,8 @@ impl App {
                 } else if let Some(appid) = s_appid {
                     SteamCoverResolver::resolve_media(appid, &media_type_s).await
                 } else if let Some(ref api_key) = db_key {
-                    let client = scraper::steamgriddb::SteamGridDBClient::new(Some(api_key.clone()));
+                    let client =
+                        scraper::steamgriddb::SteamGridDBClient::new(Some(api_key.clone()));
                     let db_path = dirs::data_dir()
                         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
                         .join("tui_game_station")
@@ -2627,24 +2691,28 @@ impl App {
                     let pixel_size = image::image_dimensions(p).ok();
                     if needs_native {
                         let proto = manager.load_native_protocol_from_file(p);
-                        let _ = tx.send(LoadedCoverEvent {
-                            game_id,
-                            media_type: media_type_s.clone(),
-                            protocol: proto,
-                            pixel_size,
-                        }).await;
+                        let _ = tx
+                            .send(LoadedCoverEvent {
+                                game_id,
+                                media_type: media_type_s.clone(),
+                                protocol: proto,
+                                pixel_size,
+                            })
+                            .await;
                     }
                     if needs_hb {
                         let proto = match media_type_s.as_str() {
                             "banner" => manager.load_halfblocks_banner_protocol_from_file(p),
                             _ => manager.load_halfblocks_protocol_from_file(p),
                         };
-                        let _ = tx.send(LoadedCoverEvent {
-                            game_id,
-                            media_type: format!("{}_hb", media_type_s),
-                            protocol: proto,
-                            pixel_size,
-                        }).await;
+                        let _ = tx
+                            .send(LoadedCoverEvent {
+                                game_id,
+                                media_type: format!("{}_hb", media_type_s),
+                                protocol: proto,
+                                pixel_size,
+                            })
+                            .await;
                     }
                 }
             });
@@ -2765,9 +2833,11 @@ impl App {
 
         // Receive loaded cover events from background task non-blocking
         while let Ok(loaded) = self.cover_rx.try_recv() {
-            self.pending_cover_requests.remove(&(loaded.game_id, loaded.media_type.clone()));
+            self.pending_cover_requests
+                .remove(&(loaded.game_id, loaded.media_type.clone()));
             if let Some(dim) = loaded.pixel_size {
-                self.media_dimensions.insert((loaded.game_id, loaded.media_type.clone()), dim);
+                self.media_dimensions
+                    .insert((loaded.game_id, loaded.media_type.clone()), dim);
             }
             if let Some(proto) = loaded.protocol {
                 self.media_protocols
@@ -2811,10 +2881,7 @@ impl App {
         if scan_done {
             self.download_progress = None;
             self.scan_rx = None;
-            self.status_msg = format!(
-                "[OK] Scan completed: {} ROMs imported/updated.",
-                scan_added
-            );
+            self.status_msg = format!("[OK] Scan completed: {} ROMs imported/updated.", scan_added);
             self.load_platforms();
         }
 
@@ -3103,17 +3170,21 @@ impl App {
     pub async fn handle_gamepad_action(&mut self, action: crate::gamepad::GamepadAction) {
         if self.big_picture_in_detail {
             match action {
-                crate::gamepad::GamepadAction::Confirm => {
-                    match self.detail_action_idx {
-                        0 => { self.update(Action::LaunchGame).await; }
-                        1 => { self.update(Action::ToggleFavorite).await; }
-                        2 => {
-                            self.show_toast("Options: coming soon", crate::toast::ToastKind::Info);
-                        }
-                        3 => { self.update(Action::DeleteDetailGame).await; }
-                        _ => {}
+                crate::gamepad::GamepadAction::Confirm => match self.detail_action_idx {
+                    0 => {
+                        self.update(Action::LaunchGame).await;
                     }
-                }
+                    1 => {
+                        self.update(Action::ToggleFavorite).await;
+                    }
+                    2 => {
+                        self.show_toast("Options: coming soon", crate::toast::ToastKind::Info);
+                    }
+                    3 => {
+                        self.update(Action::DeleteDetailGame).await;
+                    }
+                    _ => {}
+                },
                 crate::gamepad::GamepadAction::Back => {
                     self.update(Action::CloseGameDetail).await;
                 }
@@ -3210,7 +3281,8 @@ impl App {
                         } => {
                             let dat = scan_folder_supports_dat(&platform.slug);
                             let emu_idx = scan_folder_add_emu_idx(dat);
-                            let has_core = scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
+                            let has_core =
+                                scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
                             let core_idx = scan_folder_add_core_idx(dat);
                             if *selected_field == emu_idx {
                                 self.cycle_add_folder_emulator(true);
@@ -3241,8 +3313,14 @@ impl App {
                             selected_field,
                             ..
                         } => {
-                            let platform_id = self.games.iter().find(|g| g.id == *game_id).map(|g| g.platform_id).unwrap_or(0);
-                            let has_core = scan_folder_add_has_core(&self.db, platform_id, *emulator_override);
+                            let platform_id = self
+                                .games
+                                .iter()
+                                .find(|g| g.id == *game_id)
+                                .map(|g| g.platform_id)
+                                .unwrap_or(0);
+                            let has_core =
+                                scan_folder_add_has_core(&self.db, platform_id, *emulator_override);
                             if *selected_field == 2 {
                                 self.cycle_edit_game_emulator(true);
                             } else if has_core && *selected_field == 3 {
@@ -3287,7 +3365,8 @@ impl App {
                         } => {
                             let dat = scan_folder_supports_dat(&platform.slug);
                             let emu_idx = scan_folder_add_emu_idx(dat);
-                            let has_core = scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
+                            let has_core =
+                                scan_folder_add_has_core(&self.db, platform.id, *add_emulator_id);
                             let core_idx = scan_folder_add_core_idx(dat);
                             if *selected_field == emu_idx {
                                 self.cycle_add_folder_emulator(false);
@@ -3318,8 +3397,14 @@ impl App {
                             selected_field,
                             ..
                         } => {
-                            let platform_id = self.games.iter().find(|g| g.id == *game_id).map(|g| g.platform_id).unwrap_or(0);
-                            let has_core = scan_folder_add_has_core(&self.db, platform_id, *emulator_override);
+                            let platform_id = self
+                                .games
+                                .iter()
+                                .find(|g| g.id == *game_id)
+                                .map(|g| g.platform_id)
+                                .unwrap_or(0);
+                            let has_core =
+                                scan_folder_add_has_core(&self.db, platform_id, *emulator_override);
                             if *selected_field == 2 {
                                 self.cycle_edit_game_emulator(false);
                             } else if has_core && *selected_field == 3 {
@@ -3412,7 +3497,10 @@ impl App {
                             let key = sgdb_api_key.clone();
                             self.finish_welcome_wizard(&key);
                         }
-                        ModalState::FavoritesModal { games, selected_idx } => {
+                        ModalState::FavoritesModal {
+                            games,
+                            selected_idx,
+                        } => {
                             if let Some(g) = games.get(selected_idx) {
                                 self.jump_to_favorite_game(g.id, g.platform_id).await;
                             }
@@ -4242,7 +4330,10 @@ impl App {
                 }
             }
 
-            Action::OpenLocalMediaFilePicker { game_id, media_type } => {
+            Action::OpenLocalMediaFilePicker {
+                game_id,
+                media_type,
+            } => {
                 if let Some(picked) = rfd::FileDialog::new()
                     .add_filter("Images", &["jpg", "jpeg", "png", "webp"])
                     .pick_file()
@@ -4251,32 +4342,45 @@ impl App {
                     let path_str = picked.to_string_lossy().to_string();
                     let src = Path::new(&path_str);
                     if src.exists() {
-                        let ext = src.extension()
+                        let ext = src
+                            .extension()
                             .and_then(|e| e.to_str())
                             .unwrap_or("jpg")
                             .to_ascii_lowercase();
                         let sub_dir = match media_type.as_str() {
                             "banner" => "banners",
-                            "icon"   => "icons",
-                            _        => "covers",
+                            "icon" => "icons",
+                            _ => "covers",
                         };
                         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                         let target_dir = media_dir.join(sub_dir);
                         if std::fs::create_dir_all(&target_dir).is_ok() {
                             for old_ext in ["jpg", "png", "webp"] {
-                                let _ = std::fs::remove_file(target_dir.join(format!("{}.{}", game_id, old_ext)));
+                                let _ = std::fs::remove_file(
+                                    target_dir.join(format!("{}.{}", game_id, old_ext)),
+                                );
                             }
                             let dest = target_dir.join(format!("{}.{}", game_id, ext));
                             if std::fs::copy(src, &dest).is_ok() {
                                 self.media_protocols.remove(&(game_id, media_type.clone()));
-                                self.media_protocols.remove(&(game_id, format!("{}_hb", media_type)));
-                                let _ = self.db.record_media_status(game_id, &media_type, "local", None, None);
+                                self.media_protocols
+                                    .remove(&(game_id, format!("{}_hb", media_type)));
+                                let _ = self.db.record_media_status(
+                                    game_id,
+                                    &media_type,
+                                    "local",
+                                    None,
+                                    None,
+                                );
                                 self.show_toast(
                                     &format!("{} updated from local file", media_type),
                                     crate::toast::ToastKind::Success,
                                 );
                             } else {
-                                self.show_toast("Failed to copy media file", crate::toast::ToastKind::Error);
+                                self.show_toast(
+                                    "Failed to copy media file",
+                                    crate::toast::ToastKind::Error,
+                                );
                             }
                         }
                     }
@@ -4349,7 +4453,8 @@ impl App {
                         return;
                     }
 
-                    let is_command = trimmed_path.contains(' ') || trimmed_path.starts_with("flatpak run");
+                    let is_command =
+                        trimmed_path.contains(' ') || trimmed_path.starts_with("flatpak run");
                     if !is_command && !Path::new(trimmed_path).exists() {
                         self.status_msg = format!("Error: File does not exist on system: '{}'. Select a valid executable.", trimmed_path);
                         return;
@@ -4366,10 +4471,11 @@ impl App {
                         Some("system")
                     };
 
-                    match self
-                        .db
-                        .update_runner_by_name_with_source(&runner_info.name, trimmed_path, source)
-                    {
+                    match self.db.update_runner_by_name_with_source(
+                        &runner_info.name,
+                        trimmed_path,
+                        source,
+                    ) {
                         Ok(_) => {
                             let _ = self
                                 .db
@@ -4661,8 +4767,12 @@ impl App {
                                 )
                                 .await
                             } else {
-                                RunnerDownloader::download_with_progress(&download_url, &dest_path, tx)
-                                    .await
+                                RunnerDownloader::download_with_progress(
+                                    &download_url,
+                                    &dest_path,
+                                    tx,
+                                )
+                                .await
                             };
 
                             if result.is_ok() {
@@ -5249,288 +5359,292 @@ impl App {
             Action::FormNavLeft => {
                 let is_edit = matches!(self.modal_state, ModalState::EditGameForm { .. });
                 match self.modal_state {
-                ModalState::AddGameForm {
-                    selected_field: 0,
-                    ref mut cursor_pos,
-                    ..
-                }
-                | ModalState::EditGameForm {
-                    selected_field: 0,
-                    ref mut cursor_pos,
-                    ..
-                } => {
-                    *cursor_pos = cursor_pos.saturating_sub(1);
-                }
-                ModalState::EditCustomArgsInput {
-                    ref mut cursor_pos, ..
-                } => {
-                    *cursor_pos = cursor_pos.saturating_sub(1);
-                }
-                ModalState::AddGameForm {
-                    game_type: ref gtype,
-                    selected_field,
-                    ref mut path_cursor,
-                    ref mut workdir_cursor,
-                    ref mut prefix_cursor,
-                    ref mut cmd_cursor,
-                    ..
-                }
-                | ModalState::EditGameForm {
-                    game_type: ref gtype,
-                    selected_field,
-                    ref mut path_cursor,
-                    ref mut workdir_cursor,
-                    ref mut prefix_cursor,
-                    ref mut cmd_cursor,
-                    ..
-                } if form_text_field(gtype, is_edit, selected_field).is_some() => {
-                    match form_text_field(gtype, is_edit, selected_field) {
-                        Some(FormTextField::Path) => {
-                            *path_cursor = path_cursor.saturating_sub(1)
-                        }
-                        Some(FormTextField::Workdir) => {
-                            *workdir_cursor = workdir_cursor.saturating_sub(1)
-                        }
-                        Some(FormTextField::Prefix) => {
-                            *prefix_cursor = prefix_cursor.saturating_sub(1)
-                        }
-                        Some(FormTextField::Cmd) => {
-                            *cmd_cursor = cmd_cursor.saturating_sub(1)
-                        }
-                        None => {}
+                    ModalState::AddGameForm {
+                        selected_field: 0,
+                        ref mut cursor_pos,
+                        ..
                     }
-                }
-                ModalState::AddGameForm {
-                    game_type: PlatformType::Wine,
-                    selected_field: 4,
-                    ..
-                }
-                | ModalState::EditGameForm {
-                    game_type: PlatformType::Wine,
-                    selected_field: 4,
-                    ..
-                } => {
-                    let installed =
+                    | ModalState::EditGameForm {
+                        selected_field: 0,
+                        ref mut cursor_pos,
+                        ..
+                    } => {
+                        *cursor_pos = cursor_pos.saturating_sub(1);
+                    }
+                    ModalState::EditCustomArgsInput {
+                        ref mut cursor_pos, ..
+                    } => {
+                        *cursor_pos = cursor_pos.saturating_sub(1);
+                    }
+                    ModalState::AddGameForm {
+                        game_type: ref gtype,
+                        selected_field,
+                        ref mut path_cursor,
+                        ref mut workdir_cursor,
+                        ref mut prefix_cursor,
+                        ref mut cmd_cursor,
+                        ..
+                    }
+                    | ModalState::EditGameForm {
+                        game_type: ref gtype,
+                        selected_field,
+                        ref mut path_cursor,
+                        ref mut workdir_cursor,
+                        ref mut prefix_cursor,
+                        ref mut cmd_cursor,
+                        ..
+                    } if form_text_field(gtype, is_edit, selected_field).is_some() => {
+                        match form_text_field(gtype, is_edit, selected_field) {
+                            Some(FormTextField::Path) => {
+                                *path_cursor = path_cursor.saturating_sub(1)
+                            }
+                            Some(FormTextField::Workdir) => {
+                                *workdir_cursor = workdir_cursor.saturating_sub(1)
+                            }
+                            Some(FormTextField::Prefix) => {
+                                *prefix_cursor = prefix_cursor.saturating_sub(1)
+                            }
+                            Some(FormTextField::Cmd) => *cmd_cursor = cmd_cursor.saturating_sub(1),
+                            None => {}
+                        }
+                    }
+                    ModalState::AddGameForm {
+                        game_type: PlatformType::Wine,
+                        selected_field: 4,
+                        ..
+                    }
+                    | ModalState::EditGameForm {
+                        game_type: PlatformType::Wine,
+                        selected_field: 4,
+                        ..
+                    } => {
+                        let installed =
                         game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
-                    if !installed.is_empty() {
-                        let current_cmd = match self.modal_state {
-                            ModalState::AddGameForm {
-                                game_type: PlatformType::Wine,
-                                ref custom_command,
-                                ..
+                        if !installed.is_empty() {
+                            let current_cmd = match self.modal_state {
+                                ModalState::AddGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref custom_command,
+                                    ..
+                                }
+                                | ModalState::EditGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref custom_command,
+                                    ..
+                                } => custom_command.clone(),
+                                _ => String::new(),
+                            };
+                            let current_idx = installed
+                                .iter()
+                                .position(|r| {
+                                    let runner_str = match r.kind {
+                                        game_core::runner_detector::RunnerKind::Proton => format!(
+                                            "\"{}\" run \"{{file_path}}\"",
+                                            r.binary_path.display()
+                                        ),
+                                        game_core::runner_detector::RunnerKind::Wine => {
+                                            format!(
+                                                "\"{}\" \"{{file_path}}\"",
+                                                r.binary_path.display()
+                                            )
+                                        }
+                                    };
+                                    current_cmd == runner_str || current_cmd.contains(&r.name)
+                                })
+                                .unwrap_or(0);
+                            let next_idx = if current_idx == 0 {
+                                installed.len() - 1
+                            } else {
+                                current_idx - 1
+                            };
+                            let selected_runner = &installed[next_idx];
+                            let new_cmd = match selected_runner.kind {
+                                game_core::runner_detector::RunnerKind::Proton => format!(
+                                    "\"{}\" run \"{{file_path}}\"",
+                                    selected_runner.binary_path.display()
+                                ),
+                                game_core::runner_detector::RunnerKind::Wine => format!(
+                                    "\"{}\" \"{{file_path}}\"",
+                                    selected_runner.binary_path.display()
+                                ),
+                            };
+                            match self.modal_state {
+                                ModalState::AddGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref mut custom_command,
+                                    ..
+                                }
+                                | ModalState::EditGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref mut custom_command,
+                                    ..
+                                } => {
+                                    *custom_command = new_cmd;
+                                }
+                                _ => {}
                             }
-                            | ModalState::EditGameForm {
-                                game_type: PlatformType::Wine,
-                                ref custom_command,
-                                ..
-                            } => custom_command.clone(),
-                            _ => String::new(),
-                        };
-                        let current_idx = installed
-                            .iter()
-                            .position(|r| {
-                                let runner_str = match r.kind {
-                                    game_core::runner_detector::RunnerKind::Proton => format!(
-                                        "\"{}\" run \"{{file_path}}\"",
-                                        r.binary_path.display()
-                                    ),
-                                    game_core::runner_detector::RunnerKind::Wine => {
-                                        format!("\"{}\" \"{{file_path}}\"", r.binary_path.display())
-                                    }
-                                };
-                                current_cmd == runner_str || current_cmd.contains(&r.name)
-                            })
-                            .unwrap_or(0);
-                        let next_idx = if current_idx == 0 {
-                            installed.len() - 1
-                        } else {
-                            current_idx - 1
-                        };
-                        let selected_runner = &installed[next_idx];
-                        let new_cmd = match selected_runner.kind {
-                            game_core::runner_detector::RunnerKind::Proton => format!(
-                                "\"{}\" run \"{{file_path}}\"",
-                                selected_runner.binary_path.display()
-                            ),
-                            game_core::runner_detector::RunnerKind::Wine => format!(
-                                "\"{}\" \"{{file_path}}\"",
-                                selected_runner.binary_path.display()
-                            ),
-                        };
-                        match self.modal_state {
-                            ModalState::AddGameForm {
-                                game_type: PlatformType::Wine,
-                                ref mut custom_command,
-                                ..
-                            }
-                            | ModalState::EditGameForm {
-                                game_type: PlatformType::Wine,
-                                ref mut custom_command,
-                                ..
-                            } => {
-                                *custom_command = new_cmd;
-                            }
-                            _ => {}
                         }
                     }
-                }
-                ModalState::SoftwareHubModal {
-                    ref apps,
-                    ref mut selected_idx,
-                } => {
-                    if !apps.is_empty() && *selected_idx > 0 {
-                        *selected_idx -= 1;
+                    ModalState::SoftwareHubModal {
+                        ref apps,
+                        ref mut selected_idx,
+                    } => {
+                        if !apps.is_empty() && *selected_idx > 0 {
+                            *selected_idx -= 1;
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
             }
             Action::FormNavRight => {
                 let is_edit = matches!(self.modal_state, ModalState::EditGameForm { .. });
                 match self.modal_state {
-                ModalState::AddGameForm {
-                    selected_field: 0,
-                    ref title,
-                    ref mut cursor_pos,
-                    ..
-                }
-                | ModalState::EditGameForm {
-                    selected_field: 0,
-                    ref title,
-                    ref mut cursor_pos,
-                    ..
-                } => {
-                    *cursor_pos = (*cursor_pos + 1).min(title.len());
-                }
-                ModalState::SoftwareHubModal {
-                    ref apps,
-                    ref mut selected_idx,
-                } => {
-                    if !apps.is_empty() && *selected_idx + 1 < apps.len() {
-                        *selected_idx += 1;
+                    ModalState::AddGameForm {
+                        selected_field: 0,
+                        ref title,
+                        ref mut cursor_pos,
+                        ..
                     }
-                }
-                ModalState::AddGameForm {
-                    game_type: ref gtype,
-                    selected_field,
-                    ref mut path_cursor,
-                    ref mut workdir_cursor,
-                    ref mut prefix_cursor,
-                    ref mut cmd_cursor,
-                    ref file_path,
-                    ref working_dir,
-                    ref wine_prefix,
-                    ref custom_command,
-                    ..
-                }
-                | ModalState::EditGameForm {
-                    game_type: ref gtype,
-                    selected_field,
-                    ref mut path_cursor,
-                    ref mut workdir_cursor,
-                    ref mut prefix_cursor,
-                    ref mut cmd_cursor,
-                    ref file_path,
-                    ref working_dir,
-                    ref wine_prefix,
-                    ref custom_command,
-                    ..
-                } if form_text_field(gtype, is_edit, selected_field).is_some() => {
-                    match form_text_field(gtype, is_edit, selected_field) {
-                        Some(FormTextField::Path) => {
-                            *path_cursor = (*path_cursor + 1).min(file_path.len())
-                        }
-                        Some(FormTextField::Workdir) => {
-                            *workdir_cursor = (*workdir_cursor + 1).min(working_dir.len())
-                        }
-                        Some(FormTextField::Prefix) => {
-                            *prefix_cursor = (*prefix_cursor + 1).min(wine_prefix.len())
-                        }
-                        Some(FormTextField::Cmd) => {
-                            *cmd_cursor = (*cmd_cursor + 1).min(custom_command.len())
-                        }
-                        None => {}
+                    | ModalState::EditGameForm {
+                        selected_field: 0,
+                        ref title,
+                        ref mut cursor_pos,
+                        ..
+                    } => {
+                        *cursor_pos = (*cursor_pos + 1).min(title.len());
                     }
-                }
-                ModalState::EditCustomArgsInput {
-                    ref mut cursor_pos,
-                    ref input,
-                    ..
-                } => {
-                    *cursor_pos = (*cursor_pos + 1).min(input.len());
-                }
-                ModalState::AddGameForm {
-                    game_type: PlatformType::Wine,
-                    selected_field: 4,
-                    ..
-                }
-                | ModalState::EditGameForm {
-                    game_type: PlatformType::Wine,
-                    selected_field: 4,
-                    ..
-                } => {
-                    let installed =
+                    ModalState::SoftwareHubModal {
+                        ref apps,
+                        ref mut selected_idx,
+                    } => {
+                        if !apps.is_empty() && *selected_idx + 1 < apps.len() {
+                            *selected_idx += 1;
+                        }
+                    }
+                    ModalState::AddGameForm {
+                        game_type: ref gtype,
+                        selected_field,
+                        ref mut path_cursor,
+                        ref mut workdir_cursor,
+                        ref mut prefix_cursor,
+                        ref mut cmd_cursor,
+                        ref file_path,
+                        ref working_dir,
+                        ref wine_prefix,
+                        ref custom_command,
+                        ..
+                    }
+                    | ModalState::EditGameForm {
+                        game_type: ref gtype,
+                        selected_field,
+                        ref mut path_cursor,
+                        ref mut workdir_cursor,
+                        ref mut prefix_cursor,
+                        ref mut cmd_cursor,
+                        ref file_path,
+                        ref working_dir,
+                        ref wine_prefix,
+                        ref custom_command,
+                        ..
+                    } if form_text_field(gtype, is_edit, selected_field).is_some() => {
+                        match form_text_field(gtype, is_edit, selected_field) {
+                            Some(FormTextField::Path) => {
+                                *path_cursor = (*path_cursor + 1).min(file_path.len())
+                            }
+                            Some(FormTextField::Workdir) => {
+                                *workdir_cursor = (*workdir_cursor + 1).min(working_dir.len())
+                            }
+                            Some(FormTextField::Prefix) => {
+                                *prefix_cursor = (*prefix_cursor + 1).min(wine_prefix.len())
+                            }
+                            Some(FormTextField::Cmd) => {
+                                *cmd_cursor = (*cmd_cursor + 1).min(custom_command.len())
+                            }
+                            None => {}
+                        }
+                    }
+                    ModalState::EditCustomArgsInput {
+                        ref mut cursor_pos,
+                        ref input,
+                        ..
+                    } => {
+                        *cursor_pos = (*cursor_pos + 1).min(input.len());
+                    }
+                    ModalState::AddGameForm {
+                        game_type: PlatformType::Wine,
+                        selected_field: 4,
+                        ..
+                    }
+                    | ModalState::EditGameForm {
+                        game_type: PlatformType::Wine,
+                        selected_field: 4,
+                        ..
+                    } => {
+                        let installed =
                         game_core::runner_detector::RunnerDetector::detect_installed_wine_runners();
-                    if !installed.is_empty() {
-                        let current_cmd = match self.modal_state {
-                            ModalState::AddGameForm {
-                                game_type: PlatformType::Wine,
-                                ref custom_command,
-                                ..
+                        if !installed.is_empty() {
+                            let current_cmd = match self.modal_state {
+                                ModalState::AddGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref custom_command,
+                                    ..
+                                }
+                                | ModalState::EditGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref custom_command,
+                                    ..
+                                } => custom_command.clone(),
+                                _ => String::new(),
+                            };
+                            let current_idx = installed
+                                .iter()
+                                .position(|r| {
+                                    let runner_str = match r.kind {
+                                        game_core::runner_detector::RunnerKind::Proton => format!(
+                                            "\"{}\" run \"{{file_path}}\"",
+                                            r.binary_path.display()
+                                        ),
+                                        game_core::runner_detector::RunnerKind::Wine => {
+                                            format!(
+                                                "\"{}\" \"{{file_path}}\"",
+                                                r.binary_path.display()
+                                            )
+                                        }
+                                    };
+                                    current_cmd == runner_str || current_cmd.contains(&r.name)
+                                })
+                                .unwrap_or(0);
+                            let next_idx = (current_idx + 1) % installed.len();
+                            let selected_runner = &installed[next_idx];
+                            let new_cmd = match selected_runner.kind {
+                                game_core::runner_detector::RunnerKind::Proton => format!(
+                                    "\"{}\" run \"{{file_path}}\"",
+                                    selected_runner.binary_path.display()
+                                ),
+                                game_core::runner_detector::RunnerKind::Wine => format!(
+                                    "\"{}\" \"{{file_path}}\"",
+                                    selected_runner.binary_path.display()
+                                ),
+                            };
+                            match self.modal_state {
+                                ModalState::AddGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref mut custom_command,
+                                    ..
+                                }
+                                | ModalState::EditGameForm {
+                                    game_type: PlatformType::Wine,
+                                    ref mut custom_command,
+                                    ..
+                                } => {
+                                    *custom_command = new_cmd;
+                                }
+                                _ => {}
                             }
-                            | ModalState::EditGameForm {
-                                game_type: PlatformType::Wine,
-                                ref custom_command,
-                                ..
-                            } => custom_command.clone(),
-                            _ => String::new(),
-                        };
-                        let current_idx = installed
-                            .iter()
-                            .position(|r| {
-                                let runner_str = match r.kind {
-                                    game_core::runner_detector::RunnerKind::Proton => format!(
-                                        "\"{}\" run \"{{file_path}}\"",
-                                        r.binary_path.display()
-                                    ),
-                                    game_core::runner_detector::RunnerKind::Wine => {
-                                        format!("\"{}\" \"{{file_path}}\"", r.binary_path.display())
-                                    }
-                                };
-                                current_cmd == runner_str || current_cmd.contains(&r.name)
-                            })
-                            .unwrap_or(0);
-                        let next_idx = (current_idx + 1) % installed.len();
-                        let selected_runner = &installed[next_idx];
-                        let new_cmd = match selected_runner.kind {
-                            game_core::runner_detector::RunnerKind::Proton => format!(
-                                "\"{}\" run \"{{file_path}}\"",
-                                selected_runner.binary_path.display()
-                            ),
-                            game_core::runner_detector::RunnerKind::Wine => format!(
-                                "\"{}\" \"{{file_path}}\"",
-                                selected_runner.binary_path.display()
-                            ),
-                        };
-                        match self.modal_state {
-                            ModalState::AddGameForm {
-                                game_type: PlatformType::Wine,
-                                ref mut custom_command,
-                                ..
-                            }
-                            | ModalState::EditGameForm {
-                                game_type: PlatformType::Wine,
-                                ref mut custom_command,
-                                ..
-                            } => {
-                                *custom_command = new_cmd;
-                            }
-                            _ => {}
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
             }
             Action::CycleWineRunner(step) => {
                 let installed =
@@ -5823,7 +5937,13 @@ impl App {
                         game.emulator_override = emulator_override;
                         game.core_override = core_override.clone();
 
-                        let is_app_platform = self.db.get_platform_by_slug("apps").ok().flatten().map(|p| p.id) == Some(game.platform_id);
+                        let is_app_platform = self
+                            .db
+                            .get_platform_by_slug("apps")
+                            .ok()
+                            .flatten()
+                            .map(|p| p.id)
+                            == Some(game.platform_id);
                         let target_slug = match game.game_type.as_str() {
                             "wine" if is_app_platform => None,
                             "wine" => Some("windows"),
@@ -5891,21 +6011,34 @@ impl App {
                 ModalState::SelectDetectedEmulatorModal { parent_modal, .. } => {
                     self.modal_state = *parent_modal;
                 }
-                ModalState::AddFolderScanForm { parent_modal: Some(parent), .. } => {
+                ModalState::AddFolderScanForm {
+                    parent_modal: Some(parent),
+                    ..
+                } => {
                     self.modal_state = *parent;
                 }
-                ModalState::AddGameForm { parent_modal: Some(parent), .. } => {
+                ModalState::AddGameForm {
+                    parent_modal: Some(parent),
+                    ..
+                } => {
                     self.modal_state = *parent;
                 }
-                ModalState::EditGameForm { parent_modal: Some(parent), .. } => {
+                ModalState::EditGameForm {
+                    parent_modal: Some(parent),
+                    ..
+                } => {
                     self.modal_state = *parent;
                 }
                 ModalState::ScanFolderStep1Platform { .. }
                 | ModalState::WindowsStep1ActionMode { .. } => {
-                    self.modal_state = ModalState::AddGameStep1Type { selected_type_idx: 2 };
+                    self.modal_state = ModalState::AddGameStep1Type {
+                        selected_type_idx: 2,
+                    };
                 }
                 ModalState::WindowsStep2CategoryMode { action_mode, .. } => {
-                    self.modal_state = ModalState::WindowsStep1ActionMode { selected_action_idx: action_mode };
+                    self.modal_state = ModalState::WindowsStep1ActionMode {
+                        selected_action_idx: action_mode,
+                    };
                 }
                 ModalState::SoftwareHubModal { .. } => {
                     self.modal_state = ModalState::None;
@@ -6382,7 +6515,8 @@ impl App {
                 self.update_visual_media_preview();
             }
             Action::ModalConfirmStep1 => {
-                if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state.clone() {
+                if let ModalState::AddGameStep1Type { selected_type_idx } = self.modal_state.clone()
+                {
                     if selected_type_idx == 0 {
                         let emulator_platforms = self.get_configured_emulator_platforms();
                         if emulator_platforms.is_empty() {
@@ -6407,7 +6541,10 @@ impl App {
                 }
             }
             Action::ModalConfirmWindowsSetup => {
-                if let ModalState::WindowsStep1ActionMode { selected_action_idx } = self.modal_state {
+                if let ModalState::WindowsStep1ActionMode {
+                    selected_action_idx,
+                } = self.modal_state
+                {
                     let default_prefix = dirs::home_dir()
                         .unwrap_or_else(|| PathBuf::from("/home/evcode"))
                         .join(".wine")
@@ -6472,13 +6609,18 @@ impl App {
                     }
                     let inst_p = PathBuf::from(installer_path.trim());
                     if !inst_p.exists() {
-                        self.status_msg = format!("Error: Installer file does not exist at '{}'", installer_path);
+                        self.status_msg = format!(
+                            "Error: Installer file does not exist at '{}'",
+                            installer_path
+                        );
                         return;
                     }
 
                     // Create wine prefix dir if needed
                     let prefix_p = if wine_prefix.trim().is_empty() {
-                        dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/evcode")).join(".wine")
+                        dirs::home_dir()
+                            .unwrap_or_else(|| PathBuf::from("/home/evcode"))
+                            .join(".wine")
                     } else {
                         PathBuf::from(wine_prefix.trim())
                     };
@@ -6489,7 +6631,10 @@ impl App {
 
                     self.modal_state = ModalState::None;
                     self.pending_installer_run = Some((inst_str, prefix_str));
-                    self.status_msg = format!("[Installer] Running '{}'...", inst_p.file_name().unwrap_or_default().to_string_lossy());
+                    self.status_msg = format!(
+                        "[Installer] Running '{}'...",
+                        inst_p.file_name().unwrap_or_default().to_string_lossy()
+                    );
                 }
             }
             Action::OpenDetectedExePicker => {
@@ -6503,10 +6648,16 @@ impl App {
                         .to_string(),
                 };
 
-                let executables = game_core::runner_detector::RunnerDetector::scan_prefix_executables(&prefix_to_scan);
+                let executables =
+                    game_core::runner_detector::RunnerDetector::scan_prefix_executables(
+                        &prefix_to_scan,
+                    );
                 if executables.is_empty() {
                     self.status_msg = format!("No installed .exe applications found in Wine Prefix '{}'. Press Space to browse files manually.", prefix_to_scan);
-                    self.show_toast("No .exe apps detected in Wine Prefix. Use manual browse.", crate::toast::ToastKind::Error);
+                    self.show_toast(
+                        "No .exe apps detected in Wine Prefix. Use manual browse.",
+                        crate::toast::ToastKind::Error,
+                    );
                     return;
                 }
 
@@ -6568,7 +6719,9 @@ impl App {
             }
             Action::OpenSoftwareHubModal => {
                 let apps = if let Ok(Some(apps_platform)) = self.db.get_platform_by_slug("apps") {
-                    self.db.get_games_for_platform(apps_platform.id).unwrap_or_default()
+                    self.db
+                        .get_games_for_platform(apps_platform.id)
+                        .unwrap_or_default()
                 } else {
                     Vec::new()
                 };
@@ -6608,14 +6761,19 @@ impl App {
                     if let Some(app_game) = apps.get(selected_idx) {
                         let runner = self
                             .db
-                            .get_runner_for_game(app_game.platform_id, app_game.folder_id, app_game.emulator_override)
+                            .get_runner_for_game(
+                                app_game.platform_id,
+                                app_game.folder_id,
+                                app_game.emulator_override,
+                            )
                             .ok()
                             .flatten();
 
                         self.modal_state = ModalState::None;
                         self.needs_terminal_clear = true;
                         self.trigger_async_cover_fetch();
-                        self.status_msg = format!("Launching software utility '{}'...", app_game.title);
+                        self.status_msg =
+                            format!("Launching software utility '{}'...", app_game.title);
                         self.start_game_background(app_game.clone(), runner);
                     }
                 }
@@ -6870,8 +7028,14 @@ impl App {
                     emulator_override,
                     ..
                 } => {
-                    let platform_id = self.games.iter().find(|g| g.id == game_id).map(|g| g.platform_id).unwrap_or(0);
-                    let has_core = scan_folder_add_has_core(&self.db, platform_id, emulator_override);
+                    let platform_id = self
+                        .games
+                        .iter()
+                        .find(|g| g.id == game_id)
+                        .map(|g| g.platform_id)
+                        .unwrap_or(0);
+                    let has_core =
+                        scan_folder_add_has_core(&self.db, platform_id, emulator_override);
                     let total_fields = match gtype {
                         PlatformType::Emulator => 8 + if has_core { 1 } else { 0 },
                         PlatformType::Native => 8,
@@ -6913,10 +7077,8 @@ impl App {
                     ..
                 } => {
                     let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
-                    let total = simple_scan_form_total(
-                        scan_folder_supports_dat(&platform.slug),
-                        has_core,
-                    );
+                    let total =
+                        simple_scan_form_total(scan_folder_supports_dat(&platform.slug), has_core);
                     *selected_field = (*selected_field + 1) % total;
                 }
                 ModalState::ManageRunnersStep2Config {
@@ -7036,8 +7198,14 @@ impl App {
                     emulator_override,
                     ..
                 } => {
-                    let platform_id = self.games.iter().find(|g| g.id == game_id).map(|g| g.platform_id).unwrap_or(0);
-                    let has_core = scan_folder_add_has_core(&self.db, platform_id, emulator_override);
+                    let platform_id = self
+                        .games
+                        .iter()
+                        .find(|g| g.id == game_id)
+                        .map(|g| g.platform_id)
+                        .unwrap_or(0);
+                    let has_core =
+                        scan_folder_add_has_core(&self.db, platform_id, emulator_override);
                     let total_fields = match gtype {
                         PlatformType::Emulator => 8 + if has_core { 1 } else { 0 },
                         PlatformType::Native => 8,
@@ -7087,10 +7255,8 @@ impl App {
                     ..
                 } => {
                     let has_core = scan_folder_add_has_core(&self.db, platform.id, add_emulator_id);
-                    let total = simple_scan_form_total(
-                        scan_folder_supports_dat(&platform.slug),
-                        has_core,
-                    );
+                    let total =
+                        simple_scan_form_total(scan_folder_supports_dat(&platform.slug), has_core);
                     *selected_field = if *selected_field == 0 {
                         total - 1
                     } else {
@@ -7584,7 +7750,8 @@ impl App {
                 {
                     if folders.is_empty() {
                         self.status_msg =
-                            "Error: no folders registered. Use [ + Add New Folder ] first.".to_string();
+                            "Error: no folders registered. Use [ + Add New Folder ] first."
+                                .to_string();
                         return;
                     }
                     let use_dat_auto_id = scan_folder_supports_dat(&platform.slug);
@@ -7592,10 +7759,8 @@ impl App {
                     for folder in folders {
                         let path = PathBuf::from(&folder.path);
                         if !path.exists() || !path.is_dir() {
-                            self.status_msg = format!(
-                                "[Error] Folder not found, skipping: '{}'",
-                                folder.path
-                            );
+                            self.status_msg =
+                                format!("[Error] Folder not found, skipping: '{}'", folder.path);
                             continue;
                         }
                         jobs.push((
@@ -7623,7 +7788,8 @@ impl App {
                 {
                     let items = build_scan_folder_items(&self.db, platform.id, &folders);
                     let row = match items.get(selected_index) {
-                        Some(ScanFolderItem::FolderEmulator(i)) | Some(ScanFolderItem::FolderCore(i)) => *i,
+                        Some(ScanFolderItem::FolderEmulator(i))
+                        | Some(ScanFolderItem::FolderCore(i)) => *i,
                         _ => return,
                     };
                     if row >= folders.len() {
@@ -7632,10 +7798,8 @@ impl App {
                     let folder = folders[row].clone();
                     let path = PathBuf::from(&folder.path);
                     if !path.exists() {
-                        self.status_msg = format!(
-                            "[Error] Saved folder not found: '{}'",
-                            folder.path
-                        );
+                        self.status_msg =
+                            format!("[Error] Saved folder not found: '{}'", folder.path);
                         return;
                     }
 
@@ -7670,7 +7834,8 @@ impl App {
                     };
                     let items = build_scan_folder_items(&self.db, platform.id, folders);
                     let row = match items.get(selected_index) {
-                        Some(ScanFolderItem::FolderEmulator(i)) | Some(ScanFolderItem::FolderCore(i)) => *i,
+                        Some(ScanFolderItem::FolderEmulator(i))
+                        | Some(ScanFolderItem::FolderCore(i)) => *i,
                         _ => return,
                     };
                     if row >= folders.len() {
@@ -7681,7 +7846,12 @@ impl App {
                     folder_path = folders[row].path.clone();
                     let configured = self.configured_runners_for(platform.id);
                     let no_runners = configured.is_empty();
-                    (folders[row].id, folders[row].assigned_emulator_id, configured, no_runners)
+                    (
+                        folders[row].id,
+                        folders[row].assigned_emulator_id,
+                        configured,
+                        no_runners,
+                    )
                 };
                 if no_runners {
                     self.status_msg = format!(
@@ -7779,7 +7949,9 @@ impl App {
                     Some(0)
                 };
                 let next_core_key = next_pos.map(|i| available[i].0.clone());
-                let _ = self.db.set_folder_assigned_core(folder_id, next_core_key.as_deref());
+                let _ = self
+                    .db
+                    .set_folder_assigned_core(folder_id, next_core_key.as_deref());
                 self.reload_scan_folder_modal(platform_id);
             }
             Action::CycleEditGameEmulator(backward) => {
@@ -7794,7 +7966,8 @@ impl App {
                     } => {
                         let items = build_scan_folder_items(&self.db, platform.id, folders);
                         match items.get(*selected_index) {
-                            Some(ScanFolderItem::FolderEmulator(i)) | Some(ScanFolderItem::FolderCore(i)) => Some(*i),
+                            Some(ScanFolderItem::FolderEmulator(i))
+                            | Some(ScanFolderItem::FolderCore(i)) => Some(*i),
                             _ => None,
                         }
                     }
@@ -7887,7 +8060,8 @@ impl App {
                 let path = folder_path.trim();
                 if path.is_empty() {
                     self.status_msg =
-                        "Error: enter a folder path or press [Enter] on Path to browse.".to_string();
+                        "Error: enter a folder path or press [Enter] on Path to browse."
+                            .to_string();
                     return;
                 }
                 let pathbuf = PathBuf::from(path);
@@ -7924,10 +8098,14 @@ impl App {
                     }
                 };
                 if add_emulator_id.is_some() {
-                    let _ = self.db.set_folder_assigned_emulator(folder_id, add_emulator_id);
+                    let _ = self
+                        .db
+                        .set_folder_assigned_emulator(folder_id, add_emulator_id);
                 }
                 if add_core.is_some() {
-                    let _ = self.db.set_folder_assigned_core(folder_id, add_core.as_deref());
+                    let _ = self
+                        .db
+                        .set_folder_assigned_core(folder_id, add_core.as_deref());
                 }
                 self.status_msg = format!("[OK] Folder registered: '{}'.", path);
                 let platform_id = platform.id;
@@ -7943,27 +8121,44 @@ impl App {
                 } = self.modal_state
                 {
                     let items = build_scan_folder_items(&self.db, platform_id, folders);
-                    let idx = items.iter().position(|item| match item {
-                        ScanFolderItem::FolderEmulator(i) => folders.get(*i).map(|f| &f.path) == Some(&path_owned),
-                        _ => false,
-                    }).unwrap_or(0);
+                    let idx = items
+                        .iter()
+                        .position(|item| match item {
+                            ScanFolderItem::FolderEmulator(i) => {
+                                folders.get(*i).map(|f| &f.path) == Some(&path_owned)
+                            }
+                            _ => false,
+                        })
+                        .unwrap_or(0);
                     *selected_index = idx;
                 }
             }
             Action::OpenDetectEmulatorModal => {
-                if let ModalState::ManageRunnersStep2Config { ref runner_info, .. } = self.modal_state.clone() {
+                if let ModalState::ManageRunnersStep2Config {
+                    ref runner_info, ..
+                } = self.modal_state.clone()
+                {
                     let detector = game_core::emulator_detector::EmulatorDetector::new();
                     let candidates = detector.detect_for_emulator(&runner_info.name);
 
                     if candidates.is_empty() {
-                        self.status_msg = format!("No installed versions detected for '{}'.", runner_info.name);
+                        self.status_msg =
+                            format!("No installed versions detected for '{}'.", runner_info.name);
                     } else if candidates.len() == 1 {
                         let cmd = candidates[0].launch_command();
-                        if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, ref mut cursor_pos, .. } = self.modal_state {
+                        if let ModalState::ManageRunnersStep2Config {
+                            ref mut exe_path_input,
+                            ref mut cursor_pos,
+                            ..
+                        } = self.modal_state
+                        {
                             *exe_path_input = cmd.clone();
                             *cursor_pos = cmd.len();
                         }
-                        self.status_msg = format!("[OK] Detected and set executable for '{}': {}", runner_info.name, cmd);
+                        self.status_msg = format!(
+                            "[OK] Detected and set executable for '{}': {}",
+                            runner_info.name, cmd
+                        );
                     } else {
                         self.modal_state = ModalState::SelectDetectedEmulatorModal {
                             runner_name: runner_info.name.clone(),
@@ -7985,7 +8180,12 @@ impl App {
                     if let Some(cand) = candidates.get(selected_idx) {
                         let cmd = cand.launch_command();
                         let mut new_parent = *parent_modal;
-                        if let ModalState::ManageRunnersStep2Config { ref mut exe_path_input, ref mut cursor_pos, .. } = new_parent {
+                        if let ModalState::ManageRunnersStep2Config {
+                            ref mut exe_path_input,
+                            ref mut cursor_pos,
+                            ..
+                        } = new_parent
+                        {
                             *exe_path_input = cmd.clone();
                             *cursor_pos = cmd.len();
                         }
@@ -7998,10 +8198,17 @@ impl App {
                 let current_modal = self.modal_state.clone();
                 let (platform, runner_id) = match &current_modal {
                     ModalState::ScanFolderForm { platform, .. } => (platform.clone(), None),
-                    ModalState::AddFolderScanForm { platform, add_emulator_id, .. } => (platform.clone(), *add_emulator_id),
+                    ModalState::AddFolderScanForm {
+                        platform,
+                        add_emulator_id,
+                        ..
+                    } => (platform.clone(), *add_emulator_id),
                     _ => return,
                 };
-                let runners = self.db.get_runners_for_platform(platform.id).unwrap_or_default();
+                let runners = self
+                    .db
+                    .get_runners_for_platform(platform.id)
+                    .unwrap_or_default();
                 let runner = match runner_id {
                     Some(id) => runners.into_iter().find(|r| r.id == id),
                     None => {
@@ -8012,10 +8219,7 @@ impl App {
                         let active = runners.iter().find(|r| r.is_active);
                         match active {
                             Some(r) if is_retroarch_runner(r) => Some(r.clone()),
-                            _ => runners
-                                .iter()
-                                .find(|r| is_retroarch_runner(r))
-                                .cloned(),
+                            _ => runners.iter().find(|r| is_retroarch_runner(r)).cloned(),
                         }
                     }
                 };
@@ -8048,7 +8252,8 @@ impl App {
                 } = self.modal_state.clone()
                 {
                     if let Some(core) = cores.get(selected_idx) {
-                        let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(&runner);
+                        let cores_dir =
+                            game_core::retroarch_manager::resolve_retroarch_cores_dir(&runner);
                         let core_info = core.clone();
                         let (tx, rx) = mpsc::channel::<DownloadEvent>(100);
                         self.download_rx = Some(rx);
@@ -8065,20 +8270,29 @@ impl App {
 
                         let mut new_keys = downloaded_keys.clone();
                         new_keys.insert(core_info.key.clone());
-                        if let ModalState::DownloadCoreModal { ref mut downloaded_keys, .. } = self.modal_state {
+                        if let ModalState::DownloadCoreModal {
+                            ref mut downloaded_keys,
+                            ..
+                        } = self.modal_state
+                        {
                             *downloaded_keys = new_keys;
                         }
 
                         tokio::spawn(async move {
-                            let res = game_core::core_catalog::ensure_core_downloaded(&core_info, &cores_dir).await;
-                            let _ = tx.send(DownloadEvent {
-                                downloaded: 100,
-                                total: 100,
-                                percentage: 100.0,
-                                finished: true,
-                                error: res.err().map(|e| e.to_string()),
-                                task_name: Some(format!("Core: {}", core_info.name)),
-                            }).await;
+                            let res = game_core::core_catalog::ensure_core_downloaded(
+                                &core_info, &cores_dir,
+                            )
+                            .await;
+                            let _ = tx
+                                .send(DownloadEvent {
+                                    downloaded: 100,
+                                    total: 100,
+                                    percentage: 100.0,
+                                    finished: true,
+                                    error: res.err().map(|e| e.to_string()),
+                                    task_name: Some(format!("Core: {}", core_info.name)),
+                                })
+                                .await;
                         });
                     }
                 }
@@ -8100,7 +8314,8 @@ impl App {
                 let path = folder_path.trim();
                 if path.is_empty() {
                     self.status_msg =
-                        "Error: enter a folder path or press [Enter] on Path to browse.".to_string();
+                        "Error: enter a folder path or press [Enter] on Path to browse."
+                            .to_string();
                     return;
                 }
                 let pathbuf = PathBuf::from(path);
@@ -8137,10 +8352,14 @@ impl App {
                     }
                 };
                 if add_emulator_id.is_some() {
-                    let _ = self.db.set_folder_assigned_emulator(folder_id, add_emulator_id);
+                    let _ = self
+                        .db
+                        .set_folder_assigned_emulator(folder_id, add_emulator_id);
                 }
                 if add_core.is_some() {
-                    let _ = self.db.set_folder_assigned_core(folder_id, add_core.as_deref());
+                    let _ = self
+                        .db
+                        .set_folder_assigned_core(folder_id, add_core.as_deref());
                 }
                 let mut scan_platform = platform.clone();
                 scan_platform.default_extensions = selected_extensions;
@@ -8223,9 +8442,7 @@ impl App {
                             let hash_max_size_mb =
                                 game_core::scanner::hash_max_size_mb_from_setting(
                                     self.db
-                                        .get_setting(
-                                            game_core::scanner::HASH_MAX_SIZE_SETTING_KEY,
-                                        )
+                                        .get_setting(game_core::scanner::HASH_MAX_SIZE_SETTING_KEY)
                                         .ok()
                                         .flatten()
                                         .as_deref(),
@@ -8292,7 +8509,11 @@ impl App {
                 }
             }
             Action::DeleteSelectedGames | Action::OpenConfirmDeleteModal => {
-                if let ModalState::SoftwareHubModal { ref apps, selected_idx } = self.modal_state {
+                if let ModalState::SoftwareHubModal {
+                    ref apps,
+                    selected_idx,
+                } = self.modal_state
+                {
                     if let Some(app_game) = apps.get(selected_idx) {
                         self.modal_state = ModalState::ConfirmDeleteGame {
                             game_ids: vec![app_game.id],
@@ -8344,9 +8565,9 @@ impl App {
                         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                         for &gid in &game_ids {
                             for (sub, types) in [
-                                ("covers",  vec!["jpg", "png", "webp"]),
+                                ("covers", vec!["jpg", "png", "webp"]),
                                 ("banners", vec!["jpg", "png", "webp"]),
-                                ("icons",   vec!["png", "jpg", "webp"]),
+                                ("icons", vec!["png", "jpg", "webp"]),
                             ] {
                                 for ext in types {
                                     let _ = std::fs::remove_file(
@@ -8362,7 +8583,8 @@ impl App {
                             let _ = std::fs::remove_file(icons_dir.join(format!("{}.png", gid)));
 
                             // Also evict from in-memory protocol cache.
-                            for key in ["cover", "cover_hb", "banner_hb", "icon_hb", "app_icon_hb"] {
+                            for key in ["cover", "cover_hb", "banner_hb", "icon_hb", "app_icon_hb"]
+                            {
                                 self.media_protocols.remove(&(gid, key.to_string()));
                             }
                         }
@@ -8427,7 +8649,8 @@ impl App {
                         self.media_protocols.remove(&(g.id, "banner".to_string()));
                         self.media_protocols.remove(&(g.id, "icon".to_string()));
                         self.media_protocols.remove(&(g.id, "icon_hb".to_string()));
-                        self.pending_cover_requests.insert((g.id, "cover".to_string()));
+                        self.pending_cover_requests
+                            .insert((g.id, "cover".to_string()));
                     }
 
                     let total_games = target_games.len();
@@ -9036,14 +9259,15 @@ impl App {
                                                 game_id,
                                                 media_type: "cover".to_string(),
                                                 protocol: Some(protocol),
-                            pixel_size: None,
-                        })
+                                                pixel_size: None,
+                                            })
                                             .await;
                                     }
                                 }
                             });
                             self.media_protocols.remove(&(game_id, "cover".to_string()));
-                            self.pending_cover_requests.remove(&(game_id, "cover".to_string()));
+                            self.pending_cover_requests
+                                .remove(&(game_id, "cover".to_string()));
                             updated_media.push("Cover");
                         }
                     }
@@ -9078,15 +9302,16 @@ impl App {
                                                 game_id,
                                                 media_type: "banner".to_string(),
                                                 protocol: Some(protocol),
-                            pixel_size: None,
-                        })
+                                                pixel_size: None,
+                                            })
                                             .await;
                                     }
                                 }
                             });
                             self.media_protocols
                                 .remove(&(game_id, "banner".to_string()));
-                            self.pending_cover_requests.remove(&(game_id, "banner".to_string()));
+                            self.pending_cover_requests
+                                .remove(&(game_id, "banner".to_string()));
                             updated_media.push("Banner");
                         }
                     }
@@ -9121,8 +9346,8 @@ impl App {
                                                 game_id,
                                                 media_type: "icon".to_string(),
                                                 protocol: Some(protocol),
-                            pixel_size: None,
-                        })
+                                                pixel_size: None,
+                                            })
                                             .await;
                                     }
                                 }
@@ -9130,7 +9355,8 @@ impl App {
                             self.media_protocols.remove(&(game_id, "icon".to_string()));
                             self.media_protocols
                                 .remove(&(game_id, "icon_hb".to_string()));
-                            self.pending_cover_requests.remove(&(game_id, "icon".to_string()));
+                            self.pending_cover_requests
+                                .remove(&(game_id, "icon".to_string()));
                             updated_media.push("Icon");
                         }
                     }
@@ -9210,10 +9436,20 @@ impl App {
                             .map(|p| p.id)
                             .unwrap_or(1),
                         PlatformType::Wine => {
-                            let apps_id = all_db_platforms.iter().find(|p| p.slug == "apps").map(|p| p.id);
-                            let win_id = all_db_platforms.iter().find(|p| p.slug == "windows").map(|p| p.id).unwrap_or(1);
+                            let apps_id = all_db_platforms
+                                .iter()
+                                .find(|p| p.slug == "apps")
+                                .map(|p| p.id);
+                            let win_id = all_db_platforms
+                                .iter()
+                                .find(|p| p.slug == "windows")
+                                .map(|p| p.id)
+                                .unwrap_or(1);
                             let is_app_category = match parent_modal.as_deref() {
-                                Some(ModalState::WindowsStep2CategoryMode { selected_category_idx, .. }) => *selected_category_idx == 1,
+                                Some(ModalState::WindowsStep2CategoryMode {
+                                    selected_category_idx,
+                                    ..
+                                }) => *selected_category_idx == 1,
                                 _ => platform_idx == 999999,
                             };
                             if is_app_category {
@@ -9324,7 +9560,10 @@ impl App {
                         Ok(inserted_id) => {
                             if let Some(ref path) = game.file_path {
                                 if path.to_lowercase().ends_with(".exe") {
-                                    let _ = game_core::icon_extractor::extract_exe_icon(path, inserted_id);
+                                    let _ = game_core::icon_extractor::extract_exe_icon(
+                                        path,
+                                        inserted_id,
+                                    );
                                 }
                             }
                             self.status_msg = format!("Game '{}' saved successfully.", title);
@@ -9342,17 +9581,24 @@ impl App {
                                 };
                             } else {
                                 self.load_platforms();
-                                let is_app_platform = self.db.get_platform_by_slug("apps").ok().flatten().map(|p| p.id) == Some(platform_id);
+                                let is_app_platform = self
+                                    .db
+                                    .get_platform_by_slug("apps")
+                                    .ok()
+                                    .flatten()
+                                    .map(|p| p.id)
+                                    == Some(platform_id);
                                 if is_app_platform {
-                                    let apps = self.db.get_games_for_platform(platform_id).unwrap_or_default();
+                                    let apps = self
+                                        .db
+                                        .get_games_for_platform(platform_id)
+                                        .unwrap_or_default();
                                     self.modal_state = ModalState::SoftwareHubModal {
                                         apps,
                                         selected_idx: 0,
                                     };
-                                } else if let Some(pos) = self
-                                    .platforms
-                                    .iter()
-                                    .position(|p| p.id == platform_id)
+                                } else if let Some(pos) =
+                                    self.platforms.iter().position(|p| p.id == platform_id)
                                 {
                                     self.modal_state = ModalState::None;
                                     self.selected_platform_idx = pos;
@@ -9388,7 +9634,12 @@ impl App {
                             if let Some(g) = self.games.iter_mut().find(|g| g.id == id) {
                                 g.favorite = is_fav;
                             }
-                            let title = self.games.iter().find(|g| g.id == id).map(|g| g.title.as_str()).unwrap_or("Game");
+                            let title = self
+                                .games
+                                .iter()
+                                .find(|g| g.id == id)
+                                .map(|g| g.title.as_str())
+                                .unwrap_or("Game");
                             let msg = if is_fav {
                                 format!("Added to Favorites: {}", title)
                             } else {
@@ -9416,10 +9667,10 @@ impl App {
                 self.modal_state = ModalState::ScraperMenu {
                     selected_source: scraper::pipeline::ScraperSource::ScreenScraper,
                     enabled_platform_ids: std::collections::HashSet::new(),
-                    region_idx: 0,     // 0=USA (us)
-                    cover_pref_idx: 0, // 0=2D Boxart
-                    banner_pref_idx: 0,// 0=Fanart Background
-                    icon_pref_idx: 0,  // 0=Wheel Logo
+                    region_idx: 0,      // 0=USA (us)
+                    cover_pref_idx: 0,  // 0=2D Boxart
+                    banner_pref_idx: 0, // 0=Fanart Background
+                    icon_pref_idx: 0,   // 0=Wheel Logo
                     selected_field: 0,
                 };
             }
@@ -9438,8 +9689,12 @@ impl App {
                     match selected_field {
                         0 => {
                             *selected_source = match selected_source {
-                                scraper::pipeline::ScraperSource::ScreenScraper => scraper::pipeline::ScraperSource::TheGamesDB,
-                                scraper::pipeline::ScraperSource::TheGamesDB => scraper::pipeline::ScraperSource::ScreenScraper,
+                                scraper::pipeline::ScraperSource::ScreenScraper => {
+                                    scraper::pipeline::ScraperSource::TheGamesDB
+                                }
+                                scraper::pipeline::ScraperSource::TheGamesDB => {
+                                    scraper::pipeline::ScraperSource::ScreenScraper
+                                }
                             };
                         }
                         2 => {
@@ -9494,7 +9749,8 @@ impl App {
                 } = self.modal_state
                 {
                     let parent = Box::new(self.modal_state.clone());
-                    let platforms: Vec<game_core::models::Platform> = self.platforms
+                    let platforms: Vec<game_core::models::Platform> = self
+                        .platforms
                         .iter()
                         .filter(|p| p.slug != "steam")
                         .cloned()
@@ -9553,7 +9809,8 @@ impl App {
                         2 => "eu",
                         3 => "jp",
                         _ => "us",
-                    }.to_string();
+                    }
+                    .to_string();
 
                     let cover_pref = match cover_pref_idx {
                         1 => "box-3d",
@@ -9562,7 +9819,8 @@ impl App {
                         4 => "mix-recalboxv1",
                         5 => "mix-recalboxv2",
                         _ => "box-2d",
-                    }.to_string();
+                    }
+                    .to_string();
 
                     let banner_pref = match banner_pref_idx {
                         1 => "screenmarque",
@@ -9570,7 +9828,8 @@ impl App {
                         3 => "sstitle",
                         4 => "wheel",
                         _ => "fanart",
-                    }.to_string();
+                    }
+                    .to_string();
 
                     let icon_pref = match icon_pref_idx {
                         1 => "steel",
@@ -9578,7 +9837,8 @@ impl App {
                         3 => "support-2d",
                         4 => "support-3d",
                         _ => "wheel",
-                    }.to_string();
+                    }
+                    .to_string();
 
                     // Gather games matching platform & filter
                     let mut candidate_games = Vec::new();
@@ -9586,13 +9846,18 @@ impl App {
 
                     for game in all_games {
                         // Exclude Steam games from scraping
-                        let is_steam = self.platforms.iter().any(|p| p.id == game.platform_id && p.slug == "steam");
+                        let is_steam = self
+                            .platforms
+                            .iter()
+                            .any(|p| p.id == game.platform_id && p.slug == "steam");
                         if is_steam {
                             continue;
                         }
 
                         // Check platform filter (empty = all enabled)
-                        if !enabled_platform_ids.is_empty() && !enabled_platform_ids.contains(&game.platform_id) {
+                        if !enabled_platform_ids.is_empty()
+                            && !enabled_platform_ids.contains(&game.platform_id)
+                        {
                             continue;
                         }
 
@@ -9600,19 +9865,31 @@ impl App {
                     }
 
                     if candidate_games.is_empty() {
-                        self.show_toast("No games match the selected scraper filter", crate::toast::ToastKind::Warning);
+                        self.show_toast(
+                            "No games match the selected scraper filter",
+                            crate::toast::ToastKind::Warning,
+                        );
                         return;
                     }
 
                     let total_games = candidate_games.len();
                     self.status_msg = format!("Scraping metadata for {} game(s)...", total_games);
-                    self.show_toast(&format!("Starting scraper for {} game(s)...", total_games), crate::toast::ToastKind::Info);
+                    self.show_toast(
+                        &format!("Starting scraper for {} game(s)...", total_games),
+                        crate::toast::ToastKind::Info,
+                    );
 
-                    let tgdb_key = self.db.get_setting("thegamesdb_api_key").ok().flatten().unwrap_or_default();
+                    let tgdb_key = self
+                        .db
+                        .get_setting("thegamesdb_api_key")
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
                     let ss_user = self.db.get_setting("screenscraper_user").ok().flatten();
                     let ss_pass = self.db.get_setting("screenscraper_pass").ok().flatten();
 
-                    let pipeline = scraper::pipeline::ScraperPipelineManager::new(ss_user, ss_pass, tgdb_key);
+                    let pipeline =
+                        scraper::pipeline::ScraperPipelineManager::new(ss_user, ss_pass, tgdb_key);
 
                     let (progress_tx, progress_rx) = mpsc::channel::<DownloadEvent>(100);
                     self.download_rx = Some(progress_rx);
@@ -9621,7 +9898,10 @@ impl App {
 
                     self.download_progress = Some(DownloadProgressState {
                         runner_id: 0,
-                        runner_name: format!("Scraping (0/{}) - {}", total_games, candidate_games[0].title),
+                        runner_name: format!(
+                            "Scraping (0/{}) - {}",
+                            total_games, candidate_games[0].title
+                        ),
                         downloaded_bytes: 0,
                         total_bytes: total_games as u64,
                         percentage: 0.0,
@@ -9636,7 +9916,8 @@ impl App {
                             .join("game_station.db");
 
                         let mut completed = 0;
-                        let mut last_quota: Option<scraper::screenscraper::ScreenScraperQuota> = None;
+                        let mut last_quota: Option<scraper::screenscraper::ScreenScraperQuota> =
+                            None;
                         for game in candidate_games {
                             let mut params = scraper::pipeline::ScraperSearchParams {
                                 title: game.title.clone(),
@@ -9653,17 +9934,21 @@ impl App {
                                 icon_pref: Some(icon_pref.clone()),
                                 automatic_mode: true,
                             };
-                            
+
                             // Get platform slug from DB if possible
                             if let Ok(db) = game_core::db::Database::open(&db_path) {
                                 if let Ok(platforms) = db.get_platforms() {
-                                    if let Some(p) = platforms.iter().find(|p| p.id == game.platform_id) {
+                                    if let Some(p) =
+                                        platforms.iter().find(|p| p.id == game.platform_id)
+                                    {
                                         params.platform_slug = p.slug.clone();
                                     }
                                 }
                             }
 
-                            if let Ok((results, opt_q)) = pipeline.search_with_quota(selected_source, &params).await {
+                            if let Ok((results, opt_q)) =
+                                pipeline.search_with_quota(selected_source, &params).await
+                            {
                                 if let Some(q) = opt_q {
                                     last_quota = Some(q);
                                 }
@@ -9680,71 +9965,97 @@ impl App {
                                             None,
                                         );
 
-                                         // Download cover, banner, and icon media if available
-                                         let media_targets = [
-                                             ("cover", res.cover_url.as_ref(), "covers"),
-                                             ("banner", res.banner_url.as_ref(), "banners"),
-                                             ("icon", res.icon_url.as_ref(), "icons"),
-                                         ];
+                                        // Download cover, banner, and icon media if available
+                                        let media_targets = [
+                                            ("cover", res.cover_url.as_ref(), "covers"),
+                                            ("banner", res.banner_url.as_ref(), "banners"),
+                                            ("icon", res.icon_url.as_ref(), "icons"),
+                                        ];
 
-                                         for (media_type, opt_url, folder_name) in media_targets {
-                                             let mut downloaded = false;
-                                             if let Some(img_url) = opt_url {
-                                                 if let Ok(resp) = reqwest::get(img_url).await {
-                                                     if let Ok(bytes) = resp.bytes().await {
-                                                         let ext = if img_url.contains(".png") { "png" } else { "jpg" };
-                                                         let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir()
+                                        for (media_type, opt_url, folder_name) in media_targets {
+                                            let mut downloaded = false;
+                                            if let Some(img_url) = opt_url {
+                                                if let Ok(resp) = reqwest::get(img_url).await {
+                                                    if let Ok(bytes) = resp.bytes().await {
+                                                        let ext = if img_url.contains(".png") {
+                                                            "png"
+                                                        } else {
+                                                            "jpg"
+                                                        };
+                                                        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir()
                                                              .join(folder_name);
-                                                         let _ = std::fs::create_dir_all(&media_dir);
-                                                         let target_file = media_dir.join(format!("{}.{}", game.id, ext));
-                                                         if std::fs::write(&target_file, &bytes).is_ok() {
-                                                             downloaded = true;
-                                                             if let Ok(db) = game_core::db::Database::open(&db_path) {
-                                                                 let _ = db.record_media_status(
-                                                                     game.id,
-                                                                     media_type,
-                                                                     "downloaded",
-                                                                     Some(&target_file.to_string_lossy()),
-                                                                     Some(img_url),
-                                                                 );
-                                                             }
+                                                        let _ = std::fs::create_dir_all(&media_dir);
+                                                        let target_file = media_dir
+                                                            .join(format!("{}.{}", game.id, ext));
+                                                        if std::fs::write(&target_file, &bytes)
+                                                            .is_ok()
+                                                        {
+                                                            downloaded = true;
+                                                            if let Ok(db) =
+                                                                game_core::db::Database::open(
+                                                                    &db_path,
+                                                                )
+                                                            {
+                                                                let _ = db.record_media_status(
+                                                                    game.id,
+                                                                    media_type,
+                                                                    "downloaded",
+                                                                    Some(
+                                                                        &target_file
+                                                                            .to_string_lossy(),
+                                                                    ),
+                                                                    Some(img_url),
+                                                                );
+                                                            }
 
-                                                             if let Some(protocol) = cover_manager.load_protocol_from_file(&target_file) {
-                                                                 let _ = cover_tx.send(LoadedCoverEvent {
-                                                                     game_id: game.id,
-                                                                     media_type: media_type.to_string(),
-                                                                     protocol: Some(protocol),
-                            pixel_size: None,
-                        }).await;
-                                                             }
-                                                         }
-                                                     }
-                                                 }
-                                             }
+                                                            if let Some(protocol) = cover_manager
+                                                                .load_protocol_from_file(
+                                                                    &target_file,
+                                                                )
+                                                            {
+                                                                let _ = cover_tx
+                                                                    .send(LoadedCoverEvent {
+                                                                        game_id: game.id,
+                                                                        media_type: media_type
+                                                                            .to_string(),
+                                                                        protocol: Some(protocol),
+                                                                        pixel_size: None,
+                                                                    })
+                                                                    .await;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
 
-                                             if !downloaded {
-                                                 if let Ok(db) = game_core::db::Database::open(&db_path) {
-                                                     let _ = db.record_media_status(
-                                                         game.id,
-                                                         media_type,
-                                                         "not_found",
-                                                         None,
-                                                         None,
-                                                     );
-                                                 }
-                                             }
-                                         }
-                                     }
+                                            if !downloaded {
+                                                if let Ok(db) =
+                                                    game_core::db::Database::open(&db_path)
+                                                {
+                                                    let _ = db.record_media_status(
+                                                        game.id,
+                                                        media_type,
+                                                        "not_found",
+                                                        None,
+                                                        None,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
                             completed += 1;
                             let is_finished = completed == total_games;
                             let pct = (completed as f64 / total_games as f64) * 100.0;
-                            
+
                             let task_name = if is_finished {
                                 if let Some(ref q) = last_quota {
-                                    format!("Scrapeo listo. Cuota hoy: {} / {}", q.requests_today, q.max_requests_per_day)
+                                    format!(
+                                        "Scrapeo listo. Cuota hoy: {} / {}",
+                                        q.requests_today, q.max_requests_per_day
+                                    )
                                 } else {
                                     format!("Scrapeo listo para {} juego(s)", total_games)
                                 }
@@ -9752,14 +10063,16 @@ impl App {
                                 format!("Scraping ({}/{}) - {}", completed, total_games, game.title)
                             };
 
-                            let _ = progress_tx.send(DownloadEvent {
-                                downloaded: completed as u64,
-                                total: total_games as u64,
-                                percentage: pct,
-                                finished: is_finished,
-                                error: None,
-                                task_name: Some(task_name),
-                            }).await;
+                            let _ = progress_tx
+                                .send(DownloadEvent {
+                                    downloaded: completed as u64,
+                                    total: total_games as u64,
+                                    percentage: pct,
+                                    finished: is_finished,
+                                    error: None,
+                                    task_name: Some(task_name),
+                                })
+                                .await;
                         }
                     });
                 }
@@ -9822,13 +10135,28 @@ impl App {
 
                     let ss_user = self.db.get_setting("screenscraper_user").ok().flatten();
                     let ss_pass = self.db.get_setting("screenscraper_pass").ok().flatten();
-                    let tgdb_key = self.db.get_setting("thegamesdb_api_key").ok().flatten().unwrap_or_default();
+                    let tgdb_key = self
+                        .db
+                        .get_setting("thegamesdb_api_key")
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
 
-                    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<(Vec<scraper::pipeline::ScraperSearchResult>, Option<scraper::screenscraper::ScreenScraperQuota>), String>>(1);
+                    let (tx, mut rx) = tokio::sync::mpsc::channel::<
+                        Result<
+                            (
+                                Vec<scraper::pipeline::ScraperSearchResult>,
+                                Option<scraper::screenscraper::ScreenScraperQuota>,
+                            ),
+                            String,
+                        >,
+                    >(1);
 
                     let has_ss_user = ss_user.is_some();
                     tokio::spawn(async move {
-                        let manager = scraper::pipeline::ScraperPipelineManager::new(ss_user, ss_pass, tgdb_key);
+                        let manager = scraper::pipeline::ScraperPipelineManager::new(
+                            ss_user, ss_pass, tgdb_key,
+                        );
                         let params = scraper::pipeline::ScraperSearchParams {
                             title: query,
                             platform_slug: platform_slug.unwrap_or_default(),
@@ -9845,15 +10173,26 @@ impl App {
                             automatic_mode: false,
                         };
 
-                        let res = manager.search_with_quota(scraper::pipeline::ScraperSource::ScreenScraper, &params).await;
+                        let res = manager
+                            .search_with_quota(
+                                scraper::pipeline::ScraperSource::ScreenScraper,
+                                &params,
+                            )
+                            .await;
                         let mapped = res.map(|(items, q)| (items, q)).map_err(|e| e.to_string());
                         let _ = tx.send(mapped).await;
                     });
 
                     // Wait synchronously up to 10 seconds for user search feedback
-                    if let Ok(Some(search_res)) = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
+                    if let Ok(Some(search_res)) =
+                        tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await
+                    {
                         // Capture quota before mutably borrowing modal_state
-                        let opt_quota = if let Ok(ref ok) = search_res { ok.1.clone() } else { None };
+                        let opt_quota = if let Ok(ref ok) = search_res {
+                            ok.1.clone()
+                        } else {
+                            None
+                        };
 
                         // Update scraper_quota from the returned ScreenScraperQuota
                         let ss_quota_info = if let Some(ref q) = opt_quota {
@@ -9873,7 +10212,10 @@ impl App {
                         } else {
                             QuotaInfo::default()
                         };
-                        self.scraper_quota.insert(scraper::pipeline::ScraperSource::ScreenScraper, ss_quota_info);
+                        self.scraper_quota.insert(
+                            scraper::pipeline::ScraperSource::ScreenScraper,
+                            ss_quota_info,
+                        );
                         if let ModalState::AdvancedScraperSearch {
                             ref mut is_searching,
                             ref mut results,
@@ -9885,7 +10227,9 @@ impl App {
                             match search_res {
                                 Ok((items, _)) => {
                                     if items.is_empty() {
-                                        *error_msg = Some("No games found matching search title".to_string());
+                                        *error_msg = Some(
+                                            "No games found matching search title".to_string(),
+                                        );
                                     } else {
                                         *results = items;
                                     }
@@ -9902,7 +10246,8 @@ impl App {
                     } = self.modal_state
                     {
                         *is_searching = false;
-                        *error_msg = Some("Search request timed out. Please try again.".to_string());
+                        *error_msg =
+                            Some("Search request timed out. Please try again.".to_string());
                     }
                 }
             }
@@ -9930,7 +10275,8 @@ impl App {
                         );
 
                         // Set up task slider progress bar
-                        let (progress_tx, progress_rx) = tokio::sync::mpsc::channel::<DownloadEvent>(100);
+                        let (progress_tx, progress_rx) =
+                            tokio::sync::mpsc::channel::<DownloadEvent>(100);
                         self.download_rx = Some(progress_rx);
                         self.download_progress = Some(DownloadProgressState {
                             runner_id: 0,
@@ -9964,12 +10310,19 @@ impl App {
                                 if let Some(img_url) = opt_url {
                                     if let Ok(resp) = reqwest::get(img_url).await {
                                         if let Ok(bytes) = resp.bytes().await {
-                                            let ext = if img_url.contains(".png") { "png" } else { "jpg" };
+                                            let ext = if img_url.contains(".png") {
+                                                "png"
+                                            } else {
+                                                "jpg"
+                                            };
                                             let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir().join(folder_name);
                                             let _ = std::fs::create_dir_all(&media_dir);
-                                            let target_file = media_dir.join(format!("{}.{}", game_id, ext));
+                                            let target_file =
+                                                media_dir.join(format!("{}.{}", game_id, ext));
                                             if std::fs::write(&target_file, &bytes).is_ok() {
-                                                if let Ok(db) = game_core::db::Database::open(&db_path) {
+                                                if let Ok(db) =
+                                                    game_core::db::Database::open(&db_path)
+                                                {
                                                     let _ = db.record_media_status(
                                                         game_id,
                                                         media_type,
@@ -9979,13 +10332,17 @@ impl App {
                                                     );
                                                 }
 
-                                                if let Some(protocol) = cover_manager.load_protocol_from_file(&target_file) {
-                                                    let _ = cover_tx.send(LoadedCoverEvent {
-                                                        game_id,
-                                                        media_type: media_type.to_string(),
-                                                        protocol: Some(protocol),
-                            pixel_size: None,
-                        }).await;
+                                                if let Some(protocol) = cover_manager
+                                                    .load_protocol_from_file(&target_file)
+                                                {
+                                                    let _ = cover_tx
+                                                        .send(LoadedCoverEvent {
+                                                            game_id,
+                                                            media_type: media_type.to_string(),
+                                                            protocol: Some(protocol),
+                                                            pixel_size: None,
+                                                        })
+                                                        .await;
                                                 }
                                             }
                                         }
@@ -9994,22 +10351,30 @@ impl App {
                                 completed += 1;
                                 let is_finished = completed == 3;
                                 let pct = (completed as f64 / 3.0) * 100.0;
-                                let _ = progress_tx.send(DownloadEvent {
-                                    downloaded: completed,
-                                    total: 3,
-                                    percentage: pct,
-                                    finished: is_finished,
-                                    error: None,
-                                    task_name: Some(if is_finished {
-                                        format!("Metadatos y media guardados para '{}'", async_title)
-                                    } else {
-                                        format!("Descargando media ({}/3)...", completed)
-                                    }),
-                                }).await;
+                                let _ = progress_tx
+                                    .send(DownloadEvent {
+                                        downloaded: completed,
+                                        total: 3,
+                                        percentage: pct,
+                                        finished: is_finished,
+                                        error: None,
+                                        task_name: Some(if is_finished {
+                                            format!(
+                                                "Metadatos y media guardados para '{}'",
+                                                async_title
+                                            )
+                                        } else {
+                                            format!("Descargando media ({}/3)...", completed)
+                                        }),
+                                    })
+                                    .await;
                             }
                         });
 
-                        self.show_toast(&format!("Metadatos actualizados para '{}'", title), crate::toast::ToastKind::Success);
+                        self.show_toast(
+                            &format!("Metadatos actualizados para '{}'", title),
+                            crate::toast::ToastKind::Success,
+                        );
                         self.load_platforms();
                         self.modal_state = ModalState::None;
                     }
@@ -10019,7 +10384,10 @@ impl App {
             // ─────────────────────────────────────────────────────────────
             // Local Media Picker (EditGameForm → pick own image)
             // ─────────────────────────────────────────────────────────────
-            Action::OpenLocalMediaPicker { game_id, media_type } => {
+            Action::OpenLocalMediaPicker {
+                game_id,
+                media_type,
+            } => {
                 let parent = Box::new(self.modal_state.clone());
                 let selected_row = match media_type.as_str() {
                     "banner" => 1,
@@ -10033,36 +10401,50 @@ impl App {
                 };
             }
 
-            Action::LocalMediaPickerConfirm { game_id, media_type, path } => {
+            Action::LocalMediaPickerConfirm {
+                game_id,
+                media_type,
+                path,
+            } => {
                 use std::path::Path;
                 let src = Path::new(&path);
                 if !src.exists() {
                     self.show_toast("File not found", crate::toast::ToastKind::Error);
                 } else {
                     // Determine target extension and destination directory.
-                    let ext = src.extension()
+                    let ext = src
+                        .extension()
                         .and_then(|e| e.to_str())
                         .unwrap_or("jpg")
                         .to_ascii_lowercase();
                     let sub_dir = match media_type.as_str() {
                         "banner" => "banners",
-                        "icon"   => "icons",
-                        _        => "covers",
+                        "icon" => "icons",
+                        _ => "covers",
                     };
                     let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
                     let target_dir = media_dir.join(sub_dir);
                     if std::fs::create_dir_all(&target_dir).is_ok() {
                         // Remove any existing file for this game+type before copying.
                         for old_ext in ["jpg", "png", "webp"] {
-                            let _ = std::fs::remove_file(target_dir.join(format!("{}.{}", game_id, old_ext)));
+                            let _ = std::fs::remove_file(
+                                target_dir.join(format!("{}.{}", game_id, old_ext)),
+                            );
                         }
                         let dest = target_dir.join(format!("{}.{}", game_id, ext));
                         match std::fs::copy(src, &dest) {
                             Ok(_) => {
                                 // Remove cached protocol so it gets re-decoded with the new file.
                                 self.media_protocols.remove(&(game_id, media_type.clone()));
-                                self.media_protocols.remove(&(game_id, format!("{}_hb", media_type)));
-                                let _ = self.db.record_media_status(game_id, &media_type, "local", None, None);
+                                self.media_protocols
+                                    .remove(&(game_id, format!("{}_hb", media_type)));
+                                let _ = self.db.record_media_status(
+                                    game_id,
+                                    &media_type,
+                                    "local",
+                                    None,
+                                    None,
+                                );
                                 self.show_toast(
                                     &format!("{} updated from local file", media_type),
                                     crate::toast::ToastKind::Success,
@@ -10100,9 +10482,9 @@ impl App {
 
             Action::CycleMediaFocus => {
                 self.big_picture_media_focus = match self.big_picture_media_focus {
-                    MediaFocus::Cover  => MediaFocus::Banner,
+                    MediaFocus::Cover => MediaFocus::Banner,
                     MediaFocus::Banner => MediaFocus::Icon,
-                    MediaFocus::Icon   => MediaFocus::Cover,
+                    MediaFocus::Icon => MediaFocus::Cover,
                 };
             }
 
@@ -10201,7 +10583,6 @@ mod tests {
         assert!(!is_destructive_action(&Action::CloseModal));
     }
 
-
     /// La etiqueta del campo "Emulador" de los formularios de escaneo solo
     /// ofrece "Default" cuando la plataforma ya tiene una carpeta que heredar.
     /// Para la primera carpeta muestra el emulador efectivo de la plataforma.
@@ -10214,14 +10595,18 @@ mod tests {
         let switch = db.get_platform_by_slug("switch").unwrap().unwrap();
 
         let runners = db.get_runners_for_platform(switch.id).unwrap();
-        assert!(db.get_scan_folders_for_platform(switch.id).unwrap().is_empty());
+        assert!(db
+            .get_scan_folders_for_platform(switch.id)
+            .unwrap()
+            .is_empty());
 
         // Primera carpeta: nada que heredar → el emulador efectivo, no "Default".
         let label = add_scan_emulator_label(&db, &switch, None, &runners);
         assert_eq!(label, "Ryujinx");
 
         // Con una carpeta ya registrada, "Default" (heredar) es válido.
-        db.save_scan_folder(switch.id, "/fake/switch", true).unwrap();
+        db.save_scan_folder(switch.id, "/fake/switch", true)
+            .unwrap();
         let label = add_scan_emulator_label(&db, &switch, None, &runners);
         assert_eq!(label, "Default");
 
@@ -10269,8 +10654,12 @@ mod tests {
         let runners = app.db.get_runners_for_platform(switch.id).unwrap();
         let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap().id;
         let citron = runners.iter().find(|r| r.name == "Citron").unwrap().id;
-        app.db.update_runner_config(ryujinx, "/fake/ryujinx", true).unwrap();
-        app.db.update_runner_config(citron, "/fake/citron", true).unwrap();
+        app.db
+            .update_runner_config(ryujinx, "/fake/ryujinx", true)
+            .unwrap();
+        app.db
+            .update_runner_config(citron, "/fake/citron", true)
+            .unwrap();
 
         app.modal_state = ModalState::AddFolderScanForm {
             platform: switch.clone(),
@@ -10299,7 +10688,9 @@ mod tests {
         assert_eq!(emu, Some(citron), "backward wraps, never lands on None");
 
         // Con una carpeta registrada, "Default" (None) vuelve a ser alcanzable.
-        app.db.save_scan_folder(switch.id, "/fake/switch", true).unwrap();
+        app.db
+            .save_scan_folder(switch.id, "/fake/switch", true)
+            .unwrap();
         app.cycle_add_folder_emulator(true);
         let (_, emu, _) = app.add_scan_form_selection().unwrap();
         assert_eq!(emu, Some(ryujinx), "backward to first emulator");
@@ -10352,7 +10743,8 @@ mod tests {
 
         {
             let db = Database::open_default().expect("open DB");
-            db.set_setting("first_run_completed", "true").expect("no wizard");
+            db.set_setting("first_run_completed", "true")
+                .expect("no wizard");
             let switch = db
                 .get_platform_by_slug("switch")
                 .expect("query")
@@ -10454,7 +10846,8 @@ mod tests {
 
         {
             let db = Database::open_default().expect("open DB");
-            db.set_setting("first_run_completed", "true").expect("no wizard");
+            db.set_setting("first_run_completed", "true")
+                .expect("no wizard");
             let switch = db
                 .get_platform_by_slug("switch")
                 .expect("query")
@@ -10568,7 +10961,8 @@ mod tests {
 
         {
             let db = Database::open_default().expect("open DB");
-            db.set_setting("first_run_completed", "true").expect("no wizard");
+            db.set_setting("first_run_completed", "true")
+                .expect("no wizard");
             let switch = db
                 .get_platform_by_slug("switch")
                 .expect("query")
@@ -10613,7 +11007,10 @@ mod tests {
             nav_text.contains("Emulador ◀ ▶"),
             "selector ausente en la navegación normal"
         );
-        assert!(nav_text.contains("Ryujinx"), "emulador activo no se muestra");
+        assert!(
+            nav_text.contains("Ryujinx"),
+            "emulador activo no se muestra"
+        );
 
         // Scan Folder: el selector se dibuja DENTRO del formulario de escaneo.
         app.modal_state = ModalState::ScanFolderForm {
@@ -10665,7 +11062,8 @@ mod tests {
 
         let (ryujinx_exe, citron_exe) = {
             let db = Database::open_default().expect("open DB");
-            db.set_setting("first_run_completed", "true").expect("no wizard");
+            db.set_setting("first_run_completed", "true")
+                .expect("no wizard");
             let switch = db
                 .get_platform_by_slug("switch")
                 .expect("query")
@@ -10759,10 +11157,7 @@ mod tests {
         // Field navigation: items are [Folder1.Emu, AddNewFolder].
         // ModalNextField moves from item 0 to item 1 (AddNewFolder).
         app.update(Action::ModalNextField).await;
-        let ModalState::ScanFolderForm {
-            selected_index, ..
-        } = app.modal_state
-        else {
+        let ModalState::ScanFolderForm { selected_index, .. } = app.modal_state else {
             panic!("modal still open");
         };
         assert_eq!(selected_index, 1);
@@ -10789,11 +11184,7 @@ mod tests {
         assert_eq!(platform_id, switch.id);
         assert_eq!(folder_ids, vec![folder_id]);
         assert_eq!(display, fake_path);
-        assert!(app
-            .db
-            .get_scanned_folder(folder_id)
-            .expect("row")
-            .is_some());
+        assert!(app.db.get_scanned_folder(folder_id).expect("row").is_some());
 
         // Option 1 = YES: remove the folder and the games it scanned (ROM files
         // on disk are kept).
@@ -10807,7 +11198,11 @@ mod tests {
         assert_eq!(selected_option, 1);
         app.update(Action::ConfirmDeleteFolderExecution).await;
         assert!(matches!(app.modal_state, ModalState::ScanFolderForm { .. }));
-        assert!(app.db.get_scan_folders_for_platform(switch.id).unwrap().is_empty());
+        assert!(app
+            .db
+            .get_scan_folders_for_platform(switch.id)
+            .unwrap()
+            .is_empty());
 
         match old_data {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),
@@ -11015,7 +11410,10 @@ mod tests {
             .iter()
             .position(|p| p.id == nds.id)
             .expect("nds in configured emulator platforms");
-        if let ModalState::ScanFolderStep1Platform { selected_platform_idx } = &mut app.modal_state {
+        if let ModalState::ScanFolderStep1Platform {
+            selected_platform_idx,
+        } = &mut app.modal_state
+        {
             *selected_platform_idx = nds_idx;
         }
         app.update(Action::ScanModalConfirmPlatform).await;
@@ -11056,8 +11454,15 @@ mod tests {
         *extensions_input = "nds".to_string();
         app.update(Action::StartAddAndScan).await;
 
-        assert_eq!(app.modal_state, ModalState::None, "modal closed after scan start");
-        let folders = app.db.get_scan_folders_for_platform(nds.id).expect("folders");
+        assert_eq!(
+            app.modal_state,
+            ModalState::None,
+            "modal closed after scan start"
+        );
+        let folders = app
+            .db
+            .get_scan_folders_for_platform(nds.id)
+            .expect("folders");
         let folder = folders.first().expect("saved folder");
         assert_eq!(folder.assigned_emulator_id, Some(rid));
         assert_eq!(folder.assigned_core.as_deref(), Some("desmume"));
@@ -11138,7 +11543,10 @@ mod tests {
             .find(|p| p.slug == "nds")
             .expect("nds platform")
             .clone();
-        let nds_runners = app.db.get_runners_for_platform(nds.id).expect("nds runners");
+        let nds_runners = app
+            .db
+            .get_runners_for_platform(nds.id)
+            .expect("nds runners");
         let melonds = nds_runners
             .iter()
             .find(|r| r.name == "melonDS")
@@ -11319,26 +11727,22 @@ mod tests {
             .save_scan_folder(nds.id, new_games_dir.to_str().unwrap(), true)
             .unwrap();
         assert_eq!(app.db.get_game_count_for_folder(folder_b).unwrap(), 0);
-        assert!(
-            game_core::scanner::Scanner::folder_has_new_games(
-                &app.db,
-                &nds,
-                Path::new(new_games_dir.to_str().unwrap()),
-                true,
-                folder_b,
-            )
-            .unwrap()
-        );
-        assert!(
-            !game_core::scanner::Scanner::folder_has_new_games(
-                &app.db,
-                &nds,
-                Path::new(populated_dir.to_str().unwrap()),
-                true,
-                folder_a,
-            )
-            .unwrap()
-        );
+        assert!(game_core::scanner::Scanner::folder_has_new_games(
+            &app.db,
+            &nds,
+            Path::new(new_games_dir.to_str().unwrap()),
+            true,
+            folder_b,
+        )
+        .unwrap());
+        assert!(!game_core::scanner::Scanner::folder_has_new_games(
+            &app.db,
+            &nds,
+            Path::new(populated_dir.to_str().unwrap()),
+            true,
+            folder_a,
+        )
+        .unwrap());
 
         let folders = app.db.get_scan_folders_for_platform(nds.id).unwrap();
         let items = build_scan_folder_items(&app.db, nds.id, &folders);
@@ -11533,7 +11937,11 @@ mod tests {
         );
 
         // --- Focus [ + Add New Game ] and Enter → Wine details form directly. ---
-        if let ModalState::WindowsGamesManager { games, selected_idx } = &mut app.modal_state {
+        if let ModalState::WindowsGamesManager {
+            games,
+            selected_idx,
+        } = &mut app.modal_state
+        {
             *selected_idx = games.len();
         }
         app.handle_windows_games_enter().await;

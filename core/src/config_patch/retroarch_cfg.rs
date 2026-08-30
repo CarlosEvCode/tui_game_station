@@ -110,7 +110,11 @@ mod tests {
         let temp = std::env::temp_dir().join(format!("test_retroarch_{}.cfg", std::process::id()));
         let path = temp.as_path();
 
-        fs::write(path, "video_fullscreen = \"false\"\nvideo_vsync = \"true\"\n").unwrap();
+        fs::write(
+            path,
+            "video_fullscreen = \"false\"\nvideo_vsync = \"true\"\n",
+        )
+        .unwrap();
 
         assert_eq!(
             read_retroarch_cfg_value(path, "video_fullscreen").unwrap(),

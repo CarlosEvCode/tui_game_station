@@ -40,8 +40,7 @@ struct CatalogFile {
 }
 
 /// Embedded TOML source of the catalog.
-pub const CATALOG_SOURCE: &str =
-    include_str!("../../assets/emulators/platform_emulators.toml");
+pub const CATALOG_SOURCE: &str = include_str!("../../assets/emulators/platform_emulators.toml");
 
 /// Load every platform entry from the catalog.
 pub fn load_catalog() -> Vec<CatalogPlatform> {
@@ -98,8 +97,22 @@ mod tests {
         let platforms = load_catalog();
         let slugs: Vec<&str> = platforms.iter().map(|p| p.slug.as_str()).collect();
         for expected in [
-            "3ds", "snes", "megadrive", "gba", "nes", "ps1", "ps2", "gamecube", "wii", "wii_u", "mame", "psp",
-            "dreamcast", "switch", "nds", "vita",
+            "3ds",
+            "snes",
+            "megadrive",
+            "gba",
+            "nes",
+            "ps1",
+            "ps2",
+            "gamecube",
+            "wii",
+            "wii_u",
+            "mame",
+            "psp",
+            "dreamcast",
+            "switch",
+            "nds",
+            "vita",
         ] {
             assert!(
                 slugs.contains(&expected),

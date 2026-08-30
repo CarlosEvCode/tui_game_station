@@ -757,12 +757,7 @@ fn game_from_reference(
     hash_max_size_bytes: u64,
     folder_id: Option<i64>,
 ) -> Game {
-    let meta = file_meta(
-        db,
-        &reference.path,
-        calculate_hashes,
-        hash_max_size_bytes,
-    );
+    let meta = file_meta(db, &reference.path, calculate_hashes, hash_max_size_bytes);
     Game {
         id: 0,
         platform_id: platform.id,
@@ -1221,7 +1216,8 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
+        let added =
+            Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
         assert_eq!(added, 5, "one library entry per Title ID family");
 
         let games = db.get_games_for_platform(platform.id).unwrap();
@@ -1337,7 +1333,8 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
+        let added =
+            Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
         assert_eq!(
             added, 1,
             "base + update + both DLCs collapse into one entry"
@@ -1399,7 +1396,8 @@ game (
             .find(|p| p.slug == "switch")
             .expect("switch platform seeded");
 
-        let added = Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
+        let added =
+            Scanner::scan_folder(&db, &platform, &root, true, false, 0, false, None, None).unwrap();
         assert_eq!(added, 1, "only the .xci is a valid Switch file");
 
         let games = db.get_games_for_platform(platform.id).unwrap();
@@ -1599,11 +1597,15 @@ game (
         let db = Database::open(":memory:").unwrap();
         let nds = nds_platform(&db);
 
-        let added = Scanner::scan_folder(&db, &nds, &root, true, true, 32, false, None, None).unwrap();
+        let added =
+            Scanner::scan_folder(&db, &nds, &root, true, true, 32, false, None, None).unwrap();
         assert_eq!(added, 1);
 
         let g = &db.get_games_for_platform(nds.id).unwrap()[0];
-        assert!(g.file_hash_md5.is_none(), "over-cap file must not be hashed");
+        assert!(
+            g.file_hash_md5.is_none(),
+            "over-cap file must not be hashed"
+        );
         assert!(g.file_hash_crc32.is_none());
         assert!(g.file_hash_sha1.is_none());
         assert_eq!(g.file_size, Some(64), "size is still recorded");
@@ -1627,11 +1629,15 @@ game (
         let db = Database::open(":memory:").unwrap();
         let nds = nds_platform(&db);
 
-        let added = Scanner::scan_folder(&db, &nds, &root, true, true, 64, false, None, None).unwrap();
+        let added =
+            Scanner::scan_folder(&db, &nds, &root, true, true, 64, false, None, None).unwrap();
         assert_eq!(added, 1);
 
         let g = &db.get_games_for_platform(nds.id).unwrap()[0];
-        assert!(g.file_hash_md5.is_some(), "file exactly at the cap must be hashed");
+        assert!(
+            g.file_hash_md5.is_some(),
+            "file exactly at the cap must be hashed"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1652,17 +1658,44 @@ game (
         let db = Database::open(":memory:").unwrap();
         let nds = nds_platform(&db);
 
-        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
-        let first = db.get_games_for_platform(nds.id).unwrap()[0].file_hash_md5.clone();
+        Scanner::scan_folder(
+            &db,
+            &nds,
+            &root,
+            true,
+            true,
+            384 * 1024 * 1024,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        let first = db.get_games_for_platform(nds.id).unwrap()[0]
+            .file_hash_md5
+            .clone();
 
         // Same size, different content: the stored hash must be reused (proving
         // no re-hash happens, which would be far too slow on a full rescan).
         fs::write(&rom, vec![1u8; 64]).unwrap();
-        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
+        Scanner::scan_folder(
+            &db,
+            &nds,
+            &root,
+            true,
+            true,
+            384 * 1024 * 1024,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
 
         let second = &db.get_games_for_platform(nds.id).unwrap()[0];
         assert!(first.is_some());
-        assert_eq!(second.file_hash_md5, first, "unchanged-size rescan must reuse the stored hash");
+        assert_eq!(
+            second.file_hash_md5, first,
+            "unchanged-size rescan must reuse the stored hash"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1683,15 +1716,42 @@ game (
         let db = Database::open(":memory:").unwrap();
         let nds = nds_platform(&db);
 
-        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
-        let first = db.get_games_for_platform(nds.id).unwrap()[0].file_hash_md5.clone();
+        Scanner::scan_folder(
+            &db,
+            &nds,
+            &root,
+            true,
+            true,
+            384 * 1024 * 1024,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        let first = db.get_games_for_platform(nds.id).unwrap()[0]
+            .file_hash_md5
+            .clone();
 
         fs::write(&rom, vec![0u8; 128]).unwrap();
-        Scanner::scan_folder(&db, &nds, &root, true, true, 384 * 1024 * 1024, false, None, None).unwrap();
+        Scanner::scan_folder(
+            &db,
+            &nds,
+            &root,
+            true,
+            true,
+            384 * 1024 * 1024,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
 
         let second = &db.get_games_for_platform(nds.id).unwrap()[0];
         assert!(first.is_some());
-        assert_ne!(second.file_hash_md5, first, "size change must trigger a re-hash");
+        assert_ne!(
+            second.file_hash_md5, first,
+            "size change must trigger a re-hash"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1725,7 +1785,10 @@ game (
         Scanner::scan_folder(&db, &switch, &root, true, true, 8, false, None, None).unwrap();
 
         let g = &db.get_games_for_platform(switch.id).unwrap()[0];
-        assert!(g.file_hash_md5.is_none(), "over-cap Switch reference must not be hashed");
+        assert!(
+            g.file_hash_md5.is_none(),
+            "over-cap Switch reference must not be hashed"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

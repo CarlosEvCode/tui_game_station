@@ -1,7 +1,7 @@
+use crate::models::Runner;
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use anyhow::{Context, Result};
-use crate::models::Runner;
 
 pub const RETROARCH_7Z_URL: &str =
     "https://buildbot.libretro.com/nightly/linux/x86_64/RetroArch.7z";
@@ -44,8 +44,7 @@ pub fn find_downloaded_appimage(managed_dir: &Path) -> Option<PathBuf> {
                 if let Ok(children) = std::fs::read_dir(&sub) {
                     for child in children.flatten() {
                         let p = child.path();
-                        if p.extension().and_then(|e| e.to_str()) == Some("AppImage")
-                            && p.is_file()
+                        if p.extension().and_then(|e| e.to_str()) == Some("AppImage") && p.is_file()
                         {
                             return Some(p);
                         }
@@ -143,8 +142,11 @@ pub fn resolve_retroarch_config_path(runner: &Runner) -> PathBuf {
             let p = path.to_lowercase();
             if p.contains("org.libretro.retroarch") || p.contains("flatpak run") {
                 if let Some(home) = dirs::home_dir() {
-                    let flatpak_cfg = home.join(".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg");
-                    if flatpak_cfg.parent().map(|p| p.exists()).unwrap_or(false) || p.contains("org.libretro.retroarch") {
+                    let flatpak_cfg =
+                        home.join(".var/app/org.libretro.RetroArch/config/retroarch/retroarch.cfg");
+                    if flatpak_cfg.parent().map(|p| p.exists()).unwrap_or(false)
+                        || p.contains("org.libretro.retroarch")
+                    {
                         return flatpak_cfg;
                     }
                 }
@@ -171,8 +173,11 @@ pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
             let p = path.to_lowercase();
             if p.contains("org.libretro.retroarch") || p.contains("flatpak run") {
                 if let Some(home) = dirs::home_dir() {
-                    let flatpak_cores = home.join(".var/app/org.libretro.RetroArch/config/retroarch/cores");
-                    if flatpak_cores.parent().map(|p| p.exists()).unwrap_or(false) || p.contains("org.libretro.retroarch") {
+                    let flatpak_cores =
+                        home.join(".var/app/org.libretro.RetroArch/config/retroarch/cores");
+                    if flatpak_cores.parent().map(|p| p.exists()).unwrap_or(false)
+                        || p.contains("org.libretro.retroarch")
+                    {
                         return flatpak_cores;
                     }
                 }
@@ -187,7 +192,10 @@ pub fn resolve_retroarch_cores_dir(runner: &Runner) -> PathBuf {
 /// The filesystem is the source of truth: the catalog may list cores that
 /// have not been downloaded yet, and launching with those would fail with a
 /// "core not found" error. Preserves catalog order (first = default).
-pub fn available_cores_in(cores_dir: &Path, platform_slug: &str) -> Vec<crate::core_catalog::CoreInfo> {
+pub fn available_cores_in(
+    cores_dir: &Path,
+    platform_slug: &str,
+) -> Vec<crate::core_catalog::CoreInfo> {
     crate::core_catalog::cores_for_platform(platform_slug)
         .into_iter()
         .filter(|core| cores_dir.join(&core.so_file).is_file())
@@ -259,10 +267,16 @@ pub fn core_is_loadable(so_path: &Path) -> bool {
 /// First catalog core for `platform_slug`, in catalog order (default first),
 /// whose `.so` is present and loadable in any of `dirs`. Used to pick a safe
 /// fallback when the user-selected core cannot be loaded on this system.
-pub fn first_loadable_core_in(dirs: &[&Path], platform_slug: &str) -> Option<crate::core_catalog::CoreInfo> {
+pub fn first_loadable_core_in(
+    dirs: &[&Path],
+    platform_slug: &str,
+) -> Option<crate::core_catalog::CoreInfo> {
     crate::core_catalog::cores_for_platform(platform_slug)
         .into_iter()
-        .find(|core| dirs.iter().any(|dir| core_is_loadable(&dir.join(&core.so_file))))
+        .find(|core| {
+            dirs.iter()
+                .any(|dir| core_is_loadable(&dir.join(&core.so_file)))
+        })
 }
 
 /// Cores from the catalog for `platform_slug` whose libretro `.so` actually
@@ -331,7 +345,11 @@ pub fn extract_7z<P: AsRef<Path>, Q: AsRef<Path>>(archive_path: P, output_dir: Q
 
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Fallo la extracción del archivo 7z con el ejecutable '{}': {}", bin, err_msg);
+        anyhow::bail!(
+            "Fallo la extracción del archivo 7z con el ejecutable '{}': {}",
+            bin,
+            err_msg
+        );
     }
 
     Ok(())
@@ -362,24 +380,34 @@ mod tests {
 
     #[test]
     fn test_appimage_home_dir() {
-        let appimage = PathBuf::from("/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage");
+        let appimage = PathBuf::from(
+            "/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage",
+        );
         let home = appimage_home_dir(&appimage);
         assert!(home.to_string_lossy().ends_with(".AppImage.home"));
     }
 
     #[test]
     fn test_appimage_config_path() {
-        let appimage = PathBuf::from("/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage");
+        let appimage = PathBuf::from(
+            "/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage",
+        );
         let cfg = appimage_config_path(&appimage);
-        assert!(cfg.to_string_lossy().ends_with("/.config/retroarch/retroarch.cfg"));
+        assert!(cfg
+            .to_string_lossy()
+            .ends_with("/.config/retroarch/retroarch.cfg"));
         assert!(cfg.to_string_lossy().contains(".AppImage.home"));
     }
 
     #[test]
     fn test_appimage_cores_dir() {
-        let appimage = PathBuf::from("/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage");
+        let appimage = PathBuf::from(
+            "/data/retroarch-data/RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage",
+        );
         let cores = appimage_cores_dir(&appimage);
-        assert!(cores.to_string_lossy().ends_with("/.config/retroarch/cores"));
+        assert!(cores
+            .to_string_lossy()
+            .ends_with("/.config/retroarch/cores"));
         assert!(cores.to_string_lossy().contains(".AppImage.home"));
     }
 
@@ -498,10 +526,14 @@ mod tests {
         assert_eq!(found.as_deref(), Some(appimage.as_path()));
 
         let cfg = appimage_config_path(&appimage);
-        assert!(cfg.to_string_lossy().contains(".AppImage.home/.config/retroarch/retroarch.cfg"));
+        assert!(cfg
+            .to_string_lossy()
+            .contains(".AppImage.home/.config/retroarch/retroarch.cfg"));
 
         let cores = appimage_cores_dir(&appimage);
-        assert!(cores.to_string_lossy().contains(".AppImage.home/.config/retroarch/cores"));
+        assert!(cores
+            .to_string_lossy()
+            .contains(".AppImage.home/.config/retroarch/cores"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

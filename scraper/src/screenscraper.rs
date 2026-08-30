@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use reqwest::Client;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 use urlencoding::encode;
 
@@ -77,7 +77,10 @@ impl ScreenScraperClient {
     }
 
     /// Parse ScreenScraper XML response into ScraperSearchResult list and Quota (default options)
-    pub fn parse_xml_response(&self, xml_text: &str) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
+    pub fn parse_xml_response(
+        &self,
+        xml_text: &str,
+    ) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
         self.parse_xml_response_with_options(xml_text, None, None, None, None)
     }
 
@@ -99,27 +102,30 @@ impl ScreenScraperClient {
 
         let mut quota = ScreenScraperQuota::default();
         if let Some(user_node) = doc.descendants().find(|n| n.has_tag_name("ssuser")) {
-            if let Some(today) = user_node.children().find(|n| n.has_tag_name("requeststoday")) {
+            if let Some(today) = user_node
+                .children()
+                .find(|n| n.has_tag_name("requeststoday"))
+            {
                 quota.requests_today = today.text().unwrap_or("0").parse().unwrap_or(0);
             }
-            if let Some(max_day) = user_node.children().find(|n| n.has_tag_name("maxrequestsperday")) {
+            if let Some(max_day) = user_node
+                .children()
+                .find(|n| n.has_tag_name("maxrequestsperday"))
+            {
                 quota.max_requests_per_day = max_day.text().unwrap_or("0").parse().unwrap_or(0);
             }
-            quota.remaining_today = quota.max_requests_per_day.saturating_sub(quota.requests_today);
+            quota.remaining_today = quota
+                .max_requests_per_day
+                .saturating_sub(quota.requests_today);
         }
 
         let user_reg = preferred_region.unwrap_or("us").to_lowercase();
-        let region_fallback_order = vec![
-            user_reg.as_str(),
-            "wor",
-            "us",
-            "eu",
-            "jp",
-            "ss",
-        ];
+        let region_fallback_order = vec![user_reg.as_str(), "wor", "us", "eu", "jp", "ss"];
 
         let mut results = Vec::new();
-        let juegos_node = doc.descendants().find(|n| n.has_tag_name("jeux"))
+        let juegos_node = doc
+            .descendants()
+            .find(|n| n.has_tag_name("jeux"))
             .unwrap_or_else(|| doc.root_element());
 
         for game_node in juegos_node.children().filter(|n| n.has_tag_name("jeu")) {
@@ -129,9 +135,15 @@ impl ScreenScraperClient {
             let mut title = String::new();
             if let Some(noms_node) = game_node.children().find(|n| n.has_tag_name("noms")) {
                 for reg in &region_fallback_order {
-                    if let Some(nom) = noms_node.children().find(|n| n.has_tag_name("nom") && n.attribute("region") == Some(*reg)) {
+                    if let Some(nom) = noms_node
+                        .children()
+                        .find(|n| n.has_tag_name("nom") && n.attribute("region") == Some(*reg))
+                    {
                         if let Some(txt) = nom.text() {
-                            title = txt.replace("&nbsp;", " ").replace("&#x26;", "&").replace("&#39;", "'");
+                            title = txt
+                                .replace("&nbsp;", " ")
+                                .replace("&#x26;", "&")
+                                .replace("&#39;", "'");
                             break;
                         }
                     }
@@ -139,7 +151,10 @@ impl ScreenScraperClient {
                 if title.is_empty() {
                     if let Some(nom) = noms_node.children().find(|n| n.has_tag_name("nom")) {
                         if let Some(txt) = nom.text() {
-                            title = txt.replace("&nbsp;", " ").replace("&#x26;", "&").replace("&#39;", "'");
+                            title = txt
+                                .replace("&nbsp;", " ")
+                                .replace("&#x26;", "&")
+                                .replace("&#39;", "'");
                         }
                     }
                 }
@@ -166,13 +181,15 @@ impl ScreenScraperClient {
             }
 
             // Developer
-            let developer = game_node.children()
+            let developer = game_node
+                .children()
                 .find(|n| n.has_tag_name("developpeur"))
                 .and_then(|n| n.text())
                 .map(|t| t.replace("&nbsp;", " "));
 
             // Publisher
-            let publisher = game_node.children()
+            let publisher = game_node
+                .children()
                 .find(|n| n.has_tag_name("editeur"))
                 .and_then(|n| n.text())
                 .map(|t| t.replace("&nbsp;", " "));
@@ -181,7 +198,10 @@ impl ScreenScraperClient {
             let mut description = None;
             if let Some(syn_node) = game_node.children().find(|n| n.has_tag_name("synopsis")) {
                 for lang in &["en", "wor", "es", "fr"] {
-                    if let Some(s) = syn_node.children().find(|n| n.has_tag_name("synopsis") && n.attribute("langue") == Some(lang)) {
+                    if let Some(s) = syn_node
+                        .children()
+                        .find(|n| n.has_tag_name("synopsis") && n.attribute("langue") == Some(lang))
+                    {
                         if let Some(txt) = s.text() {
                             description = Some(txt.replace("&nbsp;", " ").replace("&quot;", "\""));
                             break;
@@ -215,7 +235,11 @@ impl ScreenScraperClient {
                     for target_type in target_types {
                         let matching_nodes: Vec<_> = medias_node
                             .children()
-                            .filter(|n| n.has_tag_name("media") && n.attribute("type").unwrap_or("").to_lowercase() == *target_type)
+                            .filter(|n| {
+                                n.has_tag_name("media")
+                                    && n.attribute("type").unwrap_or("").to_lowercase()
+                                        == *target_type
+                            })
                             .collect();
 
                         if matching_nodes.is_empty() {
@@ -224,7 +248,10 @@ impl ScreenScraperClient {
 
                         // Try finding node matching region fallback order
                         for reg in &region_fallback_order {
-                            if let Some(m) = matching_nodes.iter().find(|n| n.attribute("region") == Some(*reg)) {
+                            if let Some(m) = matching_nodes
+                                .iter()
+                                .find(|n| n.attribute("region") == Some(*reg))
+                            {
                                 if let Some(txt) = m.text() {
                                     return Some(txt.replace(' ', "%20"));
                                 }
@@ -243,28 +270,106 @@ impl ScreenScraperClient {
             };
 
             let cover_targets: Vec<&str> = match cover_pref.unwrap_or("box-2d") {
-                "box-3d" => vec!["box-3d", "box-3d-front", "box-2d", "box-2d-front", "flyer", "poster"],
-                "support-2d" => vec!["support-2d", "support-3d", "media-2d", "media-3d", "box-2d", "box-3d"],
-                "support-3d" => vec!["support-3d", "support-2d", "media-3d", "media-2d", "box-3d", "box-2d"],
-                "mix-recalboxv1" => vec!["mix-recalboxv1", "mix-recalbox1", "recalboxv1", "mix-recalboxv2", "box-2d", "box-3d"],
-                "mix-recalboxv2" => vec!["mix-recalboxv2", "mix-recalbox2", "recalboxv2", "mix-recalboxv1", "box-2d", "box-3d"],
-                _ => vec!["box-2d", "box-2d-front", "box-3d", "box-3d-front", "flyer", "poster", "box"],
+                "box-3d" => vec![
+                    "box-3d",
+                    "box-3d-front",
+                    "box-2d",
+                    "box-2d-front",
+                    "flyer",
+                    "poster",
+                ],
+                "support-2d" => vec![
+                    "support-2d",
+                    "support-3d",
+                    "media-2d",
+                    "media-3d",
+                    "box-2d",
+                    "box-3d",
+                ],
+                "support-3d" => vec![
+                    "support-3d",
+                    "support-2d",
+                    "media-3d",
+                    "media-2d",
+                    "box-3d",
+                    "box-2d",
+                ],
+                "mix-recalboxv1" => vec![
+                    "mix-recalboxv1",
+                    "mix-recalbox1",
+                    "recalboxv1",
+                    "mix-recalboxv2",
+                    "box-2d",
+                    "box-3d",
+                ],
+                "mix-recalboxv2" => vec![
+                    "mix-recalboxv2",
+                    "mix-recalbox2",
+                    "recalboxv2",
+                    "mix-recalboxv1",
+                    "box-2d",
+                    "box-3d",
+                ],
+                _ => vec![
+                    "box-2d",
+                    "box-2d-front",
+                    "box-3d",
+                    "box-3d-front",
+                    "flyer",
+                    "poster",
+                    "box",
+                ],
             };
 
             let banner_targets: Vec<&str> = match banner_pref.unwrap_or("fanart") {
-                "screenmarque" => vec!["screenmarque", "wheel-hd", "wheel", "fanart", "ss", "sstitle"],
+                "screenmarque" => vec![
+                    "screenmarque",
+                    "wheel-hd",
+                    "wheel",
+                    "fanart",
+                    "ss",
+                    "sstitle",
+                ],
                 "ss" => vec!["ss", "sstitle", "screenshot", "fanart", "wheel"],
                 "sstitle" => vec!["sstitle", "ss", "screenshot", "fanart", "wheel"],
                 "wheel" => vec!["wheel", "wheel-hd", "screenmarque", "fanart"],
-                _ => vec!["fanart", "screenmarque", "wheel-hd", "wheel", "ss", "sstitle", "banner"],
+                _ => vec![
+                    "fanart",
+                    "screenmarque",
+                    "wheel-hd",
+                    "wheel",
+                    "ss",
+                    "sstitle",
+                    "banner",
+                ],
             };
 
             let icon_targets: Vec<&str> = match icon_pref.unwrap_or("wheel") {
-                "steel" => vec!["wheel-steel", "wheel-carbon", "wheel", "wheel-hd", "support-2d"],
-                "carbon" => vec!["wheel-carbon", "wheel-steel", "wheel", "wheel-hd", "support-2d"],
+                "steel" => vec![
+                    "wheel-steel",
+                    "wheel-carbon",
+                    "wheel",
+                    "wheel-hd",
+                    "support-2d",
+                ],
+                "carbon" => vec![
+                    "wheel-carbon",
+                    "wheel-steel",
+                    "wheel",
+                    "wheel-hd",
+                    "support-2d",
+                ],
                 "support-2d" => vec!["support-2d", "support-3d", "media-2d", "wheel"],
                 "support-3d" => vec!["support-3d", "support-2d", "media-3d", "wheel"],
-                _ => vec!["wheel", "wheel-hd", "wheel-steel", "wheel-carbon", "steam-icon", "icon", "support-2d"],
+                _ => vec![
+                    "wheel",
+                    "wheel-hd",
+                    "wheel-steel",
+                    "wheel-carbon",
+                    "steam-icon",
+                    "icon",
+                    "support-2d",
+                ],
             };
 
             let cover_url = get_media_url_by_type(&cover_targets);
@@ -297,9 +402,13 @@ impl ScreenScraperClient {
     }
 
     /// Search for game candidates and return both results and ScreenScraperQuota tracking info
-    pub async fn search_with_quota(&self, params: &ScraperSearchParams) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
+    pub async fn search_with_quota(
+        &self,
+        params: &ScraperSearchParams,
+    ) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
         let is_arcade = params.platform_slug == "arcade" || params.platform_slug == "mame";
-        let (query, single_search) = TitleCleaner::prepare_search_query_esde(&params.title, is_arcade);
+        let (query, single_search) =
+            TitleCleaner::prepare_search_query_esde(&params.title, is_arcade);
 
         let endpoint = if params.automatic_mode || single_search || params.md5_hash.is_some() {
             "jeuInfos.php"
@@ -309,12 +418,20 @@ impl ScreenScraperClient {
 
         let mut url = format!(
             "{}/{}?devid={}&devpassword={}&softname={}&output=xml",
-            API_BASE_URL, endpoint, DEV_ID, DEV_PASSWORD, encode(SOFT_NAME)
+            API_BASE_URL,
+            endpoint,
+            DEV_ID,
+            DEV_PASSWORD,
+            encode(SOFT_NAME)
         );
 
         if let (Some(u), Some(p)) = (&self.user_id, &self.user_password) {
             if !u.trim().is_empty() && !p.trim().is_empty() {
-                url.push_str(&format!("&ssid={}&sspassword={}", encode(u.trim()), encode(p.trim())));
+                url.push_str(&format!(
+                    "&ssid={}&sspassword={}",
+                    encode(u.trim()),
+                    encode(p.trim())
+                ));
             }
         }
 
@@ -347,7 +464,9 @@ impl ScreenScraperClient {
             return Err(anyhow!("ScreenScraper daily quota exceeded (HTTP 430)"));
         } else if status.as_u16() == 401 {
             warn!("ScreenScraper HTTP 401: Server busy or invalid auth");
-            return Err(anyhow!("ScreenScraper server busy or unauthenticated (HTTP 401)"));
+            return Err(anyhow!(
+                "ScreenScraper server busy or unauthenticated (HTTP 401)"
+            ));
         } else if !status.is_success() {
             return Err(anyhow!("ScreenScraper HTTP error: {}", status));
         }
@@ -362,13 +481,18 @@ impl ScreenScraperClient {
         )?;
 
         if results.is_empty() && endpoint == "jeuInfos.php" {
-            let mut fallback_url = format!(
+            let mut fallback_url =
+                format!(
                 "{}/jeuRecherche.php?devid={}&devpassword={}&softname={}&output=xml&recherche={}",
                 API_BASE_URL, DEV_ID, DEV_PASSWORD, encode(SOFT_NAME), encode(&query)
             );
             if let (Some(u), Some(p)) = (&self.user_id, &self.user_password) {
                 if !u.trim().is_empty() && !p.trim().is_empty() {
-                    fallback_url.push_str(&format!("&ssid={}&sspassword={}", encode(u.trim()), encode(p.trim())));
+                    fallback_url.push_str(&format!(
+                        "&ssid={}&sspassword={}",
+                        encode(u.trim()),
+                        encode(p.trim())
+                    ));
                 }
             }
             if let Some(sys_id) = self.get_system_id(&params.platform_slug) {
@@ -463,8 +587,14 @@ mod tests {
         assert_eq!(game.publisher.as_deref(), Some("Nintendo"));
         assert_eq!(game.release_year, Some(1990));
         assert_eq!(game.rating, Some(4.8));
-        assert_eq!(game.cover_url.as_deref(), Some("https://example.com/cover.png"));
-        assert_eq!(game.banner_url.as_deref(), Some("https://example.com/banner.png"));
+        assert_eq!(
+            game.cover_url.as_deref(),
+            Some("https://example.com/cover.png")
+        );
+        assert_eq!(
+            game.banner_url.as_deref(),
+            Some("https://example.com/banner.png")
+        );
     }
 
     #[test]

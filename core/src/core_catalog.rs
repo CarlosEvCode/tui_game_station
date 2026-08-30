@@ -1,8 +1,8 @@
+use anyhow::{Context, Result};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use anyhow::{Context, Result};
-use serde::Deserialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CoreInfo {
@@ -28,9 +28,10 @@ pub const CORES_CATALOG_SOURCE: &str = include_str!("../../assets/retroarch_core
 
 /// Load the entire RetroArch core catalog from embedded TOML.
 pub fn load_core_catalog() -> HashMap<String, Vec<CoreInfo>> {
-    let raw: CoreCatalogFile = toml::from_str(CORES_CATALOG_SOURCE).unwrap_or_else(|_| CoreCatalogFile {
-        platform: HashMap::new(),
-    });
+    let raw: CoreCatalogFile =
+        toml::from_str(CORES_CATALOG_SOURCE).unwrap_or_else(|_| CoreCatalogFile {
+            platform: HashMap::new(),
+        });
     raw.platform
         .into_iter()
         .map(|(k, v)| (k, v.cores))
@@ -71,7 +72,8 @@ pub async fn ensure_core_downloaded<P: AsRef<Path>>(
     }
 
     // Download ZIP archive into temp location
-    let temp_zip = std::env::temp_dir().join(format!("core_{}_{}.zip", core.key, std::process::id()));
+    let temp_zip =
+        std::env::temp_dir().join(format!("core_{}_{}.zip", core.key, std::process::id()));
     let response = reqwest::get(&core.download_url)
         .await
         .with_context(|| format!("Failed to download core from {}", core.download_url))?;

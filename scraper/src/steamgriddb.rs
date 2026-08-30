@@ -78,13 +78,19 @@ impl SteamGridDBClient {
 
     /// Search game by title on SteamGridDB using cleaned search query
     pub async fn search_game(&self, raw_title: &str) -> Result<Vec<SteamGridSearchResult>> {
-        Ok(self.search_game_checked(raw_title).await?.unwrap_or_default())
+        Ok(self
+            .search_game_checked(raw_title)
+            .await?
+            .unwrap_or_default())
     }
 
     /// Search returning the raw API outcome so callers can tell "no results"
     /// (`Ok(Some(empty))`) apart from an API failure (`Ok(None)` on a
     /// `success:false` body, or `Err` on HTTP/network errors).
-    async fn search_game_checked(&self, raw_title: &str) -> Result<Option<Vec<SteamGridSearchResult>>> {
+    async fn search_game_checked(
+        &self,
+        raw_title: &str,
+    ) -> Result<Option<Vec<SteamGridSearchResult>>> {
         let url = format!(
             "{}/search/autocomplete/{}",
             self.base_url,
@@ -237,10 +243,7 @@ impl SteamGridDBClient {
                         let _ = d.record_media_status(game_id, "banner", "failed", None, None);
                         let _ = d.record_media_status(game_id, "icon", "failed", None, None);
                     }
-                    anyhow::bail!(
-                        "SteamGridDB search failed (retryable) for '{}'",
-                        raw_title
-                    );
+                    anyhow::bail!("SteamGridDB search failed (retryable) for '{}'", raw_title);
                 }
                 tracing::warn!(
                     "[SteamGridDB] No candidates found on SteamGridDB for '{}'",

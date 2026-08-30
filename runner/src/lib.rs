@@ -238,12 +238,16 @@ impl GameRunner {
                 let cores_dir = game_core::retroarch_manager::resolve_retroarch_cores_dir(r);
 
                 let mut core_so_path = if let Some(ref key) = resolved_core_key {
-                    if let Some(core_info) = game_core::core_catalog::core_by_key(&platform_slug, key) {
+                    if let Some(core_info) =
+                        game_core::core_catalog::core_by_key(&platform_slug, key)
+                    {
                         // Primary: use the dynamically resolved cores dir (correct for both
                         // Downloaded and Browsed runners).
                         let primary = cores_dir.join(&core_info.so_file);
                         // Fallback: system/browsed cores dir in case user installs cores there.
-                        let fallback = game_core::retroarch_manager::get_retroarch_browsed_cores_dir().join(&core_info.so_file);
+                        let fallback =
+                            game_core::retroarch_manager::get_retroarch_browsed_cores_dir()
+                                .join(&core_info.so_file);
 
                         if primary.is_file() {
                             primary
@@ -276,13 +280,10 @@ impl GameRunner {
                     if let Some(fallback) =
                         game_core::retroarch_manager::first_loadable_core_in(&dirs, &platform_slug)
                     {
-                        if let Some(replacement) = dirs
-                            .iter()
-                            .find_map(|d| {
-                                let p = d.join(&fallback.so_file);
-                                p.is_file().then_some(p)
-                            })
-                        {
+                        if let Some(replacement) = dirs.iter().find_map(|d| {
+                            let p = d.join(&fallback.so_file);
+                            p.is_file().then_some(p)
+                        }) {
                             tracing::warn!(
                                 "[retroarch] núcleo {:?} requiere executable stack y no puede cargarse en este sistema; usando {:?} en su lugar",
                                 core_so_path,
@@ -396,9 +397,11 @@ impl GameRunner {
         let exe = if is_retroarch {
             game_core::retroarch_manager::resolve_retroarch_executable(runner)
                 .map(|p| p.to_string_lossy().to_string())
-                .ok_or_else(|| anyhow::anyhow!(
-                    "El AppImage de RetroArch no se encontró en disco. Descárgalo primero."
-                ))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "El AppImage de RetroArch no se encontró en disco. Descárgalo primero."
+                    )
+                })?
         } else {
             runner.executable_path.clone().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -1188,7 +1191,10 @@ mod tests {
     fn split_command_prefix_handles_plain_and_flatpak() {
         let (prog, args) = split_command_prefix("flatpak run org.libretro.RetroArch");
         assert_eq!(prog, "flatpak");
-        assert_eq!(args, vec!["run".to_string(), "org.libretro.RetroArch".to_string()]);
+        assert_eq!(
+            args,
+            vec!["run".to_string(), "org.libretro.RetroArch".to_string()]
+        );
 
         let (prog, args) = split_command_prefix("/opt/emulator.AppImage");
         assert_eq!(prog, "/opt/emulator.AppImage");
@@ -1268,8 +1274,7 @@ mod tests {
             name: "MAME".to_string(),
             runner_type: "appimage".to_string(),
             executable_path: Some("flatpak run org.mamedev.MAME".to_string()),
-            command_template:
-                "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\"".to_string(),
+            command_template: "\"{executable_path}\" -rompath \"{rom_dir}\" \"{rom}\"".to_string(),
             default_env: None,
             download_url: None,
             download_filename: None,
@@ -1343,7 +1348,10 @@ mod tests {
             .expect("active runner");
         let game = fake_game(nds.id);
         let (exe, args, _envs) = GameRunner::build_command_line(&game, Some(&runner)).unwrap();
-        assert_eq!(exe, "flatpak", "the program must be 'flatpak', not the whole string");
+        assert_eq!(
+            exe, "flatpak",
+            "the program must be 'flatpak', not the whole string"
+        );
         assert_eq!(args[0], "run");
         assert_eq!(args[1], "org.libretro.RetroArch");
         let joined = args.join(" ");
@@ -1472,7 +1480,11 @@ mod tests {
         std::fs::create_dir_all(&cores_dir).unwrap();
         // desmume requires execstack (broken on hardened kernels); melondsds is RW.
         std::fs::write(cores_dir.join("desmume_libretro.so"), fake_elf64_so(true)).unwrap();
-        std::fs::write(cores_dir.join("melondsds_libretro.so"), fake_elf64_so(false)).unwrap();
+        std::fs::write(
+            cores_dir.join("melondsds_libretro.so"),
+            fake_elf64_so(false),
+        )
+        .unwrap();
 
         // DB: NDS with active Downloaded RetroArch whose env pins core=desmume.
         let db = game_core::db::Database::open_default().unwrap();

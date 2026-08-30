@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 use urlencoding::encode;
 
@@ -138,9 +138,15 @@ impl ScraperProvider for TheGamesDBClient {
         }
 
         let mut url = if let Some(ref md5) = params.md5_hash {
-            format!("{}/Games/ByGameHash?apikey={}&hash={}&filter[type]=md5", API_BASE_URL, self.api_key, md5)
+            format!(
+                "{}/Games/ByGameHash?apikey={}&hash={}&filter[type]=md5",
+                API_BASE_URL, self.api_key, md5
+            )
         } else if let Some(ref crc) = params.crc32_hash {
-            format!("{}/Games/ByGameHash?apikey={}&hash={}&filter[type]=crc", API_BASE_URL, self.api_key, crc)
+            format!(
+                "{}/Games/ByGameHash?apikey={}&hash={}&filter[type]=crc",
+                API_BASE_URL, self.api_key, crc
+            )
         } else {
             format!(
                 "{}/Games/ByGameName?apikey={}&name={}",
@@ -163,7 +169,10 @@ impl ScraperProvider for TheGamesDBClient {
 
         if status.as_u16() == 429 || status.as_u16() == 403 {
             warn!("TheGamesDB HTTP {}: Quota reached or forbidden", status);
-            return Err(anyhow!("TheGamesDB quota reached or invalid key (HTTP {})", status));
+            return Err(anyhow!(
+                "TheGamesDB quota reached or invalid key (HTTP {})",
+                status
+            ));
         } else if !status.is_success() {
             return Err(anyhow!("TheGamesDB HTTP error: {}", status));
         }
@@ -184,10 +193,16 @@ impl ScraperProvider for TheGamesDBClient {
                         if let Some(ref boxart_data) = inc.boxart {
                             if let Some(ref base_url) = boxart_data.base_url {
                                 let base = base_url.medium.as_ref().or(base_url.original.as_ref());
-                                if let (Some(base_str), Some(ref data_map)) = (base, &boxart_data.data) {
+                                if let (Some(base_str), Some(ref data_map)) =
+                                    (base, &boxart_data.data)
+                                {
                                     if let Some(items) = data_map.get(&g.id.to_string()) {
-                                        if let Some(front) = items.iter().find(|i| i.side.as_deref() == Some("front")) {
-                                            cover_url = Some(format!("{}{}", base_str, front.filename));
+                                        if let Some(front) = items
+                                            .iter()
+                                            .find(|i| i.side.as_deref() == Some("front"))
+                                        {
+                                            cover_url =
+                                                Some(format!("{}{}", base_str, front.filename));
                                         }
                                     }
                                 }

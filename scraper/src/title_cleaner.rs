@@ -105,11 +105,13 @@ mod tests {
         assert_eq!(query, "The Sims");
         assert!(!single); // "SIMS" is 4 chars, so not single search
 
-        let (query_short, single_short) = TitleCleaner::prepare_search_query_esde("1942.zip", false);
+        let (query_short, single_short) =
+            TitleCleaner::prepare_search_query_esde("1942.zip", false);
         assert_eq!(query_short, "1942");
         assert!(!single_short);
 
-        let (query_arcade, single_arcade) = TitleCleaner::prepare_search_query_esde("sf2.zip", true);
+        let (query_arcade, single_arcade) =
+            TitleCleaner::prepare_search_query_esde("sf2.zip", true);
         assert_eq!(query_arcade, "sf 2");
         assert!(single_arcade);
 

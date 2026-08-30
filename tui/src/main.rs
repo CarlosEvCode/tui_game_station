@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod cover_renderer;
+pub mod edit_game_details;
 mod figlet_title;
 pub mod gamepad;
 mod mouse_handler;
@@ -9,14 +10,13 @@ mod single_instance;
 mod toast;
 mod ui;
 pub mod updater;
-pub mod edit_game_details;
 mod window_helper;
 
 use anyhow::Result;
 use app::{
-    Action, App, BigPictureFocus, FocusedPane, ModalState, ScanFolderItem, build_scan_folder_items,
-    scan_folder_add_core_idx, scan_folder_add_emu_idx, scan_folder_add_has_core,
-    scan_folder_supports_dat,
+    build_scan_folder_items, scan_folder_add_core_idx, scan_folder_add_emu_idx,
+    scan_folder_add_has_core, scan_folder_supports_dat, Action, App, BigPictureFocus, FocusedPane,
+    ModalState, ScanFolderItem,
 };
 use clap::Parser;
 use crossterm::{
@@ -180,60 +180,62 @@ async fn main() -> Result<()> {
                         if app.modal_state != ModalState::None {
                             match key.code {
                                 KeyCode::Esc => {
-                                     if let ModalState::AppSettings {
-                                         ref mut is_editing_field,
-                                         ..
-                                     } = app.modal_state
-                                     {
-                                         if *is_editing_field {
-                                             *is_editing_field = false;
-                                             continue;
-                                         }
-                                         app.update(Action::SaveAppSettings).await;
-                                         continue;
-                                     }
-                                     if let ModalState::UnifiedSearchTitleInput { .. } = app.modal_state {
-                                         app.update(Action::CloseModal).await;
-                                         continue;
-                                     }
-                                     if let ModalState::UnifiedSearchProviderPicker {
-                                         game_id,
-                                         ref search_query,
-                                         ..
-                                     } = app.modal_state.clone()
-                                     {
-                                         let q_len = search_query.len();
-                                         app.modal_state = ModalState::UnifiedSearchTitleInput {
-                                             game_id,
-                                             search_query: search_query.clone(),
-                                             cursor_pos: q_len,
-                                         };
-                                         continue;
-                                     }
-                                     if let ModalState::ScreenScraperAccount {
-                                         ref mut is_editing_field,
-                                         ..
-                                     } = app.modal_state
-                                     {
-                                         if *is_editing_field {
-                                             *is_editing_field = false;
-                                             continue;
-                                         }
-                                         app.update(Action::OpenSettingsModal).await;
-                                         continue;
-                                     }
-                                     if let ModalState::ProtonDownloader { .. } = app.modal_state {
-                                         app.update(Action::ProtonDownloaderBack).await;
-                                     } else if let ModalState::WelcomeWizard {
-                                         ref sgdb_api_key,
-                                         ..
-                                     } = app.modal_state
-                                     {
-                                         let key = sgdb_api_key.clone();
-                                         app.finish_welcome_wizard(&key);
-                                     } else {
-                                         app.update(Action::CloseModal).await;
-                                     }
+                                    if let ModalState::AppSettings {
+                                        ref mut is_editing_field,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if *is_editing_field {
+                                            *is_editing_field = false;
+                                            continue;
+                                        }
+                                        app.update(Action::SaveAppSettings).await;
+                                        continue;
+                                    }
+                                    if let ModalState::UnifiedSearchTitleInput { .. } =
+                                        app.modal_state
+                                    {
+                                        app.update(Action::CloseModal).await;
+                                        continue;
+                                    }
+                                    if let ModalState::UnifiedSearchProviderPicker {
+                                        game_id,
+                                        ref search_query,
+                                        ..
+                                    } = app.modal_state.clone()
+                                    {
+                                        let q_len = search_query.len();
+                                        app.modal_state = ModalState::UnifiedSearchTitleInput {
+                                            game_id,
+                                            search_query: search_query.clone(),
+                                            cursor_pos: q_len,
+                                        };
+                                        continue;
+                                    }
+                                    if let ModalState::ScreenScraperAccount {
+                                        ref mut is_editing_field,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if *is_editing_field {
+                                            *is_editing_field = false;
+                                            continue;
+                                        }
+                                        app.update(Action::OpenSettingsModal).await;
+                                        continue;
+                                    }
+                                    if let ModalState::ProtonDownloader { .. } = app.modal_state {
+                                        app.update(Action::ProtonDownloaderBack).await;
+                                    } else if let ModalState::WelcomeWizard {
+                                        ref sgdb_api_key,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        let key = sgdb_api_key.clone();
+                                        app.finish_welcome_wizard(&key);
+                                    } else {
+                                        app.update(Action::CloseModal).await;
+                                    }
                                 }
                                 KeyCode::BackTab => {
                                     if key.modifiers.contains(KeyModifiers::SHIFT)
@@ -375,16 +377,16 @@ async fn main() -> Result<()> {
                                             *selected_provider_idx += 1;
                                         }
                                     }
-                                     ModalState::ScreenScraperAccount {
-                                         ref mut selected_field,
-                                         ref mut is_editing_field,
-                                         ..
-                                     } => {
-                                         *is_editing_field = false;
-                                         if *selected_field < 2 {
-                                             *selected_field += 1;
-                                         }
-                                     }
+                                    ModalState::ScreenScraperAccount {
+                                        ref mut selected_field,
+                                        ref mut is_editing_field,
+                                        ..
+                                    } => {
+                                        *is_editing_field = false;
+                                        if *selected_field < 2 {
+                                            *selected_field += 1;
+                                        }
+                                    }
                                     ModalState::WelcomeWizard {
                                         step: 3,
                                         ref mut active_field,
@@ -516,7 +518,8 @@ async fn main() -> Result<()> {
                                         ref folders,
                                         selected_index,
                                     } => {
-                                        let items = build_scan_folder_items(&app.db, platform.id, folders);
+                                        let items =
+                                            build_scan_folder_items(&app.db, platform.id, folders);
                                         match items.get(*selected_index) {
                                             Some(ScanFolderItem::FolderEmulator(_)) => {
                                                 app.update(Action::CycleFolderEmulator(true)).await;
@@ -550,7 +553,9 @@ async fn main() -> Result<()> {
                                     ModalState::ScraperMenu { .. } => {
                                         app.update(Action::CycleScraperOption(false)).await;
                                     }
-                                    ModalState::None if app.focused_pane == FocusedPane::Platforms => {
+                                    ModalState::None
+                                        if app.focused_pane == FocusedPane::Platforms =>
+                                    {
                                         // ◀ Emulador (o Núcleo) anterior.
                                         app.update(Action::CycleActiveEmulatorPrev).await;
                                     }
@@ -671,10 +676,12 @@ async fn main() -> Result<()> {
                                         ref folders,
                                         selected_index,
                                     } => {
-                                        let items = build_scan_folder_items(&app.db, platform.id, folders);
+                                        let items =
+                                            build_scan_folder_items(&app.db, platform.id, folders);
                                         match items.get(*selected_index) {
                                             Some(ScanFolderItem::FolderEmulator(_)) => {
-                                                app.update(Action::CycleFolderEmulator(false)).await;
+                                                app.update(Action::CycleFolderEmulator(false))
+                                                    .await;
                                             }
                                             Some(ScanFolderItem::FolderCore(_)) => {
                                                 app.update(Action::CycleFolderCore(false)).await;
@@ -705,7 +712,9 @@ async fn main() -> Result<()> {
                                     ModalState::ScraperMenu { .. } => {
                                         app.update(Action::CycleScraperOption(true)).await;
                                     }
-                                    ModalState::None if app.focused_pane == FocusedPane::Platforms => {
+                                    ModalState::None
+                                        if app.focused_pane == FocusedPane::Platforms =>
+                                    {
                                         // Emulador (o Núcleo) siguiente ▶.
                                         app.update(Action::CycleActiveEmulatorNext).await;
                                     }
@@ -836,13 +845,13 @@ async fn main() -> Result<()> {
                                                 (3..=5).contains(&selected_field)
                                             }
                                         };
-                                         if selected_field == 1 && game_type == &PlatformType::Wine {
-                                             app.update(Action::OpenFilePicker).await;
-                                         } else if on_checkbox {
-                                             app.update(Action::ModalToggleCheckbox).await;
-                                         } else {
-                                             app.update(Action::ModalInputChar(' ')).await;
-                                         }
+                                        if selected_field == 1 && game_type == &PlatformType::Wine {
+                                            app.update(Action::OpenFilePicker).await;
+                                        } else if on_checkbox {
+                                            app.update(Action::ModalToggleCheckbox).await;
+                                        } else {
+                                            app.update(Action::ModalInputChar(' ')).await;
+                                        }
                                     } else if let ModalState::AddFolderScanForm {
                                         selected_field,
                                         ..
@@ -880,63 +889,74 @@ async fn main() -> Result<()> {
                                         } else {
                                             app.update(Action::ModalInputChar(' ')).await;
                                         }
-                                    } else if let ModalState::WindowsRunInstallerForm { selected_field, .. } = app.modal_state {
-                                         if selected_field == 0 {
-                                             app.update(Action::OpenFilePicker).await;
-                                         } else {
-                                             app.update(Action::FormNavRight).await;
-                                         }
+                                    } else if let ModalState::WindowsRunInstallerForm {
+                                        selected_field,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if selected_field == 0 {
+                                            app.update(Action::OpenFilePicker).await;
+                                        } else {
+                                            app.update(Action::FormNavRight).await;
+                                        }
                                     } else {
                                         app.update(Action::ModalInputChar(' ')).await;
                                     }
                                 }
                                 KeyCode::Enter => match app.modal_state {
-                                     ModalState::AddGameStep1Type { .. } => {
-                                         app.update(Action::ModalConfirmStep1).await;
-                                     }
-                                     ModalState::WindowsStep1ActionMode { .. }
-                                     | ModalState::WindowsStep2CategoryMode { .. } => {
-                                         app.update(Action::ModalConfirmWindowsSetup).await;
-                                     }
-                                     ModalState::WindowsRunInstallerForm { selected_field, .. } => {
-                                         if selected_field == 0 {
-                                             app.update(Action::OpenFilePicker).await;
-                                         } else {
-                                             app.update(Action::ExecuteWindowsInstaller).await;
-                                             if let Some((inst_str, prefix_str)) = app.pending_installer_run.take() {
-                                                 disable_raw_mode()?;
-                                                 execute!(
-                                                     stdout(),
-                                                     LeaveAlternateScreen,
-                                                     cursor::Show
-                                                 )?;
-                                                 let mut child = std::process::Command::new("wine")
-                                                     .arg(&inst_str)
-                                                     .env("WINEPREFIX", &prefix_str)
-                                                     .spawn()
-                                                     .ok();
-                                                 if let Some(ref mut c) = child {
-                                                     let _ = c.wait();
-                                                 }
-                                                 enable_raw_mode()?;
-                                                 execute!(
-                                                     stdout(),
-                                                     EnterAlternateScreen,
-                                                     cursor::Hide
-                                                 )?;
-                                                 terminal.clear()?;
-                                                 terminal.draw(|f| ui::render_ui(f, &mut app))?;
-                                                 app.status_msg = "[Installer Completed] App installation finished cleanly.".to_string();
-                                                 app.show_toast("Installer finished!", crate::toast::ToastKind::Success);
-                                             }
-                                         }
-                                     }
-                                     ModalState::SelectDetectedExePicker { .. } => {
-                                         app.update(Action::ConfirmDetectedExePicker).await;
-                                     }
-                                     ModalState::ScanFolderStep1Platform { .. } => {
-                                         app.update(Action::ScanModalConfirmPlatform).await;
-                                     }
+                                    ModalState::AddGameStep1Type { .. } => {
+                                        app.update(Action::ModalConfirmStep1).await;
+                                    }
+                                    ModalState::WindowsStep1ActionMode { .. }
+                                    | ModalState::WindowsStep2CategoryMode { .. } => {
+                                        app.update(Action::ModalConfirmWindowsSetup).await;
+                                    }
+                                    ModalState::WindowsRunInstallerForm {
+                                        selected_field, ..
+                                    } => {
+                                        if selected_field == 0 {
+                                            app.update(Action::OpenFilePicker).await;
+                                        } else {
+                                            app.update(Action::ExecuteWindowsInstaller).await;
+                                            if let Some((inst_str, prefix_str)) =
+                                                app.pending_installer_run.take()
+                                            {
+                                                disable_raw_mode()?;
+                                                execute!(
+                                                    stdout(),
+                                                    LeaveAlternateScreen,
+                                                    cursor::Show
+                                                )?;
+                                                let mut child = std::process::Command::new("wine")
+                                                    .arg(&inst_str)
+                                                    .env("WINEPREFIX", &prefix_str)
+                                                    .spawn()
+                                                    .ok();
+                                                if let Some(ref mut c) = child {
+                                                    let _ = c.wait();
+                                                }
+                                                enable_raw_mode()?;
+                                                execute!(
+                                                    stdout(),
+                                                    EnterAlternateScreen,
+                                                    cursor::Hide
+                                                )?;
+                                                terminal.clear()?;
+                                                terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                                                app.status_msg = "[Installer Completed] App installation finished cleanly.".to_string();
+                                                app.show_toast(
+                                                    "Installer finished!",
+                                                    crate::toast::ToastKind::Success,
+                                                );
+                                            }
+                                        }
+                                    }
+                                    ModalState::SelectDetectedExePicker { .. } => {
+                                        app.update(Action::ConfirmDetectedExePicker).await;
+                                    }
+                                    ModalState::ScanFolderStep1Platform { .. } => {
+                                        app.update(Action::ScanModalConfirmPlatform).await;
+                                    }
                                     ModalState::ConfigureApiKeyInput { .. } => {
                                         app.update(Action::SaveApiKey).await;
                                     }
@@ -959,11 +979,12 @@ async fn main() -> Result<()> {
                                     } => {
                                         let q = search_query.trim().to_string();
                                         if !q.is_empty() {
-                                            app.modal_state = ModalState::UnifiedSearchProviderPicker {
-                                                game_id,
-                                                search_query: q,
-                                                selected_provider_idx: 0,
-                                            };
+                                            app.modal_state =
+                                                ModalState::UnifiedSearchProviderPicker {
+                                                    game_id,
+                                                    search_query: q,
+                                                    selected_provider_idx: 0,
+                                                };
                                         }
                                     }
                                     ModalState::UnifiedSearchProviderPicker {
@@ -975,8 +996,17 @@ async fn main() -> Result<()> {
                                         let q = search_query.clone();
                                         let provider = selected_provider_idx;
                                         if provider == 0 {
-                                            let key = app.db.get_setting("steamgriddb_api_key").ok().flatten();
-                                            let title = app.games.iter().find(|g| g.id == gid).map(|g| g.title.clone()).unwrap_or_else(|| q.clone());
+                                            let key = app
+                                                .db
+                                                .get_setting("steamgriddb_api_key")
+                                                .ok()
+                                                .flatten();
+                                            let title = app
+                                                .games
+                                                .iter()
+                                                .find(|g| g.id == gid)
+                                                .map(|g| g.title.clone())
+                                                .unwrap_or_else(|| q.clone());
                                             let q_len = q.len();
                                             app.modal_state = ModalState::VisualMediaSelector {
                                                 game_id: gid,
@@ -1000,8 +1030,10 @@ async fn main() -> Result<()> {
                                                 selected_icon_idx: 0,
                                                 chosen_icon_idx: None,
                                             };
-                                            app.status_msg = format!("Searching SteamGridDB for '{}'...", q);
-                                            let client = scraper::steamgriddb::SteamGridDBClient::new(key);
+                                            app.status_msg =
+                                                format!("Searching SteamGridDB for '{}'...", q);
+                                            let client =
+                                                scraper::steamgriddb::SteamGridDBClient::new(key);
                                             if let Ok(results) = client.search_game(&q).await {
                                                 if let ModalState::VisualMediaSelector {
                                                     ref mut is_searching,
@@ -1016,7 +1048,12 @@ async fn main() -> Result<()> {
                                                 }
                                             }
                                         } else {
-                                            let orig_title = app.games.iter().find(|g| g.id == gid).map(|g| g.title.clone()).unwrap_or_else(|| q.clone());
+                                            let orig_title = app
+                                                .games
+                                                .iter()
+                                                .find(|g| g.id == gid)
+                                                .map(|g| g.title.clone())
+                                                .unwrap_or_else(|| q.clone());
                                             let q_len = q.len();
                                             app.modal_state = ModalState::AdvancedScraperSearch {
                                                 game_id: gid,
@@ -1031,7 +1068,7 @@ async fn main() -> Result<()> {
                                             app.update(Action::ExecuteAdvancedScraperSearch).await;
                                         }
                                     }
-                                     ModalState::AppSettings {
+                                    ModalState::AppSettings {
                                         selected_field,
                                         ref mut is_editing_field,
                                         ref api_key_input,
@@ -1246,12 +1283,13 @@ async fn main() -> Result<()> {
                                         } else {
                                             match game_type {
                                                 PlatformType::Wine => match selected_field {
-                                                     1 => {
-                                                         app.update(Action::OpenDetectedExePicker).await;
-                                                     }
-                                                     2 | 3 => {
-                                                         app.update(Action::OpenFilePicker).await;
-                                                     }
+                                                    1 => {
+                                                        app.update(Action::OpenDetectedExePicker)
+                                                            .await;
+                                                    }
+                                                    2 | 3 => {
+                                                        app.update(Action::OpenFilePicker).await;
+                                                    }
                                                     4 => {
                                                         app.update(Action::OpenWineRunnerPicker)
                                                             .await
@@ -1368,31 +1406,36 @@ async fn main() -> Result<()> {
                                             }
                                         }
                                     }
-                                    ModalState::FavoritesModal { ref games, selected_idx } => {
+                                    ModalState::FavoritesModal {
+                                        ref games,
+                                        selected_idx,
+                                    } => {
                                         if let Some(g) = games.get(selected_idx) {
                                             app.jump_to_favorite_game(g.id, g.platform_id).await;
                                         }
                                     }
-                                      ModalState::LocalMediaPicker {
-                                          game_id,
-                                          selected_row,
-                                          parent_modal: ref parent,
-                                      } => {
-                                          let mtype = match selected_row {
-                                              1 => "banner",
-                                              2 => "icon",
-                                              _ => "cover",
-                                          }.to_string();
-                                          let gid = game_id;
-                                          let parent_state = parent.clone();
-                                          // Set modal_state back to parent so when FilePicker returns, parent is restored.
-                                          app.modal_state = *parent_state;
-                                          app.update(Action::OpenLocalMediaFilePicker {
-                                              game_id: gid,
-                                              media_type: mtype,
-                                          }).await;
-                                      }
-                                     ModalState::ScanFolderForm { .. } => {
+                                    ModalState::LocalMediaPicker {
+                                        game_id,
+                                        selected_row,
+                                        parent_modal: ref parent,
+                                    } => {
+                                        let mtype = match selected_row {
+                                            1 => "banner",
+                                            2 => "icon",
+                                            _ => "cover",
+                                        }
+                                        .to_string();
+                                        let gid = game_id;
+                                        let parent_state = parent.clone();
+                                        // Set modal_state back to parent so when FilePicker returns, parent is restored.
+                                        app.modal_state = *parent_state;
+                                        app.update(Action::OpenLocalMediaFilePicker {
+                                            game_id: gid,
+                                            media_type: mtype,
+                                        })
+                                        .await;
+                                    }
+                                    ModalState::ScanFolderForm { .. } => {
                                         app.handle_scan_form_enter().await;
                                     }
                                     ModalState::WindowsGamesManager { .. } => {
@@ -1447,7 +1490,8 @@ async fn main() -> Result<()> {
                                                 && (exe_trimmed.contains(' ')
                                                     || exe_trimmed.starts_with("flatpak run")
                                                     || std::path::Path::new(exe_trimmed).exists());
-                                            let is_flatpak_cmd = exe_trimmed.starts_with("flatpak run")
+                                            let is_flatpak_cmd = exe_trimmed
+                                                .starts_with("flatpak run")
                                                 || (exe_trimmed.contains(' ')
                                                     && !std::path::Path::new(exe_trimmed).exists());
                                             let mut actions = vec!["browse", "detect"];
@@ -1471,7 +1515,8 @@ async fn main() -> Result<()> {
                                                     app.update(Action::OpenFilePicker).await
                                                 }
                                                 "detect" => {
-                                                    app.update(Action::OpenDetectEmulatorModal).await
+                                                    app.update(Action::OpenDetectEmulatorModal)
+                                                        .await
                                                 }
                                                 "download" => {
                                                     app.update(Action::StartRunnerDownload).await
@@ -1559,7 +1604,9 @@ async fn main() -> Result<()> {
                                         app.modal_state
                                     {
                                         app.update(Action::DeleteInstalledWineRunner).await;
-                                    } else if let ModalState::ScanFolderForm { .. } = app.modal_state {
+                                    } else if let ModalState::ScanFolderForm { .. } =
+                                        app.modal_state
+                                    {
                                         app.update(Action::OpenConfirmDeleteFolder).await;
                                     }
                                 }
@@ -1648,15 +1695,18 @@ async fn main() -> Result<()> {
                                     }
                                 },
                                 KeyCode::Char('m') => {
-                                    if let ModalState::EditGameForm { game_id, .. } = app.modal_state {
+                                    if let ModalState::EditGameForm { game_id, .. } =
+                                        app.modal_state
+                                    {
                                         app.update(Action::OpenLocalMediaPicker {
                                             game_id,
                                             media_type: "cover".to_string(),
-                                        }).await;
+                                        })
+                                        .await;
                                     } else {
                                         app.update(Action::ModalInputChar('m')).await;
                                     }
-                                },
+                                }
                                 KeyCode::Char('t') => {
                                     if let ModalState::ProtonDownloader { .. } = app.modal_state {
                                         app.update(Action::ProtonDownloaderSelectNext).await;
@@ -1714,24 +1764,26 @@ async fn main() -> Result<()> {
                         } else if app.is_big_picture && app.big_picture_in_detail {
                             // Game Detail View: dedicated controls
                             match key.code {
-                                KeyCode::Enter => {
-                                    match app.detail_action_idx {
-                                        0 => {
-                                            app.update(Action::LaunchGame).await;
-                                            terminal.clear()?;
-                                            terminal.draw(|f| ui::render_ui(f, &mut app))?;
-                                        }
-                                        1 => { app.update(Action::ToggleFavorite).await; }
-                                        2 => {
-                                            app.show_toast(
-                                                "Options: coming soon",
-                                                crate::toast::ToastKind::Info,
-                                            );
-                                        }
-                                        3 => { app.update(Action::DeleteDetailGame).await; }
-                                        _ => {}
+                                KeyCode::Enter => match app.detail_action_idx {
+                                    0 => {
+                                        app.update(Action::LaunchGame).await;
+                                        terminal.clear()?;
+                                        terminal.draw(|f| ui::render_ui(f, &mut app))?;
                                     }
-                                }
+                                    1 => {
+                                        app.update(Action::ToggleFavorite).await;
+                                    }
+                                    2 => {
+                                        app.show_toast(
+                                            "Options: coming soon",
+                                            crate::toast::ToastKind::Info,
+                                        );
+                                    }
+                                    3 => {
+                                        app.update(Action::DeleteDetailGame).await;
+                                    }
+                                    _ => {}
+                                },
                                 KeyCode::Esc => {
                                     app.update(Action::CloseGameDetail).await;
                                 }
@@ -1830,8 +1882,7 @@ async fn main() -> Result<()> {
                                     }
                                     KeyCode::Char('e') => {
                                         if app.focused_pane == FocusedPane::Platforms {
-                                            app.update(Action::OpenFolderManagerForPlatform)
-                                                .await;
+                                            app.update(Action::OpenFolderManagerForPlatform).await;
                                         } else {
                                             app.update(Action::OpenEditGameModal).await;
                                         }
@@ -1960,7 +2011,7 @@ async fn main() -> Result<()> {
                                             app.update(Action::ModalInputChar('S')).await;
                                         }
                                     }
-                                 KeyCode::Char('r') => {
+                                    KeyCode::Char('r') => {
                                         app.update(Action::QuickRescanPlatform).await;
                                     }
                                     KeyCode::Char('g') => {

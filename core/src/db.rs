@@ -187,8 +187,10 @@ impl Database {
             .iter()
             .any(|name| name == "is_active");
         if !has_active {
-            self.conn
-                .execute("ALTER TABLE runners ADD COLUMN is_active BOOLEAN DEFAULT 0", [])?;
+            self.conn.execute(
+                "ALTER TABLE runners ADD COLUMN is_active BOOLEAN DEFAULT 0",
+                [],
+            )?;
         }
 
         // Migrate pre-existing databases that lack the scan_folders
@@ -221,14 +223,14 @@ impl Database {
             .iter()
             .any(|name| name == "folder_id");
         if !has_folder_id {
-            self.conn
-                .execute("ALTER TABLE games ADD COLUMN folder_id INTEGER REFERENCES scan_folders(id)", [])?;
+            self.conn.execute(
+                "ALTER TABLE games ADD COLUMN folder_id INTEGER REFERENCES scan_folders(id)",
+                [],
+            )?;
             let folders: Vec<(i64, i64, String)> = self
                 .conn
                 .prepare("SELECT id, platform_id, path FROM scan_folders")?
-                .query_map([], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                })?
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             for (folder_id, platform_id, path) in folders {
                 let trimmed = path.trim_end_matches('/');
@@ -268,7 +270,8 @@ impl Database {
             .iter()
             .any(|name| name == "source");
         if !has_runner_source {
-            self.conn.execute("ALTER TABLE runners ADD COLUMN source TEXT", [])?;
+            self.conn
+                .execute("ALTER TABLE runners ADD COLUMN source TEXT", [])?;
         }
 
         // Migrate scan_folders.assigned_core column.
@@ -280,7 +283,8 @@ impl Database {
             .iter()
             .any(|name| name == "assigned_core");
         if !has_folder_assigned_core {
-            self.conn.execute("ALTER TABLE scan_folders ADD COLUMN assigned_core TEXT", [])?;
+            self.conn
+                .execute("ALTER TABLE scan_folders ADD COLUMN assigned_core TEXT", [])?;
         }
 
         // Migrate games.core_override column.
@@ -292,7 +296,8 @@ impl Database {
             .iter()
             .any(|name| name == "core_override");
         if !has_game_core_override {
-            self.conn.execute("ALTER TABLE games ADD COLUMN core_override TEXT", [])?;
+            self.conn
+                .execute("ALTER TABLE games ADD COLUMN core_override TEXT", [])?;
         }
 
         // Clean up the stale "Nintendo DS" platform from the old `ds` slug. It
@@ -315,7 +320,8 @@ impl Database {
             )
             .unwrap_or(0);
         if ds_superseded > 0 {
-            self.conn.execute("DELETE FROM platforms WHERE slug = 'ds'", [])?;
+            self.conn
+                .execute("DELETE FROM platforms WHERE slug = 'ds'", [])?;
         }
 
         Ok(())
@@ -340,12 +346,7 @@ impl Database {
                 ".gba, .zip, .7z",
             ),
             ("n64", "Nintendo 64", "emulator", ".n64, .z64, .v64"),
-            (
-                "ps1",
-                "Sony PlayStation",
-                "emulator",
-                ".cue, .chd, .pbp",
-            ),
+            ("ps1", "Sony PlayStation", "emulator", ".cue, .chd, .pbp"),
             ("ps2", "Sony PlayStation 2", "emulator", ".iso, .chd"),
             (
                 "psp",
@@ -375,30 +376,15 @@ impl Database {
                 "emulator",
                 ".cdi, .gdi, .chd",
             ),
-            (
-                "saturn",
-                "Sega Saturn",
-                "emulator",
-                ".cue, .chd",
-            ),
+            ("saturn", "Sega Saturn", "emulator", ".cue, .chd"),
             (
                 "pce",
                 "NEC PC Engine / TurboGrafx-16",
                 "emulator",
                 ".pce, .chd, .cue, .zip",
             ),
-            (
-                "pico8",
-                "PICO-8",
-                "emulator",
-                ".p8, .png",
-            ),
-            (
-                "javame",
-                "Java ME",
-                "emulator",
-                ".jar, .jad",
-            ),
+            ("pico8", "PICO-8", "emulator", ".p8, .png"),
+            ("javame", "Java ME", "emulator", ".jar, .jad"),
             (
                 "switch",
                 "Nintendo Switch",
@@ -414,7 +400,12 @@ impl Database {
                 ".gb, .gbc, .zip, .7z",
             ),
             ("windows", "Windows Games", "wine", ".exe, .bat"),
-            ("apps", "Software & Utilities", "wine", ".exe, .AppImage, .sh, .bin"),
+            (
+                "apps",
+                "Software & Utilities",
+                "wine",
+                ".exe, .AppImage, .sh, .bin",
+            ),
             ("linux", "Linux Native", "native", ".sh, .AppImage, .bin"),
             ("steam", "Steam Games", "steam", ""),
         ];
@@ -859,10 +850,8 @@ impl Database {
     /// entries but lose their `folder_id`, behaving like legacy games.
     pub fn delete_scan_folder(&self, folder_id: i64, delete_games: bool) -> Result<()> {
         if delete_games {
-            self.conn.execute(
-                "DELETE FROM games WHERE folder_id = ?1",
-                params![folder_id],
-            )?;
+            self.conn
+                .execute("DELETE FROM games WHERE folder_id = ?1", params![folder_id])?;
         } else {
             self.conn.execute(
                 "UPDATE games SET folder_id = NULL WHERE folder_id = ?1",
@@ -1152,11 +1141,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_runner_source(
-        &self,
-        runner_id: i64,
-        source: Option<&str>,
-    ) -> Result<()> {
+    pub fn update_runner_source(&self, runner_id: i64, source: Option<&str>) -> Result<()> {
         self.conn.execute(
             "UPDATE runners SET source = ?1 WHERE id = ?2",
             params![source, runner_id],
@@ -1340,7 +1325,12 @@ impl Database {
     }
 
     pub fn insert_game(&self, game: &Game) -> Result<i64> {
-        tracing::info!("[DB TRACE] insert_game: title='{}', platform_id={}, game_type='{}'", game.title, game.platform_id, game.game_type);
+        tracing::info!(
+            "[DB TRACE] insert_game: title='{}', platform_id={}, game_type='{}'",
+            game.title,
+            game.platform_id,
+            game.game_type
+        );
         self.conn.execute(
             "INSERT INTO games (
                 platform_id, title, sort_title, game_type, file_path, working_dir,
@@ -1447,12 +1437,10 @@ impl Database {
         &self,
         file_path: &str,
     ) -> Result<Option<(Option<String>, Option<String>, Option<String>, i64)>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT file_hash_crc32, file_hash_md5, file_hash_sha1, file_size \
+        let mut stmt = self.conn.prepare(
+            "SELECT file_hash_crc32, file_hash_md5, file_hash_sha1, file_size \
                  FROM games WHERE file_path = ?1",
-            )?;
+        )?;
         let mut rows = stmt.query(params![file_path])?;
         if let Some(row) = rows.next()? {
             let size: Option<i64> = row.get(3)?;
@@ -1567,7 +1555,13 @@ impl Database {
     }
 
     pub fn update_game(&self, game: &Game) -> Result<()> {
-        tracing::info!("[DB TRACE] update_game: id={}, title='{}', platform_id={}, game_type='{}'", game.id, game.title, game.platform_id, game.game_type);
+        tracing::info!(
+            "[DB TRACE] update_game: id={}, title='{}', platform_id={}, game_type='{}'",
+            game.id,
+            game.title,
+            game.platform_id,
+            game.game_type
+        );
         self.conn.execute(
             "UPDATE games SET
                 title = ?1,
@@ -1609,11 +1603,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn set_game_core_override(
-        &self,
-        game_id: i64,
-        core_override: Option<&str>,
-    ) -> Result<()> {
+    pub fn set_game_core_override(&self, game_id: i64, core_override: Option<&str>) -> Result<()> {
         self.conn.execute(
             "UPDATE games SET core_override = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
             params![core_override, game_id],
@@ -1623,11 +1613,7 @@ impl Database {
 
     /// Resolve effective RetroArch core for a game following 4-level hierarchy:
     /// Game `core_override` -> Folder `assigned_core` -> Platform active runner `active_core` -> Catalog default core
-    pub fn get_effective_core_for_game(
-        &self,
-        game: &Game,
-        platform_slug: &str,
-    ) -> Option<String> {
+    pub fn get_effective_core_for_game(&self, game: &Game, platform_slug: &str) -> Option<String> {
         // 1. Game core override
         if let Some(ref c) = game.core_override {
             if !c.trim().is_empty() {
@@ -1856,7 +1842,11 @@ mod tests {
                 continue;
             }
             let active_count = runners.iter().filter(|r| r.is_active).count();
-            assert_eq!(active_count, 1, "platform {} must have one active", platform.slug);
+            assert_eq!(
+                active_count, 1,
+                "platform {} must have one active",
+                platform.slug
+            );
         }
 
         let switch = db
@@ -1912,12 +1902,14 @@ mod tests {
         assert_eq!(chosen.name, "Ryujinx");
 
         // Configure Ryujinx: active + configured -> it wins.
-        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true).unwrap();
+        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true)
+            .unwrap();
         let chosen = db.get_runner_for_platform(switch.id).unwrap().unwrap();
         assert_eq!(chosen.name, "Ryujinx");
 
         // Configure Citron too, then switch the active emulator to Citron.
-        db.update_runner_config(citron.id, "/fake/citron", true).unwrap();
+        db.update_runner_config(citron.id, "/fake/citron", true)
+            .unwrap();
         db.set_active_runner(switch.id, citron.id).unwrap();
         let chosen = db.get_runner_for_platform(switch.id).unwrap().unwrap();
         assert_eq!(chosen.name, "Citron");
@@ -1940,7 +1932,10 @@ mod tests {
 
         // The active flag stays on Citron but it is not configured: get_active
         // still reports it, while launch resolution skips it.
-        let active = db.get_active_runner_for_platform(switch.id).unwrap().unwrap();
+        let active = db
+            .get_active_runner_for_platform(switch.id)
+            .unwrap()
+            .unwrap();
         assert_eq!(active.name, "Citron");
 
         drop(db);
@@ -2030,17 +2025,26 @@ mod tests {
             .unwrap();
 
         // Without an override, the game resolves through the platform (Ryujinx).
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, Some(folder_a), None)
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Ryujinx");
 
         // Pin Citron to folder A -> the game now launches with Citron.
         db.set_folder_assigned_emulator(folder_a, Some(citron.id))
             .unwrap();
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, Some(folder_a), None)
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Citron");
 
         // Legacy games (no folder) are unaffected by the override.
-        let chosen = db.get_runner_for_game(switch.id, None, None).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, None, None)
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Ryujinx");
 
         // Unlink keeps the game (legacy), remove loses it.
@@ -2129,33 +2133,56 @@ mod tests {
         let eden_id = db.insert_runner(switch.id, "Eden", "emulator").unwrap();
 
         // Configure Ryujinx, Citron, Eden
-        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true).unwrap();
-        db.update_runner_config(citron.id, "/fake/citron", true).unwrap();
-        db.update_runner_config(eden_id, "/fake/eden", true).unwrap();
+        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true)
+            .unwrap();
+        db.update_runner_config(citron.id, "/fake/citron", true)
+            .unwrap();
+        db.update_runner_config(eden_id, "/fake/eden", true)
+            .unwrap();
 
         // Create folder A pinned to Citron
-        let folder_a = db.save_scan_folder(switch.id, "/fake/switch/a", true).unwrap();
-        db.set_folder_assigned_emulator(folder_a, Some(citron.id)).unwrap();
+        let folder_a = db
+            .save_scan_folder(switch.id, "/fake/switch/a", true)
+            .unwrap();
+        db.set_folder_assigned_emulator(folder_a, Some(citron.id))
+            .unwrap();
 
         // 1. Game without override inherits from folder (Citron)
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, Some(folder_a), None)
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Citron");
 
         // 2. Game with override Eden wins over folder Citron and platform Ryujinx
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), Some(eden_id)).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, Some(folder_a), Some(eden_id))
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Eden");
 
         // 3. If override points to an unconfigured emulator, falls back to folder (Citron)
-        let unconfigured_id = db.insert_runner(switch.id, "UnconfiguredEmu", "emulator").unwrap();
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), Some(unconfigured_id)).unwrap().unwrap();
+        let unconfigured_id = db
+            .insert_runner(switch.id, "UnconfiguredEmu", "emulator")
+            .unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, Some(folder_a), Some(unconfigured_id))
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Citron");
 
         // 4. If folder is also unconfigured or None, falls back to platform active/default (Ryujinx)
-        let chosen = db.get_runner_for_game(switch.id, None, Some(unconfigured_id)).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, None, Some(unconfigured_id))
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Ryujinx");
 
         // 5. Reverting override to None falls back to normal resolution
-        let chosen = db.get_runner_for_game(switch.id, Some(folder_a), None).unwrap().unwrap();
+        let chosen = db
+            .get_runner_for_game(switch.id, Some(folder_a), None)
+            .unwrap()
+            .unwrap();
         assert_eq!(chosen.name, "Citron");
 
         drop(db);
@@ -2230,7 +2257,10 @@ mod tests {
         assert_eq!(saved.release_year, Some(1985));
         assert_eq!(saved.developer.as_deref(), Some("Nintendo EAD"));
         assert_eq!(saved.publisher.as_deref(), Some("Nintendo"));
-        assert_eq!(saved.description.as_deref(), Some("Classic platformer game"));
+        assert_eq!(
+            saved.description.as_deref(),
+            Some("Classic platformer game")
+        );
         assert_eq!(saved.genre.as_deref(), Some("Platform"));
         assert!((saved.rating.unwrap() - 4.9).abs() < 0.001);
         assert_eq!(saved.serial.as_deref(), Some("NES-MA-USA"));

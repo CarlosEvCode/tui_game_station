@@ -32,14 +32,15 @@ impl CoverManager {
         }
     }
 
-    /// Full-quality native-protocol image (Kitty / Sixel) — no resolution cap,
-    /// the protocol itself handles the render-time scaling.
+    /// Full-quality native-protocol image (Kitty / Sixel / Halfblocks fallback)
     pub fn load_native_protocol_from_file(&self, path: &Path) -> Option<StatefulProtocol> {
         if !path.exists() {
             return None;
         }
 
         let dyn_img = Self::decode_image(path)?;
+        // Ensure image is at least 600px wide so ratatui-image Fit mode can scale it down smoothly
+        let dyn_img = Self::ensure_min_width(dyn_img, 600);
         let mut picker = self.picker;
         Some(picker.new_resize_protocol(dyn_img))
     }
@@ -103,10 +104,16 @@ impl CoverManager {
 
             for (x, y, pixel) in rgba.enumerate_pixels() {
                 let a = pixel[3] as f32 / 255.0;
-                let r = (pixel[0] as f32 * a + bg_r * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
-                let g = (pixel[1] as f32 * a + bg_g * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
-                let b = (pixel[2] as f32 * a + bg_b * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
-                out.put_pixel(x, y, image::Rgb( [r, g, b] ));
+                let r = (pixel[0] as f32 * a + bg_r * (1.0 - a))
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                let g = (pixel[1] as f32 * a + bg_g * (1.0 - a))
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                let b = (pixel[2] as f32 * a + bg_b * (1.0 - a))
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                out.put_pixel(x, y, image::Rgb([r, g, b]));
             }
             DynamicImage::ImageRgb8(out)
         } else {

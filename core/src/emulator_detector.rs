@@ -207,7 +207,11 @@ impl EmulatorDetector {
                     candidates.push(DetectedEmulator {
                         name: format!("{} (Snap: {})", k.name, snap_name),
                         sources: vec![InstallSource::Snap],
-                        exec_path: Some(if Path::new(&exec).exists() { exec } else { snap_name.to_string() }),
+                        exec_path: Some(if Path::new(&exec).exists() {
+                            exec
+                        } else {
+                            snap_name.to_string()
+                        }),
                         flatpak_app_id: None,
                     });
                 }
@@ -317,16 +321,27 @@ impl EmulatorDetector {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {
-                        let fname = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                        if fname.contains(&key) && (fname.ends_with(".appimage") || fname.contains(".appimage")) {
+                        let fname = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_lowercase();
+                        if fname.contains(&key)
+                            && (fname.ends_with(".appimage") || fname.contains(".appimage"))
+                        {
                             return Some(path.to_string_lossy().to_string());
                         }
                     } else if path.is_dir() {
                         if let Ok(sub_entries) = std::fs::read_dir(&path) {
                             for sub in sub_entries.flatten() {
                                 let sub_path = sub.path();
-                                let fname = sub_path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                                if (fname.contains(&key) || sub_path.to_string_lossy().to_lowercase().contains(&key))
+                                let fname = sub_path
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_lowercase();
+                                if (fname.contains(&key)
+                                    || sub_path.to_string_lossy().to_lowercase().contains(&key))
                                     && (fname.ends_with(".appimage") || fname.contains(".appimage"))
                                 {
                                     return Some(sub_path.to_string_lossy().to_string());

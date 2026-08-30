@@ -379,7 +379,8 @@ mod tests {
 
     #[test]
     fn test_find_appimage_in_dir_recursive() {
-        let temp_dir = std::env::temp_dir().join(format!("test_find_appimage_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_find_appimage_{}", std::process::id()));
         let sub_dir = temp_dir.join("subfolder");
         std::fs::create_dir_all(&sub_dir).unwrap();
 

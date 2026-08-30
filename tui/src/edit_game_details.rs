@@ -153,8 +153,10 @@ mod tests {
         let runners = db.get_runners_for_platform(switch.id).unwrap();
         let ryujinx = runners.iter().find(|r| r.name == "Ryujinx").unwrap();
         let citron = runners.iter().find(|r| r.name == "Citron").unwrap();
-        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true).unwrap();
-        db.update_runner_config(citron.id, "/fake/citron", true).unwrap();
+        db.update_runner_config(ryujinx.id, "/fake/ryujinx", true)
+            .unwrap();
+        db.update_runner_config(citron.id, "/fake/citron", true)
+            .unwrap();
 
         let mut game = Game {
             id: 0,
@@ -200,8 +202,11 @@ mod tests {
         assert_eq!(choices[0].display_label, "Default");
 
         // 2. Inherited from folder
-        let folder_id = db.save_scan_folder(switch.id, "/fake/folder", true).unwrap();
-        db.set_folder_assigned_emulator(folder_id, Some(citron.id)).unwrap();
+        let folder_id = db
+            .save_scan_folder(switch.id, "/fake/folder", true)
+            .unwrap();
+        db.set_folder_assigned_emulator(folder_id, Some(citron.id))
+            .unwrap();
         game.folder_id = Some(folder_id);
 
         let choices = EditGameFormHelper::get_emulator_choices(&db, &game);

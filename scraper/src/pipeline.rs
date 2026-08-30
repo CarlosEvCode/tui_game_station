@@ -52,7 +52,10 @@ pub trait ScraperProvider: Send + Sync {
     fn provider_name(&self) -> &'static str;
 
     /// Search for game candidates or exact match given agnostic parameters
-    async fn search(&self, params: &ScraperSearchParams) -> anyhow::Result<Vec<ScraperSearchResult>>;
+    async fn search(
+        &self,
+        params: &ScraperSearchParams,
+    ) -> anyhow::Result<Vec<ScraperSearchResult>>;
 }
 
 /// Selectable scraper source matching ES-DE architecture
@@ -89,7 +92,10 @@ impl ScraperPipelineManager {
         tgdb_api_key: String,
     ) -> Self {
         Self {
-            screenscraper: crate::screenscraper::ScreenScraperClient::new(ss_user_id, ss_user_password),
+            screenscraper: crate::screenscraper::ScreenScraperClient::new(
+                ss_user_id,
+                ss_user_password,
+            ),
             thegamesdb: crate::thegamesdb::TheGamesDBClient::new(tgdb_api_key),
         }
     }
@@ -99,7 +105,10 @@ impl ScraperPipelineManager {
         &self,
         source: ScraperSource,
         params: &ScraperSearchParams,
-    ) -> anyhow::Result<(Vec<ScraperSearchResult>, Option<crate::screenscraper::ScreenScraperQuota>)> {
+    ) -> anyhow::Result<(
+        Vec<ScraperSearchResult>,
+        Option<crate::screenscraper::ScreenScraperQuota>,
+    )> {
         match source {
             ScraperSource::ScreenScraper => {
                 let (res, q) = self.screenscraper.search_with_quota(params).await?;

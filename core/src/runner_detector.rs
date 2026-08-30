@@ -328,7 +328,11 @@ impl RunnerDetector {
             }
         }
 
-        results.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+        results.sort_by(|a, b| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
+        });
         results
     }
 }

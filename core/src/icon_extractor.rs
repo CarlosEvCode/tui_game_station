@@ -21,7 +21,7 @@ pub fn extract_exe_icon(exe_path: &str, entry_id: i64) -> Result<PathBuf> {
     let output_png = icons_dir.join(format!("{}.png", entry_id));
     let temp_ico = icons_dir.join(format!("{}_temp.ico", entry_id));
 
-// Step 1: Use 7z to list `.rsrc/ICON/` files and extract the largest icon resource
+    // Step 1: Use 7z to list `.rsrc/ICON/` files and extract the largest icon resource
     let l_output = Command::new("7z").args(["l", exe_path]).output();
     if let Ok(res) = l_output {
         if res.status.success() {
@@ -53,7 +53,8 @@ pub fn extract_exe_icon(exe_path: &str, entry_id: i64) -> Result<PathBuf> {
                     if e_res.status.success() && !e_res.stdout.is_empty() {
                         let _ = std::fs::write(&temp_ico, &e_res.stdout);
 
-                        let convert_cmd = if Command::new("magick").arg("-version").output().is_ok() {
+                        let convert_cmd = if Command::new("magick").arg("-version").output().is_ok()
+                        {
                             "magick"
                         } else {
                             "convert"
