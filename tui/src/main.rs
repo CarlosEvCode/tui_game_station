@@ -347,6 +347,7 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::ScanFolderForm { .. }
                                     | ModalState::AddFolderScanForm { .. }
+                                    | ModalState::WindowsRunInstallerForm { .. }
                                     | ModalState::AddGameForm { .. }
                                     | ModalState::EditGameForm { .. } => {
                                         app.update(Action::ModalPrevField).await;
@@ -414,6 +415,8 @@ async fn main() -> Result<()> {
                                         *selected_row = (*selected_row + 1) % total;
                                     }
                                     ModalState::AddGameStep1Type { .. }
+                                    | ModalState::WindowsStep1ActionMode { .. }
+                                    | ModalState::WindowsStep2CategoryMode { .. }
                                     | ModalState::ScanFolderStep1Platform { .. }
                                     | ModalState::ManageRunnersStep1Platform { .. }
                                     | ModalState::ManageWineRunners { .. }
@@ -426,6 +429,7 @@ async fn main() -> Result<()> {
                                     | ModalState::LocalMediaPicker { .. }
                                     | ModalState::ScraperMenu { .. }
                                     | ModalState::ScraperSystemSelector { .. }
+                                    | ModalState::SelectDetectedExePicker { .. }
                                     | ModalState::WindowsGamesManager { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
@@ -832,11 +836,13 @@ async fn main() -> Result<()> {
                                                 (3..=5).contains(&selected_field)
                                             }
                                         };
-                                        if on_checkbox {
-                                            app.update(Action::ModalToggleCheckbox).await;
-                                        } else {
-                                            app.update(Action::ModalInputChar(' ')).await;
-                                        }
+                                         if selected_field == 1 && game_type == &PlatformType::Wine {
+                                             app.update(Action::OpenFilePicker).await;
+                                         } else if on_checkbox {
+                                             app.update(Action::ModalToggleCheckbox).await;
+                                         } else {
+                                             app.update(Action::ModalInputChar(' ')).await;
+                                         }
                                     } else if let ModalState::AddFolderScanForm {
                                         selected_field,
                                         ..
@@ -874,17 +880,63 @@ async fn main() -> Result<()> {
                                         } else {
                                             app.update(Action::ModalInputChar(' ')).await;
                                         }
+                                    } else if let ModalState::WindowsRunInstallerForm { selected_field, .. } = app.modal_state {
+                                         if selected_field == 0 {
+                                             app.update(Action::OpenFilePicker).await;
+                                         } else {
+                                             app.update(Action::FormNavRight).await;
+                                         }
                                     } else {
                                         app.update(Action::ModalInputChar(' ')).await;
                                     }
                                 }
                                 KeyCode::Enter => match app.modal_state {
-                                    ModalState::AddGameStep1Type { .. } => {
-                                        app.update(Action::ModalConfirmStep1).await;
-                                    }
-                                    ModalState::ScanFolderStep1Platform { .. } => {
-                                        app.update(Action::ScanModalConfirmPlatform).await;
-                                    }
+                                     ModalState::AddGameStep1Type { .. } => {
+                                         app.update(Action::ModalConfirmStep1).await;
+                                     }
+                                     ModalState::WindowsStep1ActionMode { .. }
+                                     | ModalState::WindowsStep2CategoryMode { .. } => {
+                                         app.update(Action::ModalConfirmWindowsSetup).await;
+                                     }
+                                     ModalState::WindowsRunInstallerForm { selected_field, .. } => {
+                                         if selected_field == 0 {
+                                             app.update(Action::OpenFilePicker).await;
+                                         } else {
+                                             app.update(Action::ExecuteWindowsInstaller).await;
+                                             if let Some((inst_str, prefix_str)) = app.pending_installer_run.take() {
+                                                 disable_raw_mode()?;
+                                                 execute!(
+                                                     stdout(),
+                                                     LeaveAlternateScreen,
+                                                     cursor::Show
+                                                 )?;
+                                                 let mut child = std::process::Command::new("wine")
+                                                     .arg(&inst_str)
+                                                     .env("WINEPREFIX", &prefix_str)
+                                                     .spawn()
+                                                     .ok();
+                                                 if let Some(ref mut c) = child {
+                                                     let _ = c.wait();
+                                                 }
+                                                 enable_raw_mode()?;
+                                                 execute!(
+                                                     stdout(),
+                                                     EnterAlternateScreen,
+                                                     cursor::Hide
+                                                 )?;
+                                                 terminal.clear()?;
+                                                 terminal.draw(|f| ui::render_ui(f, &mut app))?;
+                                                 app.status_msg = "[Installer Completed] App installation finished cleanly.".to_string();
+                                                 app.show_toast("Installer finished!", crate::toast::ToastKind::Success);
+                                             }
+                                         }
+                                     }
+                                     ModalState::SelectDetectedExePicker { .. } => {
+                                         app.update(Action::ConfirmDetectedExePicker).await;
+                                     }
+                                     ModalState::ScanFolderStep1Platform { .. } => {
+                                         app.update(Action::ScanModalConfirmPlatform).await;
+                                     }
                                     ModalState::ConfigureApiKeyInput { .. } => {
                                         app.update(Action::SaveApiKey).await;
                                     }
@@ -1194,9 +1246,12 @@ async fn main() -> Result<()> {
                                         } else {
                                             match game_type {
                                                 PlatformType::Wine => match selected_field {
-                                                    1..=3 => {
-                                                        app.update(Action::OpenFilePicker).await
-                                                    }
+                                                     1 => {
+                                                         app.update(Action::OpenDetectedExePicker).await;
+                                                     }
+                                                     2 | 3 => {
+                                                         app.update(Action::OpenFilePicker).await;
+                                                     }
                                                     4 => {
                                                         app.update(Action::OpenWineRunnerPicker)
                                                             .await
@@ -1351,6 +1406,9 @@ async fn main() -> Result<()> {
                                     }
                                     ModalState::SelectDetectedEmulatorModal { .. } => {
                                         app.update(Action::SelectDetectedEmulatorCandidate).await;
+                                    }
+                                    ModalState::SoftwareHubModal { .. } => {
+                                        app.update(Action::LaunchSoftwareApp).await;
                                     }
                                     ModalState::ManageRunnersStep2Config {
                                         ref runner_info,
@@ -1790,6 +1848,9 @@ async fn main() -> Result<()> {
                                     KeyCode::Char('F') => {
                                         app.update(Action::OpenFavoritesModal).await;
                                     }
+                                    KeyCode::Char('s') => {
+                                        app.update(Action::OpenSoftwareHubModal).await;
+                                    }
                                     KeyCode::Tab => {
                                         if app.is_big_picture {
                                             app.update(Action::ToggleBigPictureFocus).await;
@@ -1884,9 +1945,6 @@ async fn main() -> Result<()> {
                                     }
                                     KeyCode::Char('v') => {
                                         app.update(Action::ToggleViewMode).await;
-                                    }
-                                    KeyCode::Char('s') => {
-                                        app.update(Action::OpenSettingsModal).await;
                                     }
                                     KeyCode::Char('p') | KeyCode::Char('P') => {
                                         if app.is_big_picture {

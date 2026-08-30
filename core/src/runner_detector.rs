@@ -256,6 +256,88 @@ impl RunnerDetector {
 
         false
     }
+
+    /// Scan a Wine prefix directory for installed .exe executables, excluding system Wine binaries
+    pub fn scan_prefix_executables(wine_prefix: &str) -> Vec<PrefixExecutable> {
+        let mut results = Vec::new();
+        let prefix_path = PathBuf::from(wine_prefix);
+        let drive_c = prefix_path.join("drive_c");
+
+        if !drive_c.exists() {
+            return results;
+        }
+
+        let system_folder_names = ["windows", "system32", "syswow64", "winsxs"];
+
+        // (directory_path, current_depth)
+        let mut dirs_to_walk = vec![(drive_c, 0)];
+        while let Some((current_dir, depth)) = dirs_to_walk.pop() {
+            if depth > 6 || results.len() >= 500 {
+                continue;
+            }
+
+            if let Ok(entries) = std::fs::read_dir(&current_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+
+                    // Skip symlinks (e.g. z: -> / or dosdevices symlinks) to prevent infinite loops!
+                    if entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false) {
+                        continue;
+                    }
+
+                    let name = entry.file_name().to_string_lossy().to_string();
+
+                    if path.is_dir() {
+                        let name_lower = name.to_lowercase();
+                        if system_folder_names.contains(&name_lower.as_str()) {
+                            continue;
+                        }
+                        dirs_to_walk.push((path, depth + 1));
+                    } else if path.is_file() {
+                        if let Some(ext) = path.extension() {
+                            if ext.to_string_lossy().to_lowercase() == "exe" {
+                                let name_lower = name.to_lowercase();
+                                if name_lower.contains("unins")
+                                    || name_lower.contains("uninstall")
+                                    || name_lower.contains("setup")
+                                    || name_lower.contains("installer")
+                                {
+                                    continue;
+                                }
+
+                                let rel_path = path
+                                    .strip_prefix(&prefix_path)
+                                    .unwrap_or(&path)
+                                    .to_string_lossy()
+                                    .to_string();
+
+                                let display_name = path
+                                    .file_stem()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or(name);
+
+                                results.push(PrefixExecutable {
+                                    display_name,
+                                    full_path: path.to_string_lossy().to_string(),
+                                    relative_path: rel_path,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        results.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+        results
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PrefixExecutable {
+    pub display_name: String,
+    pub full_path: String,
+    pub relative_path: String,
 }
 
 #[cfg(test)]

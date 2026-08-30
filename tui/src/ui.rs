@@ -1173,7 +1173,7 @@ fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
             ShortcutItem { key: "Ctrl+S", label: "Scraper Menu", key_color: Color::Yellow },
             ShortcutItem { key: "Shift+S", label: "Search Game", key_color: Color::Yellow },
             ShortcutItem { key: "a", label: "Add Game", key_color: Color::Cyan },
-            ShortcutItem { key: "s", label: "Settings", key_color: Color::Cyan },
+            ShortcutItem { key: "s", label: "Software Hub", key_color: Color::Cyan },
             ShortcutItem { key: "Alt+O", label: "Big Picture", key_color: Color::Magenta },
             ShortcutItem { key: "↵", label: "Launch Game", key_color: Color::Green },
         ],
@@ -2028,10 +2028,10 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
     match app.modal_state {
         ModalState::AddGameStep1Type { selected_type_idx } => {
             let options = [
-                "[Folder Scan] Automated ROMs Directory Scanner",
-                "[NAT] Linux Native Game (Binary, Script, AppImage)",
-                "[WIN] Windows Game (Wine / Proton .exe)",
-                "[STM] Steam Game (Launch via Steam AppID)",
+                "[ROM] Automated ROMs Directory Scanner",
+                "[LIN] Native Linux Executable / AppImage",
+                "[WIN] Windows Executable (Wine / Proton .exe)",
+                "[STM] Steam Application / Game",
             ];
 
             let items: Vec<ListItem> = options
@@ -2054,7 +2054,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " Add Games - Step 1: Select Import Method ",
+                        " Add Entry - Step 1: Select Type ",
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
@@ -2073,6 +2073,312 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let help = Paragraph::new(" [Up/Down] Select | [Enter] Next | [Esc] Cancel")
                 .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, chunks[1]);
+        }
+        ModalState::WindowsStep1ActionMode {
+            selected_action_idx,
+        } => {
+            let options = vec![
+                "Registered Executable (Select existing .exe binary)",
+                "Run Installer         (Execute setup.exe / installer)",
+            ];
+            let mut list_items = Vec::new();
+            for (idx, opt) in options.iter().enumerate() {
+                let is_selected = idx == selected_action_idx;
+                let dot = if is_selected { "(•) " } else { "( ) " };
+                let style = if is_selected {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let prefix = if is_selected { "▶ " } else { "  " };
+                list_items.push(ListItem::new(Span::styled(format!("{}{}{}", prefix, dot, opt), style)));
+            }
+
+            let list = List::new(list_items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Windows Setup - Step 1: Select Action ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Select Option | [Enter] Confirm | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::WindowsStep2CategoryMode {
+            selected_category_idx,
+            ..
+        } => {
+            let options = vec![
+                "Game                (Add to Main Library & CoverFlow)",
+                "Software / Utility  (Add to Software Hub with Icon Extraction)",
+            ];
+            let mut list_items = Vec::new();
+            for (idx, opt) in options.iter().enumerate() {
+                let is_selected = idx == selected_category_idx;
+                let dot = if is_selected { "(•) " } else { "( ) " };
+                let style = if is_selected {
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let prefix = if is_selected { "▶ " } else { "  " };
+                list_items.push(ListItem::new(Span::styled(format!("{}{}{}", prefix, dot, opt), style)));
+            }
+
+            let list = List::new(list_items).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Windows Setup - Step 2: Select Target Category ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(6), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(list, chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Select Option | [Enter] Confirm | [Esc] Back")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::WindowsRunInstallerForm {
+            selected_field,
+            ref installer_path,
+            ref wine_prefix,
+            ..
+        } => {
+            let mut lines = Vec::new();
+
+            // Field 0: Installer Executable Path
+            let f0_style = if selected_field == 0 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected_field == 0 { "▶ 1. Installer Path (.exe): " } else { "  1. Installer Path (.exe): " }, f0_style),
+                Span::styled(
+                    if installer_path.is_empty() { "<Select .exe installer file>" } else { installer_path.as_str() },
+                    if installer_path.is_empty() { Style::default().fg(Color::DarkGray) } else { Style::default().fg(Color::Cyan) },
+                ),
+            ]));
+            lines.push(Line::from(""));
+
+            // Field 1: Wine Prefix Path
+            let f1_style = if selected_field == 1 {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected_field == 1 { "▶ 2. Wine Prefix: " } else { "  2. Wine Prefix: " }, f1_style),
+                Span::styled(
+                    if wine_prefix.is_empty() { "~/.wine" } else { wine_prefix.as_str() },
+                    Style::default().fg(Color::Yellow),
+                ),
+            ]));
+
+            let p = Paragraph::new(lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Run Windows Installer ",
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(8), Constraint::Length(2)])
+                .split(popup_area);
+
+            frame.render_widget(p, chunks[0]);
+
+            let help = Paragraph::new(" [Up/Down] Select Field | [Enter] Run Installer | [Esc] Back")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::SelectDetectedExePicker {
+            ref executables,
+            selected_idx,
+            ..
+        } => {
+            let mut list_items = Vec::new();
+            for (idx, exe) in executables.iter().enumerate() {
+                let is_selected = idx == selected_idx;
+                let style = if is_selected {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let prefix = if is_selected { "▶ " } else { "  " };
+                list_items.push(ListItem::new(vec![
+                    Line::from(Span::styled(format!("{}{}", prefix, exe.display_name), style)),
+                    Line::from(Span::styled(format!("    {}", exe.relative_path), Style::default().fg(Color::DarkGray))),
+                ]));
+            }
+
+            let list = List::new(list_items)
+                .block(
+                    Block::default()
+                        .title(Span::styled(
+                            format!(" Select Installed Wine Application (.exe) [{}/{}] ", selected_idx + 1, executables.len()),
+                            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        ))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                )
+                .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(8), Constraint::Length(2)])
+                .split(popup_area);
+
+            let mut list_state = ListState::default();
+            list_state.select(Some(selected_idx));
+
+            frame.render_stateful_widget(list, chunks[0], &mut list_state);
+
+            let help = Paragraph::new(" [Up/Down] Navigate Apps | [Enter] Select App | [Esc] Cancel")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, chunks[1]);
+        }
+        ModalState::SoftwareHubModal {
+            ref apps,
+            selected_idx,
+        } => {
+            if apps.is_empty() {
+                let empty_p = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled("  [ No installed software utilities registered yet ]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+                    Line::from(""),
+                    Line::from("  Register an .exe app using [a] or [WIN] -> Registered Executable"),
+                    Line::from("  and select category 'Software / Utility' to display it here."),
+                ]).block(
+                    Block::default()
+                        .title(Span::styled(" Software Hub - Applications & Utilities ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Yellow)),
+                );
+
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(6), Constraint::Length(2)])
+                    .split(popup_area);
+
+                frame.render_widget(empty_p, chunks[0]);
+
+                let help = Paragraph::new(" [Esc] Close").style(Style::default().fg(Color::DarkGray));
+                frame.render_widget(help, chunks[1]);
+                return;
+            }
+
+            // Split into Header/Main Grid & Footer
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(2)])
+                .split(popup_area);
+
+            let header_p = Paragraph::new(Line::from(vec![
+                Span::styled(" SOFTWARE HUB ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("  Selected App [{}/{}]", selected_idx + 1, apps.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ])).block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
+            frame.render_widget(header_p, main_chunks[0]);
+
+            // Grid of App Cards (3 columns x N rows)
+            let grid_area = main_chunks[1];
+            let cols_count = 3;
+            let card_width = grid_area.width / cols_count;
+            let card_height = 8; // height of each app card
+
+            let rows_count = (grid_area.height / card_height).max(1) as usize;
+            let visible_capacity = (cols_count as usize) * rows_count;
+
+            let start_page_idx = (selected_idx / visible_capacity) * visible_capacity;
+            let end_page_idx = (start_page_idx + visible_capacity).min(apps.len());
+
+            for (i, app_game) in apps[start_page_idx..end_page_idx].iter().enumerate() {
+                let real_idx = start_page_idx + i;
+                let is_selected = real_idx == selected_idx;
+
+                let row_i = i / (cols_count as usize);
+                let col_i = i % (cols_count as usize);
+
+                let card_x = grid_area.x + (col_i as u16) * card_width;
+                let card_y = grid_area.y + (row_i as u16) * card_height;
+                let card_rect = Rect::new(card_x, card_y, card_width.min(grid_area.width - (col_i as u16) * card_width), card_height);
+
+                let border_color = if is_selected { Color::Yellow } else { Color::DarkGray };
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(if is_selected { BorderType::Double } else { BorderType::Rounded })
+                    .border_style(Style::default().fg(border_color));
+
+                frame.render_widget(block, card_rect);
+
+                let card_inner = card_rect.inner(ratatui::layout::Margin { vertical: 1, horizontal: 1 });
+                if card_inner.width >= 4 && card_inner.height >= 4 {
+                    // Split into Icon (Left: 8 cols x 4 rows) and Info (Right)
+                    let card_chunks = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints([Constraint::Length(8), Constraint::Min(4)])
+                        .split(card_inner);
+
+                    let icon_area = card_chunks[0];
+                    let info_area = card_chunks[1];
+
+                    // Render Icon if protocol exists
+                    let key = (app_game.id, "icon_hb".to_string());
+                    if let Some(protocol) = app.media_protocols.get_mut(&key) {
+                        let icon_img = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
+                        frame.render_stateful_widget(icon_img, icon_area, protocol);
+                    } else {
+                        let fallback_p = Paragraph::new("[APP]")
+                            .alignment(Alignment::Center)
+                            .style(Style::default().fg(Color::Cyan));
+                        frame.render_widget(fallback_p, icon_area);
+                    }
+
+                    // Render Title & Path
+                    let title_style = if is_selected {
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+
+                    let exec_str = app_game.file_path.as_deref().unwrap_or("<No Exe>");
+                    let lines = vec![
+                        Line::from(Span::styled(format!("{}", app_game.title), title_style)),
+                        Line::from(""),
+                        Line::from(Span::styled(format!("{}", exec_str), Style::default().fg(Color::DarkGray))),
+                    ];
+
+                    let info_p = Paragraph::new(lines);
+                    frame.render_widget(info_p, info_area);
+                }
+            }
+
+            let help = Paragraph::new(" [Up/Down/Left/Right] Navigate App Grid | [Enter] Launch Software | [Esc] Close")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            frame.render_widget(help, main_chunks[2]);
         }
         ModalState::ScanFolderStep1Platform {
             selected_platform_idx,

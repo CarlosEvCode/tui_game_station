@@ -15,3 +15,4 @@ pub mod retroarch_manager;
 pub mod core_catalog;
 pub mod emulator_detector;
 pub mod switch;
+pub mod icon_extractor;

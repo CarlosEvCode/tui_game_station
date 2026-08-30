@@ -414,6 +414,7 @@ impl Database {
                 ".gb, .gbc, .zip, .7z",
             ),
             ("windows", "Windows Games", "wine", ".exe, .bat"),
+            ("apps", "Software & Utilities", "wine", ".exe, .AppImage, .sh, .bin"),
             ("linux", "Linux Native", "native", ".sh, .AppImage, .bin"),
             ("steam", "Steam Games", "steam", ""),
         ];
@@ -968,11 +969,14 @@ impl Database {
     pub fn get_active_platforms(&self, show_all: bool) -> Result<Vec<Platform>> {
         let all = self.get_platforms()?;
         if show_all {
-            return Ok(all);
+            return Ok(all.into_iter().filter(|p| p.slug != "apps").collect());
         }
 
         let mut active = Vec::new();
         for p in all {
+            if p.slug == "apps" {
+                continue;
+            }
             let game_count = self.get_game_count_for_platform(p.id)?;
 
             if game_count > 0 {

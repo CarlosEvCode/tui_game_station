@@ -433,6 +433,26 @@ pub enum ModalState {
     AddGameStep1Type {
         selected_type_idx: usize,
     },
+    WindowsStep1ActionMode {
+        selected_action_idx: usize, // 0: Registered Executable, 1: Run Installer (.exe)
+    },
+    WindowsStep2CategoryMode {
+        action_mode: usize,
+        selected_category_idx: usize, // 0: Game (Main Library), 1: Software / Utility (Software Hub)
+    },
+    WindowsRunInstallerForm {
+        selected_field: usize,        // 0: Executable, 1: Wine Prefix
+        installer_path: String,
+        wine_prefix: String,
+        path_cursor: usize,
+        prefix_cursor: usize,
+        parent_modal: Option<Box<ModalState>>,
+    },
+    SelectDetectedExePicker {
+        executables: Vec<game_core::runner_detector::PrefixExecutable>,
+        selected_idx: usize,
+        parent_modal: Box<ModalState>,
+    },
     ScanFolderStep1Platform {
         selected_platform_idx: usize,
     },
@@ -448,6 +468,10 @@ pub enum ModalState {
     /// [ + Add New Game ] button row.
     WindowsGamesManager {
         games: Vec<Game>,
+        selected_idx: usize,
+    },
+    SoftwareHubModal {
+        apps: Vec<Game>,
         selected_idx: usize,
     },
     /// Simplified single-folder "Add Game" flow reached from [A] → Scan Folder.
@@ -805,6 +829,12 @@ pub enum Action {
     PrevGame,
     OpenPlatformSelectorModal,
     ConfirmPlatformSelectorModal,
+    ModalConfirmWindowsSetup,
+    ExecuteWindowsInstaller,
+    OpenDetectedExePicker,
+    ConfirmDetectedExePicker,
+    OpenSoftwareHubModal,
+    LaunchSoftwareApp,
     OpenCheatsheetModal,
     OpenWelcomeWizardModal,
     OpenFuzzySearchModal,
@@ -1016,6 +1046,7 @@ pub struct App {
     /// correct aspect ratio instead of assuming 4:3.
     pub media_dimensions: std::collections::HashMap<(i64, String), (u32, u32)>,
     pub pending_wine_tool: Option<WineToolCommand>,
+    pub pending_installer_run: Option<(String, String)>,
     pub toasts: Vec<crate::toast::Toast>,
     pub search_query: String,
     pub is_search_active: bool,
@@ -1094,6 +1125,7 @@ impl App {
             scraper_quota: std::collections::HashMap::new(),
             media_dimensions: std::collections::HashMap::new(),
             pending_wine_tool: None,
+            pending_installer_run: None,
             toasts: Vec::new(),
             search_query: String::new(),
             is_search_active: false,
@@ -4214,6 +4246,13 @@ impl App {
                             }
                             _ => {}
                         },
+                        ModalState::WindowsRunInstallerForm {
+                            ref mut installer_path,
+                            ..
+                        } => {
+                            *installer_path = path_str.clone();
+                            self.status_msg = format!("Installer selected: {}", path_str);
+                        }
                         _ => {}
                     }
                 }
@@ -5810,6 +5849,12 @@ impl App {
                             }
                         }
 
+                        if let Some(ref path) = game.file_path {
+                            if path.to_lowercase().ends_with(".exe") {
+                                let _ = game_core::icon_extractor::extract_exe_icon(path, game.id);
+                            }
+                        }
+
                         if self.db.update_game(&game).is_ok() {
                             self.status_msg = format!("[OK] Updated details for '{}'!", game.title);
                             if let Some(ModalState::WindowsGamesManager { .. }) =
@@ -5867,8 +5912,12 @@ impl App {
                 ModalState::EditGameForm { parent_modal: Some(parent), .. } => {
                     self.modal_state = *parent;
                 }
-                ModalState::ScanFolderStep1Platform { .. } => {
-                    self.modal_state = ModalState::AddGameStep1Type { selected_type_idx: 0 };
+                ModalState::ScanFolderStep1Platform { .. }
+                | ModalState::WindowsStep1ActionMode { .. } => {
+                    self.modal_state = ModalState::AddGameStep1Type { selected_type_idx: 2 };
+                }
+                ModalState::WindowsStep2CategoryMode { action_mode, .. } => {
+                    self.modal_state = ModalState::WindowsStep1ActionMode { selected_action_idx: action_mode };
                 }
                 _ => {
                     self.modal_state = ModalState::None;
@@ -5892,6 +5941,17 @@ impl App {
                             *selected_platform_idx =
                                 (*selected_platform_idx + 1) % total_configured_emulators;
                         }
+                    }
+                    ModalState::WindowsStep1ActionMode {
+                        ref mut selected_action_idx,
+                    } => {
+                        *selected_action_idx = (*selected_action_idx + 1) % 2;
+                    }
+                    ModalState::WindowsStep2CategoryMode {
+                        ref mut selected_category_idx,
+                        ..
+                    } => {
+                        *selected_category_idx = (*selected_category_idx + 1) % 2;
                     }
                     ModalState::AddGameForm {
                         game_type: PlatformType::Emulator,
@@ -5996,6 +6056,15 @@ impl App {
                             *selected_idx = (*selected_idx + 1) % cores.len();
                         }
                     }
+                    ModalState::SelectDetectedExePicker {
+                        ref executables,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !executables.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % executables.len();
+                        }
+                    }
                     ModalState::SelectDetectedEmulatorModal {
                         ref candidates,
                         ref mut selected_idx,
@@ -6011,6 +6080,14 @@ impl App {
                     } => {
                         if !games.is_empty() {
                             *selected_idx = (*selected_idx + 1) % games.len();
+                        }
+                    }
+                    ModalState::SoftwareHubModal {
+                        ref apps,
+                        ref mut selected_idx,
+                    } => {
+                        if !apps.is_empty() {
+                            *selected_idx = (*selected_idx + 1) % apps.len();
                         }
                     }
                     ModalState::LocalMediaPicker {
@@ -6063,6 +6140,17 @@ impl App {
                                 *selected_platform_idx -= 1;
                             }
                         }
+                    }
+                    ModalState::WindowsStep1ActionMode {
+                        ref mut selected_action_idx,
+                    } => {
+                        *selected_action_idx = (1 - *selected_action_idx);
+                    }
+                    ModalState::WindowsStep2CategoryMode {
+                        ref mut selected_category_idx,
+                        ..
+                    } => {
+                        *selected_category_idx = (1 - *selected_category_idx);
                     }
                     ModalState::AddGameForm {
                         game_type: PlatformType::Emulator,
@@ -6144,6 +6232,19 @@ impl App {
                         if !installed_runners.is_empty() {
                             if *selected_idx == 0 {
                                 *selected_idx = installed_runners.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::SelectDetectedExePicker {
+                        ref executables,
+                        ref mut selected_idx,
+                        ..
+                    } => {
+                        if !executables.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = executables.len() - 1;
                             } else {
                                 *selected_idx -= 1;
                             }
@@ -6242,6 +6343,18 @@ impl App {
                             }
                         }
                     }
+                    ModalState::SoftwareHubModal {
+                        ref apps,
+                        ref mut selected_idx,
+                    } => {
+                        if !apps.is_empty() {
+                            if *selected_idx == 0 {
+                                *selected_idx = apps.len() - 1;
+                            } else {
+                                *selected_idx -= 1;
+                            }
+                        }
+                    }
                     ModalState::LocalMediaPicker {
                         ref mut selected_row,
                         ..
@@ -6290,14 +6403,225 @@ impl App {
                         self.modal_state = ModalState::ScanFolderStep1Platform {
                             selected_platform_idx: 0,
                         };
+                    } else if selected_type_idx == 2 {
+                        self.modal_state = ModalState::WindowsStep1ActionMode {
+                            selected_action_idx: 0,
+                        };
                     } else {
                         let gtype = match selected_type_idx {
                             1 => PlatformType::Native,
-                            2 => PlatformType::Wine,
                             3 => PlatformType::Steam,
                             _ => PlatformType::Emulator,
                         };
                         self.open_add_game_form(gtype);
+                    }
+                }
+            }
+            Action::ModalConfirmWindowsSetup => {
+                if let ModalState::WindowsStep1ActionMode { selected_action_idx } = self.modal_state {
+                    let default_prefix = dirs::home_dir()
+                        .unwrap_or_else(|| PathBuf::from("/home/evcode"))
+                        .join(".wine")
+                        .to_string_lossy()
+                        .to_string();
+
+                    if selected_action_idx == 1 {
+                        // Open pure Installer execution modal (no category selection needed)
+                        self.modal_state = ModalState::WindowsRunInstallerForm {
+                            selected_field: 0,
+                            installer_path: String::new(),
+                            wine_prefix: default_prefix,
+                            path_cursor: 0,
+                            prefix_cursor: 0,
+                            parent_modal: Some(Box::new(self.modal_state.clone())),
+                        };
+                    } else {
+                        self.modal_state = ModalState::WindowsStep2CategoryMode {
+                            action_mode: selected_action_idx,
+                            selected_category_idx: 0,
+                        };
+                    }
+                } else if let ModalState::WindowsStep2CategoryMode {
+                    action_mode,
+                    selected_category_idx,
+                } = self.modal_state.clone()
+                {
+                    let parent = Box::new(self.modal_state.clone());
+                    let default_prefix = dirs::home_dir()
+                        .unwrap_or_else(|| PathBuf::from("/home/evcode"))
+                        .join(".wine")
+                        .to_string_lossy()
+                        .to_string();
+
+                    // Registered Executable Details Form
+                    self.open_add_game_form(PlatformType::Wine);
+                    if let ModalState::AddGameForm {
+                        ref mut wine_prefix,
+                        ref mut platform_idx,
+                        ref mut parent_modal,
+                        ..
+                    } = self.modal_state
+                    {
+                        *parent_modal = Some(parent);
+                        if selected_category_idx == 1 {
+                            *platform_idx = 999999;
+                        }
+                        *wine_prefix = default_prefix;
+                    }
+                }
+            }
+            Action::ExecuteWindowsInstaller => {
+                if let ModalState::WindowsRunInstallerForm {
+                    ref installer_path,
+                    ref wine_prefix,
+                    ..
+                } = self.modal_state.clone()
+                {
+                    if installer_path.trim().is_empty() {
+                        self.status_msg = "Error: Installer .exe path cannot be empty.".to_string();
+                        return;
+                    }
+                    let inst_p = PathBuf::from(installer_path.trim());
+                    if !inst_p.exists() {
+                        self.status_msg = format!("Error: Installer file does not exist at '{}'", installer_path);
+                        return;
+                    }
+
+                    // Create wine prefix dir if needed
+                    let prefix_p = if wine_prefix.trim().is_empty() {
+                        dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/evcode")).join(".wine")
+                    } else {
+                        PathBuf::from(wine_prefix.trim())
+                    };
+                    let _ = std::fs::create_dir_all(&prefix_p);
+
+                    let inst_str = inst_p.to_string_lossy().to_string();
+                    let prefix_str = prefix_p.to_string_lossy().to_string();
+
+                    self.modal_state = ModalState::None;
+                    self.pending_installer_run = Some((inst_str, prefix_str));
+                    self.status_msg = format!("[Installer] Running '{}'...", inst_p.file_name().unwrap_or_default().to_string_lossy());
+                }
+            }
+            Action::OpenDetectedExePicker => {
+                let prefix_to_scan = match &self.modal_state {
+                    ModalState::AddGameForm { wine_prefix, .. }
+                    | ModalState::EditGameForm { wine_prefix, .. } => wine_prefix.clone(),
+                    _ => dirs::home_dir()
+                        .unwrap_or_else(|| PathBuf::from("/home/evcode"))
+                        .join(".wine")
+                        .to_string_lossy()
+                        .to_string(),
+                };
+
+                let executables = game_core::runner_detector::RunnerDetector::scan_prefix_executables(&prefix_to_scan);
+                if executables.is_empty() {
+                    self.status_msg = format!("No installed .exe applications found in Wine Prefix '{}'. Press Space to browse files manually.", prefix_to_scan);
+                    self.show_toast("No .exe apps detected in Wine Prefix. Use manual browse.", crate::toast::ToastKind::Error);
+                    return;
+                }
+
+                let parent_modal = Box::new(self.modal_state.clone());
+                self.modal_state = ModalState::SelectDetectedExePicker {
+                    executables,
+                    selected_idx: 0,
+                    parent_modal,
+                };
+            }
+            Action::ConfirmDetectedExePicker => {
+                if let ModalState::SelectDetectedExePicker {
+                    ref executables,
+                    selected_idx,
+                    ref parent_modal,
+                } = self.modal_state.clone()
+                {
+                    if let Some(selected_exe) = executables.get(selected_idx) {
+                        let exe_full = selected_exe.full_path.clone();
+                        let display_name = selected_exe.display_name.clone();
+                        let working_dir = PathBuf::from(&exe_full)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default();
+
+                        self.modal_state = *parent_modal.clone();
+
+                        match self.modal_state {
+                            ModalState::AddGameForm {
+                                ref mut file_path,
+                                working_dir: ref mut wdir,
+                                ref mut title,
+                                ..
+                            } => {
+                                *file_path = exe_full.clone();
+                                *wdir = working_dir;
+                                if title.is_empty() {
+                                    *title = display_name;
+                                }
+                                self.status_msg = format!("Selected installed app: {}", exe_full);
+                            }
+                            ModalState::EditGameForm {
+                                ref mut file_path,
+                                working_dir: ref mut wdir,
+                                ref mut title,
+                                ..
+                            } => {
+                                *file_path = exe_full.clone();
+                                *wdir = working_dir;
+                                if title.is_empty() {
+                                    *title = display_name;
+                                }
+                                self.status_msg = format!("Selected installed app: {}", exe_full);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Action::OpenSoftwareHubModal => {
+                let apps = if let Ok(Some(apps_platform)) = self.db.get_platform_by_slug("apps") {
+                    self.db.get_games_for_platform(apps_platform.id).unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+
+                let mut picker = self.cover_manager.picker.clone();
+                let icons_dir = dirs::data_dir()
+                    .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                    .join("tui_game_station")
+                    .join("icons");
+
+                for app_game in &apps {
+                    let icon_path = icons_dir.join(format!("{}.png", app_game.id));
+                    let key = (app_game.id, "icon_hb".to_string());
+                    if icon_path.exists() && !self.media_protocols.contains_key(&key) {
+                        if let Ok(dyn_img) = image::open(&icon_path) {
+                            let proto = picker.new_resize_protocol(dyn_img);
+                            self.media_protocols.insert(key, proto);
+                        }
+                    }
+                }
+
+                self.modal_state = ModalState::SoftwareHubModal {
+                    apps,
+                    selected_idx: 0,
+                };
+            }
+            Action::LaunchSoftwareApp => {
+                if let ModalState::SoftwareHubModal {
+                    ref apps,
+                    selected_idx,
+                } = self.modal_state.clone()
+                {
+                    if let Some(app_game) = apps.get(selected_idx) {
+                        let runner = self
+                            .db
+                            .get_runner_for_game(app_game.platform_id, app_game.folder_id, app_game.emulator_override)
+                            .ok()
+                            .flatten();
+
+                        self.modal_state = ModalState::None;
+                        self.status_msg = format!("Launching software utility '{}'...", app_game.title);
+                        self.start_game_background(app_game.clone(), runner);
                     }
                 }
             }
@@ -6618,9 +6942,25 @@ impl App {
                 } => {
                     *selected_field = (*selected_field + 1) % 7;
                 }
+                ModalState::WindowsRunInstallerForm {
+                    ref mut selected_field,
+                    ..
+                } => {
+                    *selected_field = (*selected_field + 1) % 3;
+                }
                 _ => {}
             },
             Action::ModalPrevField => match self.modal_state {
+                ModalState::WindowsRunInstallerForm {
+                    ref mut selected_field,
+                    ..
+                } => {
+                    if *selected_field == 0 {
+                        *selected_field = 2;
+                    } else {
+                        *selected_field -= 1;
+                    }
+                }
                 ModalState::AppSettings {
                     ref mut selected_field,
                     ..
@@ -8856,11 +9196,27 @@ impl App {
                             .find(|p| p.slug == "linux")
                             .map(|p| p.id)
                             .unwrap_or(1),
-                        PlatformType::Wine => all_db_platforms
-                            .iter()
-                            .find(|p| p.slug == "windows")
-                            .map(|p| p.id)
-                            .unwrap_or(1),
+                        PlatformType::Wine => {
+                            let apps_id = all_db_platforms.iter().find(|p| p.slug == "apps").map(|p| p.id);
+                            if let Some(a_id) = apps_id {
+                                if let Some(p) = self.platforms.get(platform_idx) {
+                                    if p.id == a_id {
+                                        a_id
+                                    } else {
+                                        all_db_platforms.iter().find(|p| p.slug == "windows").map(|p| p.id).unwrap_or(1)
+                                    }
+                                } else {
+                                    // Default if platform_idx is for apps or fallback
+                                    a_id
+                                }
+                            } else {
+                                all_db_platforms
+                                    .iter()
+                                    .find(|p| p.slug == "windows")
+                                    .map(|p| p.id)
+                                    .unwrap_or(1)
+                            }
+                        }
                         PlatformType::Steam => all_db_platforms
                             .iter()
                             .find(|p| p.slug == "steam")
@@ -8960,7 +9316,12 @@ impl App {
                     };
 
                     match self.db.insert_game(&game) {
-                        Ok(_) => {
+                        Ok(inserted_id) => {
+                            if let Some(ref path) = game.file_path {
+                                if path.to_lowercase().ends_with(".exe") {
+                                    let _ = game_core::icon_extractor::extract_exe_icon(path, inserted_id);
+                                }
+                            }
                             self.status_msg = format!("Game '{}' saved successfully.", title);
                             if let Some(ModalState::WindowsGamesManager { .. }) =
                                 parent_modal.as_deref()
