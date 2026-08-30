@@ -1386,9 +1386,9 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let max_h = inner.height.saturating_sub(2).max(4);
             let (fw, fh) = app.cover_manager.picker.font_size();
-            let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
+            let cell_w_over_h = if fh == 0 { 0.5 } else { fw as f32 / fh as f32 };
             let pixel_ratio = aspect_ratio_for_cover(prev_game.id, app);
-            let cell_ratio = pixel_ratio * font_cell_ratio;
+            let cell_ratio = pixel_ratio / cell_w_over_h;
             let target_w = ((max_h as f32) * cell_ratio).round() as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
@@ -1462,10 +1462,10 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let max_avail_w = inner_w.saturating_sub(2).max(6);
 
         let (fw, fh) = app.cover_manager.picker.font_size();
-        let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
+        let cell_w_over_h = if fh == 0 { 0.5 } else { fw as f32 / fh as f32 };
 
         let pixel_ratio = aspect_ratio_for_cover(active_game.id, app);
-        let cell_ratio = pixel_ratio * font_cell_ratio;
+        let cell_ratio = pixel_ratio / cell_w_over_h;
 
         let target_w = ((max_avail_h as f32) * cell_ratio).round() as u16;
         let (img_w, img_h) = if target_w <= max_avail_w {
@@ -1561,9 +1561,9 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let max_h = inner.height.saturating_sub(2).max(4);
             let (fw, fh) = app.cover_manager.picker.font_size();
-            let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
+            let cell_w_over_h = if fh == 0 { 0.5 } else { fw as f32 / fh as f32 };
             let pixel_ratio = aspect_ratio_for_cover(next_game.id, app);
-            let cell_ratio = pixel_ratio * font_cell_ratio;
+            let cell_ratio = pixel_ratio / cell_w_over_h;
             let target_w = ((max_h as f32) * cell_ratio).round() as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
