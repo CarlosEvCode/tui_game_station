@@ -2357,18 +2357,16 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                         frame.render_widget(fallback_p, icon_area);
                     }
 
-                    // Render Title & Path
+                    // Render Title (Clean Icon + Name layout)
                     let title_style = if is_selected {
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::White)
                     };
 
-                    let exec_str = app_game.file_path.as_deref().unwrap_or("<No Exe>");
                     let lines = vec![
-                        Line::from(Span::styled(format!("{}", app_game.title), title_style)),
                         Line::from(""),
-                        Line::from(Span::styled(format!("{}", exec_str), Style::default().fg(Color::DarkGray))),
+                        Line::from(Span::styled(format!("{}", app_game.title), title_style)),
                     ];
 
                     let info_p = Paragraph::new(lines);
@@ -2376,7 +2374,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                 }
             }
 
-            let help = Paragraph::new(" [Up/Down/Left/Right] Navigate App Grid | [Enter] Launch Software | [Esc] Close")
+            let help = Paragraph::new(" [Up/Down/Left/Right] Navigate Grid | [Enter] Launch | [Delete] Remove | [Esc] Close")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             frame.render_widget(help, main_chunks[2]);
         }

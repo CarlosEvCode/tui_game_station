@@ -5390,12 +5390,13 @@ impl App {
                         }
                     }
                 }
-                ModalState::EditGameForm {
-                    game_type: PlatformType::Emulator,
-                    selected_field: 2,
-                    ..
+                ModalState::SoftwareHubModal {
+                    ref apps,
+                    ref mut selected_idx,
                 } => {
-                    self.cycle_edit_game_emulator(true);
+                    if !apps.is_empty() && *selected_idx > 0 {
+                        *selected_idx -= 1;
+                    }
                 }
                 _ => {}
             }
@@ -5417,12 +5418,13 @@ impl App {
                 } => {
                     *cursor_pos = (*cursor_pos + 1).min(title.len());
                 }
-                ModalState::EditGameForm {
-                    game_type: PlatformType::Emulator,
-                    selected_field: 2,
-                    ..
+                ModalState::SoftwareHubModal {
+                    ref apps,
+                    ref mut selected_idx,
                 } => {
-                    self.cycle_edit_game_emulator(false);
+                    if !apps.is_empty() && *selected_idx + 1 < apps.len() {
+                        *selected_idx += 1;
+                    }
                 }
                 ModalState::AddGameForm {
                     game_type: ref gtype,
@@ -5919,6 +5921,10 @@ impl App {
                 ModalState::WindowsStep2CategoryMode { action_mode, .. } => {
                     self.modal_state = ModalState::WindowsStep1ActionMode { selected_action_idx: action_mode };
                 }
+                ModalState::SoftwareHubModal { .. } => {
+                    self.modal_state = ModalState::None;
+                    self.trigger_async_cover_fetch();
+                }
                 _ => {
                     self.modal_state = ModalState::None;
                 }
@@ -6087,7 +6093,7 @@ impl App {
                         ref mut selected_idx,
                     } => {
                         if !apps.is_empty() {
-                            *selected_idx = (*selected_idx + 1) % apps.len();
+                            *selected_idx = (*selected_idx + 3).min(apps.len() - 1);
                         }
                     }
                     ModalState::LocalMediaPicker {
@@ -6348,11 +6354,7 @@ impl App {
                         ref mut selected_idx,
                     } => {
                         if !apps.is_empty() {
-                            if *selected_idx == 0 {
-                                *selected_idx = apps.len() - 1;
-                            } else {
-                                *selected_idx -= 1;
-                            }
+                            *selected_idx = selected_idx.saturating_sub(3);
                         }
                     }
                     ModalState::LocalMediaPicker {
@@ -8297,6 +8299,17 @@ impl App {
                 }
             }
             Action::DeleteSelectedGames | Action::OpenConfirmDeleteModal => {
+                if let ModalState::SoftwareHubModal { ref apps, selected_idx } = self.modal_state {
+                    if let Some(app_game) = apps.get(selected_idx) {
+                        self.modal_state = ModalState::ConfirmDeleteGame {
+                            game_ids: vec![app_game.id],
+                            display_title: app_game.title.clone(),
+                            selected_option: 0,
+                        };
+                    }
+                    return;
+                }
+
                 if self.modal_state == ModalState::None && !self.games.is_empty() {
                     let (game_ids, display_title) = if !self.selected_game_ids.is_empty() {
                         let ids: Vec<i64> = self.selected_game_ids.iter().copied().collect();
@@ -8348,6 +8361,13 @@ impl App {
                                     );
                                 }
                             }
+                            // Also remove extracted .exe icon from tui_game_station/icons/
+                            let icons_dir = dirs::data_dir()
+                                .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                                .join("tui_game_station")
+                                .join("icons");
+                            let _ = std::fs::remove_file(icons_dir.join(format!("{}.png", gid)));
+
                             // Also evict from in-memory protocol cache.
                             for key in ["cover", "cover_hb", "banner_hb", "icon_hb"] {
                                 self.media_protocols.remove(&(gid, key.to_string()));
@@ -8365,7 +8385,7 @@ impl App {
                             if game_ids.len() > 1 {
                                 format!("{} games", count)
                             } else {
-                                "game".to_string()
+                                "game/software".to_string()
                             },
                             display_title
                         );
