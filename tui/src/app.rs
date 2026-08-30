@@ -5925,6 +5925,7 @@ impl App {
                 }
                 ModalState::SoftwareHubModal { .. } => {
                     self.modal_state = ModalState::None;
+                    self.needs_terminal_clear = true;
                     self.trigger_async_cover_fetch();
                 }
                 _ => {
@@ -6588,16 +6589,19 @@ impl App {
                     Vec::new()
                 };
 
-                let mut picker = self.cover_manager.picker.clone();
+                let mut picker = self.cover_manager.picker;
                 let icons_dir = dirs::data_dir()
                     .unwrap_or_else(|| PathBuf::from("~/.local/share"))
                     .join("tui_game_station")
                     .join("icons");
 
+                // Always evict cached app icons and re-decode fresh from disk to eliminate
+                // any lingering terminal graphics protocol placement artifacts.
                 for app_game in &apps {
                     let icon_path = icons_dir.join(format!("{}.png", app_game.id));
                     let key = (app_game.id, "app_icon_hb".to_string());
-                    if icon_path.exists() && !self.media_protocols.contains_key(&key) {
+                    self.media_protocols.remove(&key);
+                    if icon_path.exists() {
                         if let Ok(dyn_img) = image::open(&icon_path) {
                             let proto = picker.new_resize_protocol(dyn_img);
                             self.media_protocols.insert(key, proto);
@@ -6605,6 +6609,7 @@ impl App {
                     }
                 }
 
+                self.needs_terminal_clear = true;
                 self.modal_state = ModalState::SoftwareHubModal {
                     apps,
                     selected_idx: 0,
