@@ -1372,7 +1372,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         // 1. LEFT SIDE: Previous Game Preview (Halfblocks cover, 2D dead-centered)
         if sel_idx > 0 {
             let prev_game = &app.games[sel_idx - 1];
-            let left_stage = centered_rect(100, 85, cols[0]);
+            let left_stage = cols[0];
             let left_block = Block::default()
                 .title(Span::styled(
                     format!(" ◀ {} ", prev_game.title),
@@ -1385,8 +1385,10 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(left_block, left_stage);
 
             let max_h = inner.height.saturating_sub(2).max(4);
+            let (fw, fh) = app.cover_manager.picker.font_size();
+            let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
             let pixel_ratio = aspect_ratio_for_cover(prev_game.id, app);
-            let cell_ratio = pixel_ratio * 2.0;
+            let cell_ratio = pixel_ratio * font_cell_ratio;
             let target_w = ((max_h as f32) * cell_ratio).round() as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
@@ -1454,10 +1456,18 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let max_avail_h = inner_h.saturating_sub(text_h + gap_h + 1).max(4);
         let max_avail_w = inner_w.saturating_sub(2).max(6);
 
-        // Terminal cells are typically 1:2 (width:height). To preserve pixel aspect ratio:
-        // cell_aspect_ratio = (pixel_w / (pixel_h / 2.0)) = 2.0 * (pixel_w / pixel_h)
+        // ratatui-image rendering for Kitty/Sixel graphics protocol:
+        // The picker maps pixel dimensions to character cells based on cell font ratio (width / height per cell).
+        // Standard terminal font cells have a width-to-height ratio of approx 0.5 (e.g. 8x16px).
+        // To compute the required width in character cells (`img_w`) for a given height in character cells (`img_h`):
+        //   `img_w = img_h * (pixel_w / pixel_h) * (cell_height / cell_width)`
+        // With cell_height / cell_width ≈ 2.0:
+        //   `img_w = img_h * pixel_ratio * 2.0`
+        let (fw, fh) = app.cover_manager.picker.font_size();
+        let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
+
         let pixel_ratio = aspect_ratio_for_cover(active_game.id, app);
-        let cell_ratio = pixel_ratio * 2.0;
+        let cell_ratio = pixel_ratio * font_cell_ratio;
 
         let target_img_w = ((max_avail_h as f32) * cell_ratio).round() as u16;
 
@@ -1547,7 +1557,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         // 3. RIGHT SIDE: Next Game Preview (Halfblocks cover, 2D dead-centered)
         if sel_idx + 1 < app.games.len() {
             let next_game = &app.games[sel_idx + 1];
-            let right_stage = centered_rect(100, 85, cols[2]);
+            let right_stage = cols[2];
             let right_block = Block::default()
                 .title(Span::styled(
                     format!(" {} ▶ ", next_game.title),
@@ -1560,8 +1570,10 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(right_block, right_stage);
 
             let max_h = inner.height.saturating_sub(2).max(4);
+            let (fw, fh) = app.cover_manager.picker.font_size();
+            let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
             let pixel_ratio = aspect_ratio_for_cover(next_game.id, app);
-            let cell_ratio = pixel_ratio * 2.0;
+            let cell_ratio = pixel_ratio * font_cell_ratio;
             let target_w = ((max_h as f32) * cell_ratio).round() as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
