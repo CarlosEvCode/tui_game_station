@@ -2353,7 +2353,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     let fixed_icon_rect = Rect::new(icon_area.x + offset_x, icon_area.y + offset_y, icon_w, icon_h);
 
                     // Render Icon if protocol exists
-                    let key = (app_game.id, "icon_hb".to_string());
+                    let key = (app_game.id, "app_icon_hb".to_string());
                     if let Some(protocol) = app.media_protocols.get_mut(&key) {
                         let icon_img = StatefulImage::new(Some(image::Rgb([18, 20, 26])));
                         frame.render_stateful_widget(icon_img, fixed_icon_rect, protocol);

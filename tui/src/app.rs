@@ -6596,7 +6596,7 @@ impl App {
 
                 for app_game in &apps {
                     let icon_path = icons_dir.join(format!("{}.png", app_game.id));
-                    let key = (app_game.id, "icon_hb".to_string());
+                    let key = (app_game.id, "app_icon_hb".to_string());
                     if icon_path.exists() && !self.media_protocols.contains_key(&key) {
                         if let Ok(dyn_img) = image::open(&icon_path) {
                             let proto = picker.new_resize_protocol(dyn_img);
@@ -8371,7 +8371,7 @@ impl App {
                             let _ = std::fs::remove_file(icons_dir.join(format!("{}.png", gid)));
 
                             // Also evict from in-memory protocol cache.
-                            for key in ["cover", "cover_hb", "banner_hb", "icon_hb"] {
+                            for key in ["cover", "cover_hb", "banner_hb", "icon_hb", "app_icon_hb"] {
                                 self.media_protocols.remove(&(gid, key.to_string()));
                             }
                         }
