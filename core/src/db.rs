@@ -526,7 +526,7 @@ impl Database {
 
         // Auto-migrate any games mis-assigned to SNES/emulator platforms due to legacy platform_id lookups
         self.conn.execute(
-            "UPDATE games SET platform_id = (SELECT id FROM platforms WHERE slug = 'windows') WHERE game_type = 'wine'",
+            "UPDATE games SET platform_id = (SELECT id FROM platforms WHERE slug = 'windows') WHERE game_type = 'wine' AND platform_id != (SELECT id FROM platforms WHERE slug = 'apps')",
             [],
         )?;
         self.conn.execute(
@@ -1340,6 +1340,7 @@ impl Database {
     }
 
     pub fn insert_game(&self, game: &Game) -> Result<i64> {
+        tracing::info!("[DB TRACE] insert_game: title='{}', platform_id={}, game_type='{}'", game.title, game.platform_id, game.game_type);
         self.conn.execute(
             "INSERT INTO games (
                 platform_id, title, sort_title, game_type, file_path, working_dir,
@@ -1566,6 +1567,7 @@ impl Database {
     }
 
     pub fn update_game(&self, game: &Game) -> Result<()> {
+        tracing::info!("[DB TRACE] update_game: id={}, title='{}', platform_id={}, game_type='{}'", game.id, game.title, game.platform_id, game.game_type);
         self.conn.execute(
             "UPDATE games SET
                 title = ?1,

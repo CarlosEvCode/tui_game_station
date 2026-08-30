@@ -5839,7 +5839,9 @@ impl App {
                         game.emulator_override = emulator_override;
                         game.core_override = core_override.clone();
 
+                        let is_app_platform = self.db.get_platform_by_slug("apps").ok().flatten().map(|p| p.id) == Some(game.platform_id);
                         let target_slug = match game.game_type.as_str() {
+                            "wine" if is_app_platform => None,
                             "wine" => Some("windows"),
                             "native" => Some("linux"),
                             "steam" => Some("steam"),
