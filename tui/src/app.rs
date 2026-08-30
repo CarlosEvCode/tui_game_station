@@ -2519,6 +2519,7 @@ impl App {
                 }
             };
 
+            let pixel_size = cover_path.as_ref().and_then(|p| image::image_dimensions(p).ok());
             let protocol = if let Some(path) = cover_path {
                 manager.load_native_protocol_from_file(&path)
             } else {
@@ -2530,7 +2531,7 @@ impl App {
                     game_id,
                     media_type: media_type_str,
                     protocol,
-                    pixel_size: None,
+                    pixel_size,
                 })
                 .await;
         });

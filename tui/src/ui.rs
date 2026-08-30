@@ -1194,11 +1194,7 @@ fn aspect_ratio_for_cover(game_id: i64, app: &App) -> f32 {
     app.media_dimensions
         .get(&(game_id, "cover".to_string()))
         .map(|&(w, h)| {
-            if h == 0 { return 0.75; }
-            let r = w as f32 / h as f32;
-            if r < 0.80 { r }        // portrait
-            else if r > 1.20 { r }   // landscape
-            else { 1.0 }             // square
+            if h == 0 { 0.75 } else { (w as f32 / h as f32).clamp(0.2, 5.0) }
         })
         .unwrap_or(0.75)
 }
@@ -1389,13 +1385,14 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(left_block, left_stage);
 
             let max_h = inner.height.saturating_sub(2).max(4);
-            let ratio = aspect_ratio_for_cover(prev_game.id, app);
-            let target_w = ((max_h as f32) * ratio) as u16;
+            let pixel_ratio = aspect_ratio_for_cover(prev_game.id, app);
+            let cell_ratio = pixel_ratio * 2.0;
+            let target_w = ((max_h as f32) * cell_ratio).round() as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
             } else {
                 let fit_w = inner.width.saturating_sub(2).max(4);
-                let fit_h = ((fit_w as f32) / ratio) as u16;
+                let fit_h = ((fit_w as f32) / cell_ratio).round() as u16;
                 (fit_w, fit_h.min(max_h))
             };
             let offset_x = (inner.width.saturating_sub(img_w)) / 2;
@@ -1453,22 +1450,27 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let text_h = 2u16;
         let gap_h = 1u16;
-        let padding_h = 3u16;
 
-        let avail_img_h = inner_h.saturating_sub(text_h + gap_h + padding_h).max(4);
-        let center_ratio = aspect_ratio_for_cover(active_game.id, app);
-        let target_img_w = ((avail_img_h as f32) * center_ratio) as u16;
+        let max_avail_h = inner_h.saturating_sub(text_h + gap_h + 1).max(4);
+        let max_avail_w = inner_w.saturating_sub(2).max(6);
 
-        let (img_w, img_h) = if target_img_w <= inner_w.saturating_sub(2) {
-            (target_img_w, avail_img_h)
+        // Terminal cells are typically 1:2 (width:height). To preserve pixel aspect ratio:
+        // cell_aspect_ratio = (pixel_w / (pixel_h / 2.0)) = 2.0 * (pixel_w / pixel_h)
+        let pixel_ratio = aspect_ratio_for_cover(active_game.id, app);
+        let cell_ratio = pixel_ratio * 2.0;
+
+        let target_img_w = ((max_avail_h as f32) * cell_ratio).round() as u16;
+
+        let (img_w, img_h) = if target_img_w <= max_avail_w {
+            (target_img_w.max(4), max_avail_h)
         } else {
-            let fit_w = inner_w.saturating_sub(2).max(6);
-            let fit_h = ((fit_w as f32) / center_ratio) as u16;
-            (fit_w, fit_h.min(avail_img_h))
+            let fit_w = max_avail_w;
+            let fit_h = ((fit_w as f32) / cell_ratio).round() as u16;
+            (fit_w, fit_h.clamp(4, max_avail_h))
         };
 
         let total_content_h = img_h + gap_h + text_h;
-        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2 + 1;
+        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2;
         let left_margin = (inner_w.saturating_sub(img_w)) / 2;
 
         let img_centered_rect = Rect::new(
@@ -1480,7 +1482,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
 
         let details_rect = Rect::new(
             center_inner.x,
-            center_inner.y + top_margin + img_h,
+            center_inner.y + top_margin + img_h + gap_h,
             inner_w,
             text_h,
         );
@@ -1558,13 +1560,14 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             frame.render_widget(right_block, right_stage);
 
             let max_h = inner.height.saturating_sub(2).max(4);
-            let ratio = aspect_ratio_for_cover(next_game.id, app);
-            let target_w = ((max_h as f32) * ratio) as u16;
+            let pixel_ratio = aspect_ratio_for_cover(next_game.id, app);
+            let cell_ratio = pixel_ratio * 2.0;
+            let target_w = ((max_h as f32) * cell_ratio).round() as u16;
             let (img_w, img_h) = if target_w <= inner.width.saturating_sub(2) {
                 (target_w, max_h)
             } else {
                 let fit_w = inner.width.saturating_sub(2).max(4);
-                let fit_h = ((fit_w as f32) / ratio) as u16;
+                let fit_h = ((fit_w as f32) / cell_ratio).round() as u16;
                 (fit_w, fit_h.min(max_h))
             };
             let offset_x = (inner.width.saturating_sub(img_w)) / 2;
