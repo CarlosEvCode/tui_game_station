@@ -1453,34 +1453,31 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         let text_h = 2u16;
         let gap_h = 1u16;
 
-        let max_avail_h = inner_h.saturating_sub(text_h + gap_h + 1).max(4);
+        // Position details text fixed at the bottom of center_inner with 1 cell padding
+        let details_y = center_inner.y + inner_h.saturating_sub(text_h + 1);
+        let details_rect = Rect::new(center_inner.x, details_y, inner_w, text_h);
+
+        // Maximum available area for the cover image strictly above the details text
+        let max_avail_h = inner_h.saturating_sub(text_h + gap_h + 2).max(4);
         let max_avail_w = inner_w.saturating_sub(2).max(6);
 
-        // ratatui-image rendering for Kitty/Sixel graphics protocol:
-        // The picker maps pixel dimensions to character cells based on cell font ratio (width / height per cell).
-        // Standard terminal font cells have a width-to-height ratio of approx 0.5 (e.g. 8x16px).
-        // To compute the required width in character cells (`img_w`) for a given height in character cells (`img_h`):
-        //   `img_w = img_h * (pixel_w / pixel_h) * (cell_height / cell_width)`
-        // With cell_height / cell_width ≈ 2.0:
-        //   `img_w = img_h * pixel_ratio * 2.0`
         let (fw, fh) = app.cover_manager.picker.font_size();
         let font_cell_ratio = if fw == 0 { 2.0 } else { fh as f32 / fw as f32 };
 
         let pixel_ratio = aspect_ratio_for_cover(active_game.id, app);
         let cell_ratio = pixel_ratio * font_cell_ratio;
 
-        let target_img_w = ((max_avail_h as f32) * cell_ratio).round() as u16;
-
-        let (img_w, img_h) = if target_img_w <= max_avail_w {
-            (target_img_w.max(4), max_avail_h)
+        let target_w = ((max_avail_h as f32) * cell_ratio).round() as u16;
+        let (img_w, img_h) = if target_w <= max_avail_w {
+            (target_w.max(4), max_avail_h)
         } else {
             let fit_w = max_avail_w;
             let fit_h = ((fit_w as f32) / cell_ratio).round() as u16;
             (fit_w, fit_h.clamp(4, max_avail_h))
         };
 
-        let total_content_h = img_h + gap_h + text_h;
-        let top_margin = (inner_h.saturating_sub(total_content_h)) / 2;
+        // Center the image dead-center in the upper available region
+        let top_margin = (max_avail_h.saturating_sub(img_h)) / 2 + 1;
         let left_margin = (inner_w.saturating_sub(img_w)) / 2;
 
         let img_centered_rect = Rect::new(
@@ -1488,13 +1485,6 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             center_inner.y + top_margin,
             img_w,
             img_h,
-        );
-
-        let details_rect = Rect::new(
-            center_inner.x,
-            center_inner.y + top_margin + img_h + gap_h,
-            inner_w,
-            text_h,
         );
 
         // Render Featured HD Native Cover Image
