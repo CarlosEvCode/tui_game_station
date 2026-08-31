@@ -432,6 +432,7 @@ async fn main() -> Result<()> {
                                     | ModalState::ScraperMenu { .. }
                                     | ModalState::ScraperSystemSelector { .. }
                                     | ModalState::SelectDetectedExePicker { .. }
+                                    | ModalState::AdvancedScraperSearch { .. }
                                     | ModalState::WindowsGamesManager { .. } => {
                                         app.update(Action::ModalSelectNext).await;
                                     }
@@ -1413,6 +1414,13 @@ async fn main() -> Result<()> {
                                                     _ => app.update(Action::ModalNextField).await,
                                                 },
                                             }
+                                        }
+                                    }
+                                    ModalState::AdvancedScraperSearch { ref results, .. } => {
+                                        if results.is_empty() {
+                                            app.update(Action::ExecuteAdvancedScraperSearch).await;
+                                        } else {
+                                            app.update(Action::SelectAdvancedScraperResult).await;
                                         }
                                     }
                                     ModalState::FavoritesModal {

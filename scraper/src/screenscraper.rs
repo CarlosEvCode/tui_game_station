@@ -407,7 +407,7 @@ impl ScreenScraperClient {
         params: &ScraperSearchParams,
     ) -> Result<(Vec<ScraperSearchResult>, ScreenScraperQuota)> {
         let is_arcade = params.platform_slug == "arcade" || params.platform_slug == "mame";
-        let (query, single_search) =
+        let (query, _single_search) =
             TitleCleaner::prepare_search_query_esde(&params.title, is_arcade);
 
         let endpoint = if params.automatic_mode || params.md5_hash.is_some() {
