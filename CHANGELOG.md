@@ -1,5 +1,71 @@
 # Changelog
 
+## [1.13.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.12.0...v1.13.0) (2026-08-31)
+
+
+### Features
+
+* add local media picker, favorites modal, play stats tracking, and detail view actions ([b9c602f](https://github.com/CarlosEvCode/tui_game_station/commit/b9c602fa22e6cdf65740db0a4b8c29fea9d916a2))
+* Add Software Hub modal with 7z PE icon extraction and Wine installer flow ([48d751e](https://github.com/CarlosEvCode/tui_game_station/commit/48d751efc71d3fb423f60ca803e093f25a73a5d6))
+* **core:** add update_game_metadata method to persist release_year, developer, publisher, description, genre, rating and serial in SQLite ([0c80d29](https://github.com/CarlosEvCode/tui_game_station/commit/0c80d293877b40596331fdce9fc462a2ae954506))
+* Decouple process lifecycle completely and remove global UI input locking during execution ([0353099](https://github.com/CarlosEvCode/tui_game_station/commit/0353099f654e5fac05262e7673cc8be935b9d13b))
+* **graphics:** alpha-blend transparent PNGs (wheel logos) over dark panel background ([bc633df](https://github.com/CarlosEvCode/tui_game_station/commit/bc633df196d10c20d6c5affd9036ca9836b4d486))
+* **media:** suborganize downloaded media files by preference subfolders ([dd42917](https://github.com/CarlosEvCode/tui_game_station/commit/dd4291744f5929a21f9658a4b1c60d16c8606574))
+* **scanner:** activate hash-based identification with size cap ([29487bc](https://github.com/CarlosEvCode/tui_game_station/commit/29487bc45e82a443fb9aa47de7214b7c7c961e31))
+* **scraper:** add custom media selector and region fallback for ScreenScraper ([6886f46](https://github.com/CarlosEvCode/tui_game_station/commit/6886f46ac2d6ef249790d378e52feeaf55dfb8b6))
+* **scraper:** implement ScraperPipelineManager and ScraperSource selector matching ES-DE architecture ([5c606bb](https://github.com/CarlosEvCode/tui_game_station/commit/5c606bb7eeb45619ebefe7737b078ce749674631))
+* **scraper:** implement ScreenScraper API client with quota tracking and ES-DE metadata parsing ([b2d2564](https://github.com/CarlosEvCode/tui_game_station/commit/b2d2564cca8c415c0edd69b256041e6136ead173))
+* **scraper:** implement source-agnostic scraper pipeline traits and ES-DE title search preparation quirks ([4f0d468](https://github.com/CarlosEvCode/tui_game_station/commit/4f0d4684ebc1d1c1fbb6ed1faa5a27656d12c4b1))
+* **scraper:** implement TheGamesDB API client with JSON parsing and update ScreenScraper dev credentials ([7dedce2](https://github.com/CarlosEvCode/tui_game_station/commit/7dedce2d96106012849c4bfa7b58557e4303e1bd))
+* **steam:** fetch header and logo from steam cdn for banner and icon views ([a2ed8b9](https://github.com/CarlosEvCode/tui_game_station/commit/a2ed8b97869542061e5eb3a0ac303f5b9d6e54fc))
+* **tui:** add ScraperMenu modal UI and actions for selecting scraper source and filters ([07027d5](https://github.com/CarlosEvCode/tui_game_station/commit/07027d5d9681517394dd8b4d7b77f90ea1f12df2))
+* **tui:** add system selection modal to scraper menu and trigger async scraping on enter ([b024c53](https://github.com/CarlosEvCode/tui_game_station/commit/b024c536970d5311cd02f74f7a839c0b86234f9a))
+* **tui:** bind Shift+S shortcut to open ScraperMenu modal ([53248e3](https://github.com/CarlosEvCode/tui_game_station/commit/53248e3252feff7a3bcc545886be1fa02d40f47c))
+* **tui:** enrich game details panel with scraped metadata ([f116430](https://github.com/CarlosEvCode/tui_game_station/commit/f11643002956dc2ae2e2289707873c95b8ccd33b))
+* **ui:** add ScreenScraper credentials settings and concise quota notification toast ([c17a80e](https://github.com/CarlosEvCode/tui_game_station/commit/c17a80ec679d432d7306654a5f092161008071be))
+* **ui:** enrich Big Picture detail view with platform, year, rating, dev, pub, genre, and description ([93795a4](https://github.com/CarlosEvCode/tui_game_station/commit/93795a46f3cdada7e03a416e460db92ae5883b08))
+* **ui:** unify scraper search flow into w modal and restructure settings scrapers ([d8fa194](https://github.com/CarlosEvCode/tui_game_station/commit/d8fa1941b2c40fbd1b33d496ce693b7f377cc437))
+
+
+### Bug Fixes
+
+* Align side card full height layout and font_size cell aspect ratio query in Big Picture carousel ([ad11694](https://github.com/CarlosEvCode/tui_game_station/commit/ad11694047de32b592b2861dc4864cf85c6a5309))
+* Anchor details text at card bottom and center cover image vertically in upper region ([ebda73d](https://github.com/CarlosEvCode/tui_game_station/commit/ebda73dd322aa2afc1f418699588056dce197227))
+* **big-picture:** restore banner fill and cover position in game detail view ([c2ca54a](https://github.com/CarlosEvCode/tui_game_station/commit/c2ca54ad5bf870a2e4052ca0977b344318b377d3))
+* Evict cached app icons on modal open and clear terminal screen on modal transitions ([a6e11c0](https://github.com/CarlosEvCode/tui_game_station/commit/a6e11c08ce2e5c803b839f2757e66504441a1777))
+* Exclude apps platform from auto-migration query and SaveEditGameModal override ([5960c04](https://github.com/CarlosEvCode/tui_game_station/commit/5960c0460c11db35ab76898569fbaea3d43349f5))
+* **favorites:** fill modal space, enable up/down navigation, and jump to game from normal mode ([f413baf](https://github.com/CarlosEvCode/tui_game_station/commit/f413baf4e083ffd55d52463bb7dcd9b22b44ff3f))
+* Guarantee permanent apps platform_id mapping and fixed Software Hub icon dimensions ([ef57043](https://github.com/CarlosEvCode/tui_game_station/commit/ef57043ff5c0978e1aff35b653d143244a7bdf0a))
+* Invert cell aspect ratio formula (divide by cell_w_over_h) to correctly match ratatui_image Kitty protocol grid dimensions ([8fbdd8b](https://github.com/CarlosEvCode/tui_game_station/commit/8fbdd8b9b4524c97a1eae2c46631e120c3ada96e))
+* Isolate Software Hub icon cache key using app_icon_hb namespace ([88fad00](https://github.com/CarlosEvCode/tui_game_station/commit/88fad00fa18f40ab01ee1b701f884661fc47ef4a))
+* Proportionally scale and dead-center featured covers in Big Picture carousel accounting for exact image aspect ratio and terminal cell geometry ([62d5399](https://github.com/CarlosEvCode/tui_game_station/commit/62d53999fe31ba9e267e9ca2bb5fd90923c60481))
+* Restore main library cover images on Software Hub close and support Delete in App Grid ([bb87f9d](https://github.com/CarlosEvCode/tui_game_station/commit/bb87f9d6145e5998ed2ee216795981e499249751))
+* **scraper:** add fallback search to screenscraper and record not_found status when media missing ([778d307](https://github.com/CarlosEvCode/tui_game_station/commit/778d30742388acb29cd03f685cebf680904093b9))
+* **scraper:** align media target fallback mappings with ES-DE and deprecate legacy DAT auto-ID toggle ([229d2a5](https://github.com/CarlosEvCode/tui_game_station/commit/229d2a5ea4ad86ccb49b271752dcf3c15ae803e6))
+* **scraper:** download cover, banner, and icon media types and expand screenscraper XML media tag matching ([2a6a545](https://github.com/CarlosEvCode/tui_game_station/commit/2a6a545b05abb9a4dc67c26359577f7003a976bd))
+* **scraper:** eliminate redundant subfolder nesting in media download path ([f0a8cae](https://github.com/CarlosEvCode/tui_game_station/commit/f0a8cae05a176be761a82ecdfce28aef1f820815))
+* **scraper:** fallback banner and icon urls to wheel, fanart, screenshot or cover in ScreenScraper responses ([647d995](https://github.com/CarlosEvCode/tui_game_station/commit/647d995323d819f51cc1ec85e6186fa7ba46a030))
+* **scraper:** support case-insensitive media types and ES-DE boxart tags like box-2D in screenscraper XML parsing ([a9cd368](https://github.com/CarlosEvCode/tui_game_station/commit/a9cd368139d6d96d84d6bd9a1046eef734286917))
+* **shortcuts:** align docs and ui help with actual keyboard/mouse controls and implement Esc in Big Picture, double-click launch and centralized footers ([55214f5](https://github.com/CarlosEvCode/tui_game_station/commit/55214f5da0a4cf80173a89f153f65f0f72eef7a6))
+* **steamgriddb:** don't poison media as not_found on API errors ([bf09896](https://github.com/CarlosEvCode/tui_game_station/commit/bf09896b1bc08395741d5266e2e35ba17a006f60))
+* **tui:** bind Enter key in ScraperMenu to field 7 for StartScraper button ([a2924c3](https://github.com/CarlosEvCode/tui_game_station/commit/a2924c32e574016afb9db1bda1cae8f14b69dbd5))
+* **tui:** center Big Picture side preview covers using ratatui-image needs_resize footprint ([ec4dcc1](https://github.com/CarlosEvCode/tui_game_station/commit/ec4dcc19fd272d77e21357defb8f94098dec1834))
+* **tui:** enable Left/Right navigation in ScraperMenu modal and resize dialog for better proportion ([016d8c7](https://github.com/CarlosEvCode/tui_game_station/commit/016d8c7efeafed52f91024c0d41d62ce6e45ccbd))
+* **tui:** exclude steam platform from scraper system selector and record downloaded covers ([c337b06](https://github.com/CarlosEvCode/tui_game_station/commit/c337b06655430d156f289bf5162f267c447bdded))
+* **tui:** isolate side preview cover protocols using atomic SidePreviewState and media_paths map ([33bab1f](https://github.com/CarlosEvCode/tui_game_station/commit/33bab1f6cbfa2e8af90bbf39a6c256505c12e084))
+* **tui:** render placeholder as No Media Found unless active background fetch is in progress ([3935989](https://github.com/CarlosEvCode/tui_game_station/commit/393598914db9eda0b195d673374e1110b203761e))
+* **tui:** resolve media protocols recursively across preference subfolders in Big Picture and Carousel ([a03946f](https://github.com/CarlosEvCode/tui_game_station/commit/a03946f36f7adefc85d434a824fc3383dffaebb0))
+* **tui:** track pending cover requests by (game_id, media_type) tuple and preload Steam media in game detail view ([c649ac4](https://github.com/CarlosEvCode/tui_game_station/commit/c649ac4176fd2e09dd6325d67fac6722d61979af))
+* **ui:** center Big Picture carousel covers with reusable media viewport and pre-scaled protocols ([bc2c7f7](https://github.com/CarlosEvCode/tui_game_station/commit/bc2c7f78e081f4c6cf09c82671bf3ac64a17282b))
+* **ui:** pass dark panel background RGB to StatefulImage widget to eliminate padding background line artifacts ([06d2dc3](https://github.com/CarlosEvCode/tui_game_station/commit/06d2dc38f8e91a4b4a747e83a25940b713403f83))
+* **ui:** relocate scraped metadata display to the dedicated Game Detail view inside Big Picture ([387bd73](https://github.com/CarlosEvCode/tui_game_station/commit/387bd73d903ba7166e9d2f764d8f9d49f6c72de0))
+
+
+### Performance Improvements
+
+* cancel lingering decoding tasks on platform switch for both normal and Big Picture mode ([720ef79](https://github.com/CarlosEvCode/tui_game_station/commit/720ef79622129762bc32e25eaa8931fdca0bfcab))
+* safe optimization for platform switch cache clearing, decoding concurrency and max resolution clamping ([ddd5bae](https://github.com/CarlosEvCode/tui_game_station/commit/ddd5bae7d7eea72e9bc7a4e77284ee19f623e007))
+
 ## [1.12.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.11.0...v1.12.0) (2026-08-07)
 
 
