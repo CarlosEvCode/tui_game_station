@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.13.1](https://github.com/CarlosEvCode/tui_game_station/compare/v1.13.0...v1.13.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **scraper:** add global search fallback without systemeid constraint when platform search returns 0 candidates ([38af02e](https://github.com/CarlosEvCode/tui_game_station/commit/38af02e150075eab2d9558643717049a30b6ae32))
+* **scraper:** use interactive search endpoint (jeuRecherche.php) for manual queries when automatic_mode is disabled ([9bbab28](https://github.com/CarlosEvCode/tui_game_station/commit/9bbab2877d0e980d6e20fe5baa9e1574d181636b))
+* **tui:** bind 's' to OpenSettingsModal and 'h' to OpenSoftwareHubModal ([060e0fe](https://github.com/CarlosEvCode/tui_game_station/commit/060e0fee9c2617d34aa400b9ebce5d05b976bea3))
+* **tui:** bind Enter key to re-trigger search or confirm selection in AdvancedScraperSearch modal ([1fb87ea](https://github.com/CarlosEvCode/tui_game_station/commit/1fb87eab87cfc958cee1cef363e49b915b78539e))
+* **tui:** enable full text editing and navigation for UnifiedSearchTitleInput modal ([2bbae62](https://github.com/CarlosEvCode/tui_game_station/commit/2bbae62d17bb2193f3aef4249fbbee279c4a2211))
+* **tui:** enable Up/Down arrow navigation for AdvancedScraperSearch candidates and simplify layout to 100% width list ([d4358c1](https://github.com/CarlosEvCode/tui_game_station/commit/d4358c1a9fdeb45cfcb71cbd3b186cef77608e3c))
+
 ## [1.13.0](https://github.com/CarlosEvCode/tui_game_station/compare/v1.12.0...v1.13.0) (2026-08-31)
 
 
