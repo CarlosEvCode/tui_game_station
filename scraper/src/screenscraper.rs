@@ -480,11 +480,14 @@ impl ScreenScraperClient {
             params.icon_pref.as_deref(),
         )?;
 
-        if results.is_empty() && endpoint == "jeuInfos.php" {
-            let mut fallback_url =
-                format!(
+        if results.is_empty() {
+            let mut fallback_url = format!(
                 "{}/jeuRecherche.php?devid={}&devpassword={}&softname={}&output=xml&recherche={}",
-                API_BASE_URL, DEV_ID, DEV_PASSWORD, encode(SOFT_NAME), encode(&query)
+                API_BASE_URL,
+                DEV_ID,
+                DEV_PASSWORD,
+                encode(SOFT_NAME),
+                encode(&query)
             );
             if let (Some(u), Some(p)) = (&self.user_id, &self.user_password) {
                 if !u.trim().is_empty() && !p.trim().is_empty() {
@@ -495,20 +498,40 @@ impl ScreenScraperClient {
                     ));
                 }
             }
+            // First try with systemeid
             if let Some(sys_id) = self.get_system_id(&params.platform_slug) {
-                fallback_url.push_str(&format!("&systemeid={}", sys_id));
+                let mut sys_url = fallback_url.clone();
+                sys_url.push_str(&format!("&systemeid={}", sys_id));
+                if let Ok(fb_resp) = self.client.get(&sys_url).send().await {
+                    if fb_resp.status().is_success() {
+                        if let Ok(fb_body) = fb_resp.text().await {
+                            if let Ok((fb_results, _)) = self.parse_xml_response_with_options(
+                                &fb_body,
+                                params.preferred_region.as_deref(),
+                                params.cover_pref.as_deref(),
+                                params.banner_pref.as_deref(),
+                                params.icon_pref.as_deref(),
+                            ) {
+                                results = fb_results;
+                            }
+                        }
+                    }
+                }
             }
-            if let Ok(fb_resp) = self.client.get(&fallback_url).send().await {
-                if fb_resp.status().is_success() {
-                    if let Ok(fb_body) = fb_resp.text().await {
-                        if let Ok((fb_results, _)) = self.parse_xml_response_with_options(
-                            &fb_body,
-                            params.preferred_region.as_deref(),
-                            params.cover_pref.as_deref(),
-                            params.banner_pref.as_deref(),
-                            params.icon_pref.as_deref(),
-                        ) {
-                            results = fb_results;
+            // Global search without systemeid if system-filtered search yielded no candidates
+            if results.is_empty() {
+                if let Ok(fb_resp) = self.client.get(&fallback_url).send().await {
+                    if fb_resp.status().is_success() {
+                        if let Ok(fb_body) = fb_resp.text().await {
+                            if let Ok((fb_results, _)) = self.parse_xml_response_with_options(
+                                &fb_body,
+                                params.preferred_region.as_deref(),
+                                params.cover_pref.as_deref(),
+                                params.banner_pref.as_deref(),
+                                params.icon_pref.as_deref(),
+                            ) {
+                                results = fb_results;
+                            }
                         }
                     }
                 }

@@ -1583,6 +1583,17 @@ async fn main() -> Result<()> {
                                             let q = query.clone();
                                             app.update(Action::UpdateFuzzySearchQuery(q)).await;
                                         }
+                                    } else if let ModalState::AdvancedScraperSearch {
+                                        ref mut search_query,
+                                        ref mut cursor_pos,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if *cursor_pos > 0 && !search_query.is_empty() {
+                                            search_query.remove(*cursor_pos - 1);
+                                            *cursor_pos -= 1;
+                                            app.update(Action::ExecuteAdvancedScraperSearch).await;
+                                        }
                                     } else if let ModalState::UnifiedSearchTitleInput {
                                         ref mut search_query,
                                         ref mut cursor_pos,
