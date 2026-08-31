@@ -1958,6 +1958,9 @@ async fn main() -> Result<()> {
                                         app.update(Action::OpenFavoritesModal).await;
                                     }
                                     KeyCode::Char('s') => {
+                                        app.update(Action::OpenSettingsModal).await;
+                                    }
+                                    KeyCode::Char('h') | KeyCode::Char('H') => {
                                         app.update(Action::OpenSoftwareHubModal).await;
                                     }
                                     KeyCode::Tab => {

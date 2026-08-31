@@ -1277,8 +1277,13 @@ fn render_controls_footer(frame: &mut Frame, app: &App, area: Rect) {
                 key_color: Color::Cyan,
             },
             ShortcutItem {
-                key: "s",
+                key: "h",
                 label: "Software Hub",
+                key_color: Color::Cyan,
+            },
+            ShortcutItem {
+                key: "s",
+                label: "Settings",
                 key_color: Color::Cyan,
             },
             ShortcutItem {
@@ -6891,7 +6896,9 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     Span::styled("m ", Style::default().fg(Color::Cyan)),
                     Span::raw("Emulators/Runners | "),
                     Span::styled("c ", Style::default().fg(Color::Cyan)),
-                    Span::raw("Wine/Proton Tools | "),
+                    Span::raw("Wine Tools | "),
+                    Span::styled("h ", Style::default().fg(Color::Cyan)),
+                    Span::raw("Software Hub | "),
                     Span::styled("s ", Style::default().fg(Color::Cyan)),
                     Span::raw("Settings"),
                 ]),
