@@ -1523,10 +1523,6 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let inner = left_block.inner(left_stage);
             frame.render_widget(left_block, left_stage);
 
-            let pixel_ratio = aspect_ratio_for_cover(prev_game.id, app);
-            let font_size = app.cover_manager.picker.font_size();
-            let left_img_rect = fit_and_center_media_viewport(inner, pixel_ratio, font_size);
-
             let key_hb = (prev_game.id, "cover_hb".to_string());
             let key_cover = (prev_game.id, "cover".to_string());
             let protocol = if app.media_protocols.contains_key(&key_hb) {
@@ -1535,9 +1531,27 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                 app.media_protocols.get_mut(&key_cover)
             };
             if let Some(protocol) = protocol {
-                let image_widget =
-                    StatefulImage::new(Some(image::Rgb([18, 20, 26]))).resize(Resize::Fit(None));
-                frame.render_stateful_widget(image_widget, left_img_rect, protocol);
+                let resize = Resize::Fit(None);
+                let font_size = app.cover_manager.picker.font_size();
+                let cache_key = (prev_game.id, "left".to_string(), inner, font_size);
+                let fitted_size = if let Some(size) = protocol.needs_resize(&resize, inner) {
+                    protocol.resize_encode(&resize, None, size);
+                    app.side_preview_sizes.insert(cache_key, size);
+                    size
+                } else {
+                    app.side_preview_sizes
+                        .get(&cache_key)
+                        .copied()
+                        .unwrap_or(inner)
+                };
+
+                let centered_rect = Rect::new(
+                    inner.x + inner.width.saturating_sub(fitted_size.width) / 2,
+                    inner.y + inner.height.saturating_sub(fitted_size.height) / 2,
+                    fitted_size.width,
+                    fitted_size.height,
+                );
+                protocol.render(centered_rect, frame.buffer_mut());
             } else {
                 let lines = vec![
                     Line::from(""),
@@ -1552,7 +1566,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                     )),
                 ];
                 let p = Paragraph::new(lines).alignment(Alignment::Center);
-                frame.render_widget(p, left_img_rect);
+                frame.render_widget(p, inner);
             }
         }
 
@@ -1598,8 +1612,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
         // Render Featured HD Native Cover Image
         let key = (active_game.id, "cover".to_string());
         if let Some(protocol) = app.media_protocols.get_mut(&key) {
-            let image_widget =
-                StatefulImage::new(Some(image::Rgb([18, 20, 26]))).resize(Resize::Fit(None));
+            let image_widget = StatefulImage::new(None).resize(Resize::Fit(None));
             frame.render_stateful_widget(image_widget, img_centered_rect, protocol);
         } else {
             let no_img =
@@ -1668,10 +1681,6 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let inner = right_block.inner(right_stage);
             frame.render_widget(right_block, right_stage);
 
-            let pixel_ratio = aspect_ratio_for_cover(next_game.id, app);
-            let font_size = app.cover_manager.picker.font_size();
-            let right_img_rect = fit_and_center_media_viewport(inner, pixel_ratio, font_size);
-
             let key_hb = (next_game.id, "cover_hb".to_string());
             let key_cover = (next_game.id, "cover".to_string());
             let protocol = if app.media_protocols.contains_key(&key_hb) {
@@ -1680,9 +1689,27 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                 app.media_protocols.get_mut(&key_cover)
             };
             if let Some(protocol) = protocol {
-                let image_widget =
-                    StatefulImage::new(Some(image::Rgb([18, 20, 26]))).resize(Resize::Fit(None));
-                frame.render_stateful_widget(image_widget, right_img_rect, protocol);
+                let resize = Resize::Fit(None);
+                let font_size = app.cover_manager.picker.font_size();
+                let cache_key = (next_game.id, "right".to_string(), inner, font_size);
+                let fitted_size = if let Some(size) = protocol.needs_resize(&resize, inner) {
+                    protocol.resize_encode(&resize, None, size);
+                    app.side_preview_sizes.insert(cache_key, size);
+                    size
+                } else {
+                    app.side_preview_sizes
+                        .get(&cache_key)
+                        .copied()
+                        .unwrap_or(inner)
+                };
+
+                let centered_rect = Rect::new(
+                    inner.x + inner.width.saturating_sub(fitted_size.width) / 2,
+                    inner.y + inner.height.saturating_sub(fitted_size.height) / 2,
+                    fitted_size.width,
+                    fitted_size.height,
+                );
+                protocol.render(centered_rect, frame.buffer_mut());
             } else {
                 let lines = vec![
                     Line::from(""),
@@ -1697,7 +1724,7 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
                     )),
                 ];
                 let p = Paragraph::new(lines).alignment(Alignment::Center);
-                frame.render_widget(p, right_img_rect);
+                frame.render_widget(p, inner);
             }
         }
     }

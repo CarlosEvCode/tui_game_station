@@ -1060,6 +1060,11 @@ pub struct App {
     /// Populated when a cover image is loaded so the carousel can use the
     /// correct aspect ratio instead of assuming 4:3.
     pub media_dimensions: std::collections::HashMap<(i64, String), (u32, u32)>,
+    /// Cached real footprint Rect returned by needs_resize for side cards, keyed by (game_id, slot).
+    pub side_preview_sizes: std::collections::HashMap<
+        (i64, String, ratatui::layout::Rect, (u16, u16)),
+        ratatui::layout::Rect,
+    >,
     pub pending_wine_tool: Option<WineToolCommand>,
     pub pending_installer_run: Option<(String, String)>,
     pub toasts: Vec<crate::toast::Toast>,
@@ -1138,7 +1143,8 @@ impl App {
             status_msg: "TUI Game Station ready!".to_string(),
             should_quit: false,
             scraper_quota: std::collections::HashMap::new(),
-            media_dimensions: std::collections::HashMap::new(),
+            media_dimensions: HashMap::new(),
+            side_preview_sizes: HashMap::new(),
             pending_wine_tool: None,
             pending_installer_run: None,
             toasts: Vec::new(),
