@@ -6268,6 +6268,15 @@ impl App {
                             *selected_idx = (*selected_idx + 1) % platforms.len();
                         }
                     }
+                    ModalState::AdvancedScraperSearch {
+                        ref results,
+                        ref mut selected_result_idx,
+                        ..
+                    } => {
+                        if !results.is_empty() {
+                            *selected_result_idx = (*selected_result_idx + 1) % results.len();
+                        }
+                    }
                     _ => {}
                 }
                 self.update_visual_media_preview();
@@ -6538,6 +6547,19 @@ impl App {
                                 *selected_idx = platforms.len() - 1;
                             } else {
                                 *selected_idx -= 1;
+                            }
+                        }
+                    }
+                    ModalState::AdvancedScraperSearch {
+                        ref results,
+                        ref mut selected_result_idx,
+                        ..
+                    } => {
+                        if !results.is_empty() {
+                            if *selected_result_idx == 0 {
+                                *selected_result_idx = results.len() - 1;
+                            } else {
+                                *selected_result_idx -= 1;
                             }
                         }
                     }

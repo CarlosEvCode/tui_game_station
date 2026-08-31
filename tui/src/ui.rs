@@ -4746,12 +4746,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
 
             frame.render_widget(top_widget, main_chunks[0]);
 
-            let list_detail_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-                .split(main_chunks[1]);
-
-            // Left List: Candidates
+            // Full width Candidates List
             let items: Vec<ListItem> = if results.is_empty() {
                 vec![
                     ListItem::new(" No results. Type a refined title and press [Enter].")
@@ -4775,7 +4770,12 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                             .release_year
                             .map(|y| format!(" ({})", y))
                             .unwrap_or_default();
-                        ListItem::new(format!("{}. {}{}", idx + 1, res.title, year_str))
+                        let dev_str = res
+                            .developer
+                            .as_ref()
+                            .map(|d| format!(" - {}", d))
+                            .unwrap_or_default();
+                        ListItem::new(format!("{}. {}{}{}", idx + 1, res.title, year_str, dev_str))
                             .style(style)
                     })
                     .collect()
@@ -4784,7 +4784,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
             let results_list = List::new(items).block(
                 Block::default()
                     .title(Span::styled(
-                        " Candidates List ",
+                        " Candidates List (Select candidate with ↑/↓ and press Enter) ",
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
@@ -4793,60 +4793,7 @@ fn render_modal(frame: &mut Frame, app: &mut App) {
                     .border_style(Style::default().fg(Color::Cyan)),
             );
 
-            frame.render_widget(results_list, list_detail_chunks[0]);
-
-            // Right Detail: Selected Candidate Details
-            let mut detail_lines = Vec::new();
-            if let Some(res) = results.get(selected_result_idx) {
-                detail_lines.push(Line::from(Span::styled(
-                    &res.title,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )));
-                if let Some(y) = res.release_year {
-                    detail_lines.push(Line::from(format!("Released: {}", y)));
-                }
-                if let Some(ref dev) = res.developer {
-                    detail_lines.push(Line::from(format!("Developer: {}", dev)));
-                }
-                if let Some(ref publ) = res.publisher {
-                    detail_lines.push(Line::from(format!("Publisher: {}", publ)));
-                }
-                if let Some(ref g) = res.genre {
-                    detail_lines.push(Line::from(format!("Genre: {}", g)));
-                }
-                if let Some(r) = res.rating {
-                    detail_lines.push(Line::from(format!("Rating: {:.1} / 5.0", r)));
-                }
-                detail_lines.push(Line::from(""));
-                if let Some(ref desc) = res.description {
-                    detail_lines.push(Line::from(Span::styled(
-                        "Description:",
-                        Style::default().fg(Color::Cyan),
-                    )));
-                    detail_lines.push(Line::from(desc.as_str()));
-                }
-            } else {
-                detail_lines.push(Line::from(Span::styled(
-                    "Select a game result from the left list to preview details.",
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-
-            let detail_widget = Paragraph::new(detail_lines).block(
-                Block::default()
-                    .title(Span::styled(
-                        " Result Details ",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
-            );
-
-            frame.render_widget(detail_widget, list_detail_chunks[1]);
+            frame.render_widget(results_list, main_chunks[1]);
 
             let help = Paragraph::new(" [Enter] Search/Select Result | [Up/Down] Navigate Results | [Typing] Edit Query | [Esc] Cancel").style(
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
