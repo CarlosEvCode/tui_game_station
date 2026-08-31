@@ -14,7 +14,8 @@ use crate::app::{
     add_scan_available_cores, build_scan_folder_items, folder_has_core,
     scan_folder_add_action_index, scan_folder_add_core_idx, scan_folder_add_emu_idx,
     scan_folder_add_has_core, scan_folder_platform_has_retroarch, scan_folder_supports_dat, App,
-    BigPictureFocus, FocusedPane, MediaFocus, ModalState, QuotaInfo, ScanFolderItem, ViewMode,
+    BigPictureFocus, FocusedPane, MediaFocus, ModalState, QuotaInfo, ScanFolderItem,
+    SidePreviewSlot, SidePreviewState, ViewMode,
 };
 use game_core::models::PlatformType;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -1523,35 +1524,62 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let inner = left_block.inner(left_stage);
             frame.render_widget(left_block, left_stage);
 
-            let key_hb = (prev_game.id, "cover_hb".to_string());
-            let key_cover = (prev_game.id, "cover".to_string());
-            let protocol = if app.media_protocols.contains_key(&key_hb) {
-                app.media_protocols.get_mut(&key_hb)
-            } else {
-                app.media_protocols.get_mut(&key_cover)
-            };
-            if let Some(protocol) = protocol {
-                let resize = Resize::Fit(None);
-                let font_size = app.cover_manager.picker.font_size();
-                let cache_key = (prev_game.id, "left".to_string(), inner, font_size);
-                let fitted_size = if let Some(size) = protocol.needs_resize(&resize, inner) {
-                    protocol.resize_encode(&resize, None, size);
-                    app.side_preview_sizes.insert(cache_key, size);
-                    size
-                } else {
-                    app.side_preview_sizes
-                        .get(&cache_key)
-                        .copied()
-                        .unwrap_or(inner)
-                };
+            let font_size = app.cover_manager.picker.font_size();
+            let key = (prev_game.id, SidePreviewSlot::Left);
+            let resize = Resize::Fit(None);
 
+            let is_valid = match app.side_preview_states.get(&key) {
+                Some(state) => state.viewport == inner && state.font_size == font_size,
+                None => false,
+            };
+
+            if !is_valid {
+                let local_cover = app
+                    .media_paths
+                    .get(&(prev_game.id, "cover_hb".to_string()))
+                    .or_else(|| app.media_paths.get(&(prev_game.id, "cover".to_string())))
+                    .cloned()
+                    .or_else(|| {
+                        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                        let target_dir = media_dir.join("covers");
+                        vec![
+                            target_dir.join(format!("{}.jpg", prev_game.id)),
+                            target_dir.join(format!("{}.png", prev_game.id)),
+                            target_dir.join(format!("{}.webp", prev_game.id)),
+                        ]
+                        .into_iter()
+                        .find(|p| p.exists())
+                    });
+
+                if let Some(path) = local_cover {
+                    if let Some(mut protocol) =
+                        app.cover_manager.load_halfblocks_protocol_from_file(&path)
+                    {
+                        let fitted_size = protocol
+                            .needs_resize(&resize, inner)
+                            .expect("fresh side protocol must require initial encoding");
+                        protocol.resize_encode(&resize, None, fitted_size);
+                        app.side_preview_states.insert(
+                            key,
+                            SidePreviewState {
+                                protocol,
+                                fitted_size,
+                                viewport: inner,
+                                font_size,
+                            },
+                        );
+                    }
+                }
+            }
+
+            if let Some(state) = app.side_preview_states.get_mut(&key) {
                 let centered_rect = Rect::new(
-                    inner.x + inner.width.saturating_sub(fitted_size.width) / 2,
-                    inner.y + inner.height.saturating_sub(fitted_size.height) / 2,
-                    fitted_size.width,
-                    fitted_size.height,
+                    inner.x + inner.width.saturating_sub(state.fitted_size.width) / 2,
+                    inner.y + inner.height.saturating_sub(state.fitted_size.height) / 2,
+                    state.fitted_size.width,
+                    state.fitted_size.height,
                 );
-                protocol.render(centered_rect, frame.buffer_mut());
+                state.protocol.render(centered_rect, frame.buffer_mut());
             } else {
                 let lines = vec![
                     Line::from(""),
@@ -1681,35 +1709,62 @@ fn render_big_picture_mode(frame: &mut Frame, app: &mut App, area: Rect) {
             let inner = right_block.inner(right_stage);
             frame.render_widget(right_block, right_stage);
 
-            let key_hb = (next_game.id, "cover_hb".to_string());
-            let key_cover = (next_game.id, "cover".to_string());
-            let protocol = if app.media_protocols.contains_key(&key_hb) {
-                app.media_protocols.get_mut(&key_hb)
-            } else {
-                app.media_protocols.get_mut(&key_cover)
-            };
-            if let Some(protocol) = protocol {
-                let resize = Resize::Fit(None);
-                let font_size = app.cover_manager.picker.font_size();
-                let cache_key = (next_game.id, "right".to_string(), inner, font_size);
-                let fitted_size = if let Some(size) = protocol.needs_resize(&resize, inner) {
-                    protocol.resize_encode(&resize, None, size);
-                    app.side_preview_sizes.insert(cache_key, size);
-                    size
-                } else {
-                    app.side_preview_sizes
-                        .get(&cache_key)
-                        .copied()
-                        .unwrap_or(inner)
-                };
+            let font_size = app.cover_manager.picker.font_size();
+            let key = (next_game.id, SidePreviewSlot::Right);
+            let resize = Resize::Fit(None);
 
+            let is_valid = match app.side_preview_states.get(&key) {
+                Some(state) => state.viewport == inner && state.font_size == font_size,
+                None => false,
+            };
+
+            if !is_valid {
+                let local_cover = app
+                    .media_paths
+                    .get(&(next_game.id, "cover_hb".to_string()))
+                    .or_else(|| app.media_paths.get(&(next_game.id, "cover".to_string())))
+                    .cloned()
+                    .or_else(|| {
+                        let media_dir = scraper::steamgriddb::SteamGridDBClient::get_media_dir();
+                        let target_dir = media_dir.join("covers");
+                        vec![
+                            target_dir.join(format!("{}.jpg", next_game.id)),
+                            target_dir.join(format!("{}.png", next_game.id)),
+                            target_dir.join(format!("{}.webp", next_game.id)),
+                        ]
+                        .into_iter()
+                        .find(|p| p.exists())
+                    });
+
+                if let Some(path) = local_cover {
+                    if let Some(mut protocol) =
+                        app.cover_manager.load_halfblocks_protocol_from_file(&path)
+                    {
+                        let fitted_size = protocol
+                            .needs_resize(&resize, inner)
+                            .expect("fresh side protocol must require initial encoding");
+                        protocol.resize_encode(&resize, None, fitted_size);
+                        app.side_preview_states.insert(
+                            key,
+                            SidePreviewState {
+                                protocol,
+                                fitted_size,
+                                viewport: inner,
+                                font_size,
+                            },
+                        );
+                    }
+                }
+            }
+
+            if let Some(state) = app.side_preview_states.get_mut(&key) {
                 let centered_rect = Rect::new(
-                    inner.x + inner.width.saturating_sub(fitted_size.width) / 2,
-                    inner.y + inner.height.saturating_sub(fitted_size.height) / 2,
-                    fitted_size.width,
-                    fitted_size.height,
+                    inner.x + inner.width.saturating_sub(state.fitted_size.width) / 2,
+                    inner.y + inner.height.saturating_sub(state.fitted_size.height) / 2,
+                    state.fitted_size.width,
+                    state.fitted_size.height,
                 );
-                protocol.render(centered_rect, frame.buffer_mut());
+                state.protocol.render(centered_rect, frame.buffer_mut());
             } else {
                 let lines = vec![
                     Line::from(""),

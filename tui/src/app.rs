@@ -395,6 +395,7 @@ pub struct LoadedCoverEvent {
     pub game_id: i64,
     pub media_type: String,
     pub protocol: Option<StatefulProtocol>,
+    pub cover_path: Option<PathBuf>,
     /// Pixel dimensions of the source image (width, height), if known.
     pub pixel_size: Option<(u32, u32)>,
 }
@@ -402,6 +403,19 @@ pub struct LoadedCoverEvent {
 pub struct LoadedPreviewEvent {
     pub url: String,
     pub protocol: StatefulProtocol,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidePreviewSlot {
+    Left,
+    Right,
+}
+
+pub struct SidePreviewState {
+    pub protocol: StatefulProtocol,
+    pub fitted_size: ratatui::layout::Rect,
+    pub viewport: ratatui::layout::Rect,
+    pub font_size: (u16, u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1060,11 +1074,10 @@ pub struct App {
     /// Populated when a cover image is loaded so the carousel can use the
     /// correct aspect ratio instead of assuming 4:3.
     pub media_dimensions: std::collections::HashMap<(i64, String), (u32, u32)>,
-    /// Cached real footprint Rect returned by needs_resize for side cards, keyed by (game_id, slot).
-    pub side_preview_sizes: std::collections::HashMap<
-        (i64, String, ratatui::layout::Rect, (u16, u16)),
-        ratatui::layout::Rect,
-    >,
+    /// Resolved filesystem paths for loaded media, keyed by (game_id, media_type).
+    pub media_paths: std::collections::HashMap<(i64, String), PathBuf>,
+    /// Atomic side preview states (protocol + fitted_size + viewport + font_size), keyed by (game_id, slot).
+    pub side_preview_states: std::collections::HashMap<(i64, SidePreviewSlot), SidePreviewState>,
     pub pending_wine_tool: Option<WineToolCommand>,
     pub pending_installer_run: Option<(String, String)>,
     pub toasts: Vec<crate::toast::Toast>,
@@ -1144,7 +1157,8 @@ impl App {
             should_quit: false,
             scraper_quota: std::collections::HashMap::new(),
             media_dimensions: HashMap::new(),
-            side_preview_sizes: HashMap::new(),
+            media_paths: HashMap::new(),
+            side_preview_states: HashMap::new(),
             pending_wine_tool: None,
             pending_installer_run: None,
             toasts: Vec::new(),
@@ -2306,6 +2320,7 @@ impl App {
                                 game_id,
                                 media_type: "cover".to_string(),
                                 protocol,
+                                cover_path: Some(path.clone()),
                                 pixel_size,
                             })
                             .await;
@@ -2323,6 +2338,7 @@ impl App {
                                 game_id,
                                 media_type: "cover_hb".to_string(),
                                 protocol: protocol_hb,
+                                cover_path: Some(path),
                                 pixel_size: None,
                             })
                             .await;
@@ -2444,6 +2460,7 @@ impl App {
                             game_id: game.id,
                             media_type: "cover".to_string(),
                             protocol,
+                            cover_path: None,
                             pixel_size: None,
                         })
                         .await;
@@ -2584,8 +2601,8 @@ impl App {
             let pixel_size = cover_path
                 .as_ref()
                 .and_then(|p| image::image_dimensions(p).ok());
-            let protocol = if let Some(path) = cover_path {
-                manager.load_native_protocol_from_file(&path)
+            let protocol = if let Some(ref path) = cover_path {
+                manager.load_native_protocol_from_file(path)
             } else {
                 None
             };
@@ -2595,6 +2612,7 @@ impl App {
                     game_id,
                     media_type: media_type_str,
                     protocol,
+                    cover_path,
                     pixel_size,
                 })
                 .await;
@@ -2702,6 +2720,7 @@ impl App {
                                 game_id,
                                 media_type: media_type_s.clone(),
                                 protocol: proto,
+                                cover_path: Some(p.clone()),
                                 pixel_size,
                             })
                             .await;
@@ -2716,6 +2735,7 @@ impl App {
                                 game_id,
                                 media_type: format!("{}_hb", media_type_s),
                                 protocol: proto,
+                                cover_path: Some(p.clone()),
                                 pixel_size,
                             })
                             .await;
@@ -2809,8 +2829,8 @@ impl App {
                     }
                 };
 
-                let protocol = if let Some(path) = cover_path {
-                    manager.load_halfblocks_protocol_from_file(&path)
+                let protocol = if let Some(ref path) = cover_path {
+                    manager.load_halfblocks_protocol_from_file(path)
                 } else {
                     None
                 };
@@ -2819,6 +2839,7 @@ impl App {
                         game_id,
                         media_type: "cover_hb".to_string(),
                         protocol,
+                        cover_path,
                         pixel_size: None,
                     })
                     .await;
@@ -2844,6 +2865,10 @@ impl App {
             if let Some(dim) = loaded.pixel_size {
                 self.media_dimensions
                     .insert((loaded.game_id, loaded.media_type.clone()), dim);
+            }
+            if let Some(path) = loaded.cover_path {
+                self.media_paths
+                    .insert((loaded.game_id, loaded.media_type.clone()), path);
             }
             if let Some(proto) = loaded.protocol {
                 self.media_protocols
@@ -8736,6 +8761,7 @@ impl App {
                                         game_id: game.id,
                                         media_type: "cover".to_string(),
                                         protocol,
+                                        cover_path: None,
                                         pixel_size: None,
                                     })
                                     .await;
@@ -9265,6 +9291,7 @@ impl App {
                                                 game_id,
                                                 media_type: "cover".to_string(),
                                                 protocol: Some(protocol),
+                                                cover_path: Some(dest.clone()),
                                                 pixel_size: None,
                                             })
                                             .await;
@@ -9308,6 +9335,7 @@ impl App {
                                                 game_id,
                                                 media_type: "banner".to_string(),
                                                 protocol: Some(protocol),
+                                                cover_path: Some(dest.clone()),
                                                 pixel_size: None,
                                             })
                                             .await;
@@ -9352,6 +9380,7 @@ impl App {
                                                 game_id,
                                                 media_type: "icon".to_string(),
                                                 protocol: Some(protocol),
+                                                cover_path: Some(dest.clone()),
                                                 pixel_size: None,
                                             })
                                             .await;
@@ -10025,6 +10054,9 @@ impl App {
                                                                         media_type: media_type
                                                                             .to_string(),
                                                                         protocol: Some(protocol),
+                                                                        cover_path: Some(
+                                                                            target_file,
+                                                                        ),
                                                                         pixel_size: None,
                                                                     })
                                                                     .await;
@@ -10346,6 +10378,7 @@ impl App {
                                                             game_id,
                                                             media_type: media_type.to_string(),
                                                             protocol: Some(protocol),
+                                                            cover_path: Some(target_file),
                                                             pixel_size: None,
                                                         })
                                                         .await;
