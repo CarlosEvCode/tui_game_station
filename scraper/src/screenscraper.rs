@@ -410,7 +410,7 @@ impl ScreenScraperClient {
         let (query, single_search) =
             TitleCleaner::prepare_search_query_esde(&params.title, is_arcade);
 
-        let endpoint = if params.automatic_mode || single_search || params.md5_hash.is_some() {
+        let endpoint = if params.automatic_mode || params.md5_hash.is_some() {
             "jeuInfos.php"
         } else {
             "jeuRecherche.php"
