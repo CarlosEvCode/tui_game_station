@@ -599,6 +599,15 @@ async fn main() -> Result<()> {
                                             *cursor_pos += 1;
                                         }
                                     }
+                                    ModalState::UnifiedSearchTitleInput {
+                                        ref search_query,
+                                        ref mut cursor_pos,
+                                        ..
+                                    } => {
+                                        if *cursor_pos < search_query.len() {
+                                            *cursor_pos += 1;
+                                        }
+                                    }
                                     ModalState::VisualMediaSelector { .. } => {
                                         app.update(Action::VisualMediaNavRight).await;
                                     }
@@ -1566,6 +1575,16 @@ async fn main() -> Result<()> {
                                             let q = query.clone();
                                             app.update(Action::UpdateFuzzySearchQuery(q)).await;
                                         }
+                                    } else if let ModalState::UnifiedSearchTitleInput {
+                                        ref mut search_query,
+                                        ref mut cursor_pos,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if *cursor_pos > 0 && !search_query.is_empty() {
+                                            search_query.remove(*cursor_pos - 1);
+                                            *cursor_pos -= 1;
+                                        }
                                     } else {
                                         app.update(Action::ModalBackspace).await;
                                     }
@@ -1599,6 +1618,15 @@ async fn main() -> Result<()> {
                                         };
                                         if cursor_pos < target.len() {
                                             target.remove(cursor_pos);
+                                        }
+                                    } else if let ModalState::UnifiedSearchTitleInput {
+                                        ref mut search_query,
+                                        cursor_pos,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if cursor_pos < search_query.len() {
+                                            search_query.remove(cursor_pos);
                                         }
                                     } else if let ModalState::ManageWineRunners { .. } =
                                         app.modal_state
@@ -1652,6 +1680,17 @@ async fn main() -> Result<()> {
                                     {
                                         if let Some(pasted) = crate::app::get_clipboard_text() {
                                             input.push_str(&pasted);
+                                        }
+                                    } else if let ModalState::UnifiedSearchTitleInput {
+                                        ref mut search_query,
+                                        ref mut cursor_pos,
+                                        ..
+                                    } = app.modal_state
+                                    {
+                                        if let Some(pasted) = crate::app::get_clipboard_text() {
+                                            let pos = (*cursor_pos).min(search_query.len());
+                                            search_query.insert_str(pos, &pasted);
+                                            *cursor_pos = pos + pasted.len();
                                         }
                                     }
                                 }

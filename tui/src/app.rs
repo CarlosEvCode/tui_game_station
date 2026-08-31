@@ -7499,17 +7499,6 @@ impl App {
                     let pos = (*cursor_pos).min(search_query.len());
                     search_query.insert(pos, ch);
                     *cursor_pos = pos + 1;
-                } else if let ModalState::UnifiedSearchTitleInput {
-                    ref mut search_query,
-                    ref mut cursor_pos,
-                    ..
-                } = self.modal_state
-                {
-                    let pos = (*cursor_pos).min(search_query.len());
-                    if pos > 0 && !search_query.is_empty() {
-                        search_query.remove(pos - 1);
-                        *cursor_pos = pos - 1;
-                    }
                 } else if let ModalState::EditCustomArgsInput {
                     ref mut input,
                     ref mut cursor_pos,
@@ -7756,6 +7745,17 @@ impl App {
                     let pos = (*cursor_pos).min(input.len());
                     if pos > 0 {
                         input.remove(pos - 1);
+                        *cursor_pos = pos - 1;
+                    }
+                } else if let ModalState::UnifiedSearchTitleInput {
+                    ref mut search_query,
+                    ref mut cursor_pos,
+                    ..
+                } = self.modal_state
+                {
+                    let pos = (*cursor_pos).min(search_query.len());
+                    if pos > 0 && !search_query.is_empty() {
+                        search_query.remove(pos - 1);
                         *cursor_pos = pos - 1;
                     }
                 } else if let ModalState::WelcomeWizard {
